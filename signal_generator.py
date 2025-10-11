@@ -20,43 +20,31 @@ class SignalGenerator:
         low = self.df["low"].astype(float)
         volume = self.df["volume"].astype(float)
 
-        # Скользящие средние
-        for w in [10, 20, 30, 50, 100, 200]:
+        # Скользящие средние - только основные
+        for w in [20, 50, 200]:
             if len(self.df) >= w:
                 self.df[f"SMA_{w}"] = ta.trend.sma_indicator(close, window=w)
                 self.df[f"EMA_{w}"] = ta.trend.ema_indicator(close, window=w)
             else:
                 self.df[f"SMA_{w}"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
                 self.df[f"EMA_{w}"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
-
-        def hull_moving_average(series, window):
-            if len(series) < window:
-                return pd.Series([np.nan]*len(series), index=series.index)
-            half_length = int(window / 2)
-            sqrt_length = int(window ** 0.5)
-            wma_half = series.rolling(half_length).mean()
-            wma_full = series.rolling(window).mean()
-            diff = 2 * wma_half - wma_full
-            hma = diff.rolling(sqrt_length).mean()
-            return hma
-        self.df["HMA_9"] = hull_moving_average(close, 9)
-        self.df["VWMA_20"] = ta.volume.volume_weighted_average_price(high, low, close, volume, window=20) if len(self.df) >= 20 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-
-        # Ишимоку
-        if len(self.df) >= 52:
-            ichimoku = ta.trend.IchimokuIndicator(high, low, window1=9, window2=26, window3=52, visual=False)
-            self.df["Ichimoku_a"] = ichimoku.ichimoku_a()
-            self.df["Ichimoku_b"] = ichimoku.ichimoku_b()
+        
+        # ATR для волатильности (КРИТИЧНО для динамического SL)
+        if len(self.df) >= 14:
+            self.df["ATR_14"] = ta.volatility.average_true_range(high, low, close, window=14)
         else:
-            self.df["Ichimoku_a"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
-            self.df["Ichimoku_b"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
+            self.df["ATR_14"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
+        
+        # Объём
+        if len(self.df) >= 20:
+            self.df["Volume_MA_20"] = volume.rolling(window=20).mean()
+        else:
+            self.df["Volume_MA_20"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
 
-        # Осцилляторы
+        # Осцилляторы - только самые важные
         self.df["RSI_14"] = ta.momentum.rsi(close, window=14) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["Stoch_K"] = ta.momentum.stoch(high, low, close, window=14, smooth_window=3) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["Stoch_D"] = ta.momentum.stoch_signal(high, low, close, window=14, smooth_window=3) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["CCI_20"] = ta.trend.cci(high, low, close, window=20) if len(self.df) >= 20 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        # ADX с обработкой ошибок
+        
+        # ADX - сила тренда (критично!)
         if (
             len(self.df) >= 14
             and len(self.df.tail(14)) == 14
@@ -68,14 +56,10 @@ class SignalGenerator:
                 self.df["ADX_14"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
         else:
             self.df["ADX_14"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["Awesome"] = ta.momentum.awesome_oscillator(high, low, window1=5, window2=34) if len(self.df) >= 34 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["Momentum_10"] = ta.momentum.roc(close, window=10) if len(self.df) >= 10 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["MACD_level"] = ta.trend.macd(close, window_slow=26, window_fast=12) if len(self.df) >= 26 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["Stoch_RSI"] = ta.momentum.stochrsi(close, window=14, smooth1=3, smooth2=3) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["WilliamsR_14"] = ta.momentum.williams_r(high, low, close, lbp=14) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["BullPower"] = high - ta.trend.sma_indicator(close, window=13) if len(self.df) >= 13 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["BearPower"] = low - ta.trend.sma_indicator(close, window=13) if len(self.df) >= 13 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-        self.df["UltimateOsc"] = ta.momentum.ultimate_oscillator(high, low, close, window1=7, window2=14, window3=28) if len(self.df) >= 28 else pd.Series([np.nan]*len(self.df), index=self.df.index)
+        
+        # Stochastic - для перекупленности/перепроданности
+        self.df["Stoch_K"] = ta.momentum.stoch(high, low, close, window=14, smooth_window=3) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
+        self.df["Stoch_D"] = ta.momentum.stoch_signal(high, low, close, window=14, smooth_window=3) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
 
         # Базовые индикаторы
         self.df["EMA_short"] = ta.trend.ema_indicator(close, window=ema_short_window) if len(self.df) >= ema_short_window else pd.Series([np.nan]*len(self.df), index=self.df.index)
@@ -104,6 +88,9 @@ class SignalGenerator:
         # Индикаторы
         ema_s = float(last["EMA_short"])
         ema_l = float(last["EMA_long"])
+        ema_20 = float(last.get("EMA_20", 0))
+        ema_50 = float(last.get("EMA_50", 0))
+        ema_200 = float(last.get("EMA_200", 0))
         sma_20 = float(last.get("SMA_20", 0))
         sma_50 = float(last.get("SMA_50", 0))
         rsi = float(last["RSI"])
@@ -113,11 +100,20 @@ class SignalGenerator:
         adx = float(last.get("ADX_14", 0))
         stoch_k = float(last.get("Stoch_K", 0))
         stoch_d = float(last.get("Stoch_D", 0))
-        momentum = float(last.get("Momentum_10", 0))
-        cci = float(last.get("CCI_20", 0))
-        willr = float(last.get("WilliamsR_14", 0))
-        bull = float(last.get("BullPower", 0))
-        bear = float(last.get("BearPower", 0))
+        atr = float(last.get("ATR_14", 0))
+        
+        # Объём
+        volume = float(last["volume"])
+        volume_ma = float(last.get("Volume_MA_20", volume))
+        
+        # Детекция рыночного режима
+        market_regime = "NEUTRAL"
+        if adx > 30:
+            market_regime = "TRENDING"
+        elif adx < 20:
+            market_regime = "RANGING"
+        else:
+            market_regime = "TRANSITIONING"
 
         # Голосование индикаторов
         bullish = 0
@@ -125,49 +121,65 @@ class SignalGenerator:
         reasons = []
 
         # ====================================================================
-        ## Калибровка индикаторов
+        ## Калибровка индикаторов (оптимизировано)
         # ====================================================================
-
-        # EMA: Основной тренд. КЛЮЧЕВОЙ индикатор - максимальный вес.
-        if ema_s > ema_l:
-            bullish += 3  # Увеличен вес (был 2)
-            reasons.append(f"EMA_short ({ema_s:.2f}) > EMA_long ({ema_l:.2f}) — сильный бычий тренд [+3]")
-        else:
-            bearish += 3  # Увеличен вес (был 2)
-            reasons.append(f"EMA_short ({ema_s:.2f}) < EMA_long ({ema_l:.2f}) — сильный медвежий тренд [+3]")
         
-        # SMA: Среднесрочный тренд. Добавляем проверку на близость.
+        # Адаптивные веса в зависимости от режима рынка
+        if market_regime == "TRENDING":
+            trend_weight = 3
+            oscillator_weight = 1
+        elif market_regime == "RANGING":
+            trend_weight = 1
+            oscillator_weight = 2
+        else:
+            trend_weight = 2
+            oscillator_weight = 2
+
+        # EMA: Основной тренд. КЛЮЧЕВОЙ индикатор.
+        if ema_s > ema_l:
+            bullish += trend_weight
+            reasons.append(f"EMA_short ({ema_s:.2f}) > EMA_long ({ema_l:.2f}) — бычий тренд [+{trend_weight}]")
+        else:
+            bearish += trend_weight
+            reasons.append(f"EMA_short ({ema_s:.2f}) < EMA_long ({ema_l:.2f}) — медвежий тренд [+{trend_weight}]")
+        
+        # SMA: Среднесрочный тренд
         if sma_20 > sma_50:
             bullish += 1
             reasons.append(f"SMA_20 > SMA_50 — краткосрочный тренд вверх")
         elif sma_20 < sma_50:
             bearish += 1
             reasons.append(f"SMA_20 < SMA_50 — краткосрочный тренд вниз")
-        else:
-            reasons.append(f"SMA_20 ≈ SMA_50 — тренды сближаются (нейтрально)")
+        
+        # EMA 200 - долгосрочный тренд (фильтр)
+        if ema_200 > 0:
+            if price > ema_200:
+                reasons.append(f"Цена выше EMA200 ({ema_200:.2f}) — долгосрочный бычий тренд")
+            else:
+                reasons.append(f"Цена ниже EMA200 ({ema_200:.2f}) — долгосрочный медвежий тренд")
 
-        # RSI: КЛЮЧЕВОЙ осциллятор для определения перекупленности/перепроданности
+        # RSI: КЛЮЧЕВОЙ осциллятор
         if rsi < 30:
-            bullish += 3  # Увеличен вес (был 2)
-            reasons.append(f"RSI ({rsi:.2f}) < 30 — перепродан (сильный бычий) [+3]")
+            bullish += 2 * oscillator_weight
+            reasons.append(f"RSI ({rsi:.2f}) < 30 — перепродан [+{2*oscillator_weight}]")
         elif rsi < 40:
-            bullish += 2  # Увеличен вес (был 1)
-            reasons.append(f"RSI ({rsi:.2f}) < 40 — близко к перепроданности [+2]")
+            bullish += oscillator_weight
+            reasons.append(f"RSI ({rsi:.2f}) < 40 — близко к перепроданности [+{oscillator_weight}]")
         elif rsi > 70:
-            bearish += 3  # Увеличен вес (был 2)
-            reasons.append(f"RSI ({rsi:.2f}) > 70 — перекуплен (сильный медвежий) [+3]")
+            bearish += 2 * oscillator_weight
+            reasons.append(f"RSI ({rsi:.2f}) > 70 — перекуплен [+{2*oscillator_weight}]")
         elif rsi > 60:
-            bearish += 2  # Увеличен вес (был 1)
-            reasons.append(f"RSI ({rsi:.2f}) > 60 — близко к перекупленности [+2]")
+            bearish += oscillator_weight
+            reasons.append(f"RSI ({rsi:.2f}) > 60 — близко к перекупленности [+{oscillator_weight}]")
         else:
-            reasons.append(f"RSI = {rsi:.2f} — нейтрально (40-60)")
+            reasons.append(f"RSI = {rsi:.2f} — нейтрально")
 
         # MACD: КЛЮЧЕВОЙ индикатор тренда и моментума
         if macd > macd_signal:
-            bullish += 2  # Увеличен вес (был 1)
+            bullish += 2
             reasons.append(f"MACD ({macd:.4f}) > MACD_signal ({macd_signal:.4f}) — бычье пересечение [+2]")
         else:
-            bearish += 2  # Увеличен вес (был 1)
+            bearish += 2
             reasons.append(f"MACD ({macd:.4f}) < MACD_signal ({macd_signal:.4f}) — медвежье пересечение [+2]")
             
         if macd_hist > 0:
@@ -177,108 +189,113 @@ class SignalGenerator:
             bearish += 1
             reasons.append(f"MACD_hist ({macd_hist:.4f}) < 0 — отрицательный моментум [+1]")
 
-        # ADX: Только сила тренда. Не голосует за направление.
-        if adx > 25:
-            reasons.append(f"ADX ({adx:.2f}) > 25 — сильный тренд")
-        else:
-            reasons.append(f"ADX ({adx:.2f}) <= 25 — слабый тренд/флэт")
+        # ADX: Режим рынка
+        reasons.append(f"ADX ({adx:.2f}) — режим: {market_regime}")
             
-        # Stochastic: Снижен вес (часто дает ложные сигналы)
+        # Stochastic: для экстремумов
         if stoch_k < 20 and stoch_d < 20 and stoch_k > stoch_d:
-            bullish += 1  # Снижено с 2 до 1
-            reasons.append(f"Stoch K/D ({stoch_k:.2f}/{stoch_d:.2f}) < 20 и K>D — выход из перепроданности")
+            bullish += oscillator_weight
+            reasons.append(f"Stoch K/D ({stoch_k:.2f}/{stoch_d:.2f}) < 20 и K>D — выход из перепроданности [+{oscillator_weight}]")
         elif stoch_k > 80 and stoch_d > 80 and stoch_k < stoch_d:
-            bearish += 1  # Снижено с 2 до 1
-            reasons.append(f"Stoch K/D ({stoch_k:.2f}/{stoch_d:.2f}) > 80 и K<D — выход из перекупленности")
+            bearish += oscillator_weight
+            reasons.append(f"Stoch K/D ({stoch_k:.2f}/{stoch_d:.2f}) > 80 и K<D — выход из перекупленности [+{oscillator_weight}]")
         else:
-            # Убираем слабые сигналы в нейтральной зоне
             reasons.append(f"Stoch K/D ({stoch_k:.2f}/{stoch_d:.2f}): нейтрально")
-
-        # Momentum: Убираем (слишком шумный на коротких таймфреймах)
-        # MOMENTUM_THRESHOLD = 0.01 * price  # Увеличен порог до 1%
-        # if momentum > MOMENTUM_THRESHOLD:
-        #     bullish += 1
-        #     reasons.append(f"Momentum ({momentum:.4f}) > {MOMENTUM_THRESHOLD:.4f} — сильное ускорение вверх")
-        # elif momentum < -MOMENTUM_THRESHOLD:
-        #     bearish += 1
-        #     reasons.append(f"Momentum ({momentum:.4f}) < {-MOMENTUM_THRESHOLD:.4f} — сильное ускорение вниз")
-        # else:
-        #     reasons.append(f"Momentum ({momentum:.4f}) — слабый моментум")
-
-        # CCI: Убираем (избыточный индикатор, уже есть RSI)
-        # if cci > 150:  # Повышен порог
-        #     bullish += 1
-        #     reasons.append(f"CCI ({cci:.2f}) > 150 — сильный бычий сигнал")
-        # elif cci < -150:
-        #     bearish += 1
-        #     reasons.append(f"CCI ({cci:.2f}) < -150 — сильный медвежий сигнал")
-        # else:
-        #     reasons.append(f"CCI ({cci:.2f}) — нейтрально")
-
-        # Williams %R: Аналогично RSI, с поправкой на -80/-20.
-        if willr < -80:
-            bullish += 2 # Сильный сигнал
-            reasons.append(f"Williams %R ({willr:.2f}) < -80 — перепродан (сильный бычий)")
-        elif willr > -20:
-            bearish += 2 # Сильный сигнал
-            reasons.append(f"Williams %R ({willr:.2f}) > -20 — перекуплен (сильный медвежий)")
+        
+        # ОБЪЁМ - КРИТИЧНО! Подтверждение движения
+        if volume_ma > 0:
+            volume_ratio = volume / volume_ma
+            if volume_ratio > 1.5:
+                # Высокий объём подтверждает направление
+                if ema_s > ema_l:
+                    bullish += 2
+                    reasons.append(f"Объём {volume_ratio:.1f}x выше среднего — подтверждение роста [+2]")
+                else:
+                    bearish += 2
+                    reasons.append(f"Объём {volume_ratio:.1f}x выше среднего — подтверждение падения [+2]")
+            elif volume_ratio > 1.2:
+                if ema_s > ema_l:
+                    bullish += 1
+                    reasons.append(f"Объём {volume_ratio:.1f}x выше среднего — умеренное подтверждение")
+                else:
+                    bearish += 1
+                    reasons.append(f"Объём {volume_ratio:.1f}x выше среднего — умеренное подтверждение")
+            elif volume_ratio < 0.7:
+                reasons.append(f"Объём {volume_ratio:.1f}x ниже среднего — слабое движение")
+            else:
+                reasons.append(f"Объём нормальный ({volume_ratio:.1f}x)")
+        
+        # ====================================================================
+        # Итоговое голосование с ГИБКИМИ фильтрами (3 из 5)
+        # ====================================================================
+        
+        # Адаптивный порог в зависимости от режима рынка
+        if market_regime == "TRENDING":
+            VOTE_THRESHOLD = 2  # В тренде легче входить
+        elif market_regime == "RANGING":
+            VOTE_THRESHOLD = 4  # Во флэте осторожнее
         else:
-            reasons.append(f"Williams %R ({willr:.2f}) — нейтрально")
-
-        # Bull/Bear Power: Использование нуля как разделителя силы быков/медведей.
-        if bull > 0:
-            bullish += 1
-            reasons.append(f"Bull Power ({bull:.4f}) > 0 — быки контролируют рынок")
-        else: # Если Bull Power <= 0, это медвежий сигнал
-            bearish += 1
-            reasons.append(f"Bull Power ({bull:.4f}) <= 0 — медведи сильнее")
-
-        if bear < 0:
-            bearish += 1
-            reasons.append(f"Bear Power ({bear:.4f}) < 0 — медведи контролируют рынок")
-        else: # Если Bear Power >= 0, это бычий сигнал
-            bullish += 1
-            reasons.append(f"Bear Power ({bear:.4f}) >= 0 — медвежья сила иссякла")
+            VOTE_THRESHOLD = 3
         
-        # ====================================================================
-        # Итоговое голосование с ОБЯЗАТЕЛЬНЫМИ фильтрами
-        # ====================================================================
+        # Фильтры (считаем сколько пройдено)
+        buy_filters_passed = 0
+        sell_filters_passed = 0
         
-        # Используем порог для "HOLD"
-        VOTE_THRESHOLD = 3  # Снижен обратно
-        
-        # КЛЮЧЕВОЕ: Торгуем только на сильных трендах (ADX > 25)
-        strong_trend = adx > 25
-        
-        # Фильтры тренда
-        buy_trend_ok = ema_s > ema_l and sma_20 > sma_50  # Двойное подтверждение тренда
+        # 1. Тренд
+        buy_trend_ok = ema_s > ema_l and sma_20 > sma_50
         sell_trend_ok = ema_s < ema_l and sma_20 < sma_50
+        if buy_trend_ok:
+            buy_filters_passed += 1
+        if sell_trend_ok:
+            sell_filters_passed += 1
         
-        # RSI должен подтверждать (не в экстремуме для входа)
-        buy_rsi_ok = 35 < rsi < 70  # Не перекуплен
-        sell_rsi_ok = 30 < rsi < 65  # Не перепродан
+        # 2. ADX (опционально в зависимости от режима)
+        moderate_trend = adx > 20
+        strong_trend = adx > 25
+        if strong_trend:
+            buy_filters_passed += 1
+            sell_filters_passed += 1
+        elif moderate_trend:
+            # Половинка балла за умеренный тренд
+            pass
         
-        # MACD должен подтверждать направление
-        macd_buy_ok = macd > macd_signal and macd_hist > 0
-        macd_sell_ok = macd < macd_signal and macd_hist < 0
-
-        if bullish - bearish >= VOTE_THRESHOLD and strong_trend and buy_trend_ok and buy_rsi_ok and macd_buy_ok:
-            # BUY только при: сильный тренд + двойное подтверждение тренда + RSI ok + MACD ok
+        # 3. RSI
+        buy_rsi_ok = 30 < rsi < 70  # Расширенный диапазон
+        sell_rsi_ok = 30 < rsi < 70
+        if buy_rsi_ok:
+            buy_filters_passed += 1
+        if sell_rsi_ok:
+            sell_filters_passed += 1
+        
+        # 4. MACD
+        macd_buy_ok = macd > macd_signal
+        macd_sell_ok = macd < macd_signal
+        if macd_buy_ok and macd_hist > 0:
+            buy_filters_passed += 1
+        if macd_sell_ok and macd_hist < 0:
+            sell_filters_passed += 1
+        
+        # 5. Объём (опционально)
+        high_volume = volume / volume_ma > 1.2 if volume_ma > 0 else False
+        if high_volume:
+            buy_filters_passed += 1
+            sell_filters_passed += 1
+        
+        # Решение: нужно >= 3 фильтра из 5 + перевес голосов
+        MIN_FILTERS = 3
+        
+        if bullish - bearish >= VOTE_THRESHOLD and buy_filters_passed >= MIN_FILTERS:
             signal = "BUY"
             signal_emoji = "🟢"
-            reasons.append(f"✅ BUY: Голосов {bullish} vs {bearish}, ADX={adx:.1f}, все фильтры пройдены")
-        elif bearish - bullish >= VOTE_THRESHOLD and strong_trend and sell_trend_ok and sell_rsi_ok and macd_sell_ok:
-            # SELL только при: сильный тренд + двойное подтверждение тренда + RSI ok + MACD ok
+            reasons.append(f"✅ BUY: Голосов {bullish} vs {bearish}, фильтров {buy_filters_passed}/5, ADX={adx:.1f}")
+        elif bearish - bullish >= VOTE_THRESHOLD and sell_filters_passed >= MIN_FILTERS:
             signal = "SELL"
             signal_emoji = "🔴"
-            reasons.append(f"✅ SELL: Голосов {bearish} vs {bullish}, ADX={adx:.1f}, все фильтры пройдены")
+            reasons.append(f"✅ SELL: Голосов {bearish} vs {bullish}, фильтров {sell_filters_passed}/5, ADX={adx:.1f}")
         else:
             signal = "HOLD"
             signal_emoji = "⚠️"
-            if not strong_trend:
-                reasons.append(f"⏸ HOLD: Слабый тренд (ADX={adx:.1f} < 25)")
-            else:
-                reasons.append(f"⏸ HOLD: Бычьи ({bullish}) vs Медвежьи ({bearish}), фильтры не пройдены")
+            reasons.append(f"⏸ HOLD: Бычьи {bullish} vs Медвежьи {bearish}, фильтров BUY:{buy_filters_passed} SELL:{sell_filters_passed}, режим: {market_regime}")
 
         return {
             "signal": signal,
@@ -290,7 +307,13 @@ class SignalGenerator:
             "MACD": macd,
             "MACD_signal": macd_signal,
             "MACD_hist": macd_hist,
+            "ADX": adx,
+            "ATR": atr,
+            "volume_ratio": volume / volume_ma if volume_ma > 0 else 1.0,
+            "market_regime": market_regime,
             "bullish_votes": bullish,
             "bearish_votes": bearish,
+            "buy_filters_passed": buy_filters_passed,
+            "sell_filters_passed": sell_filters_passed,
             "reasons": reasons,
         }

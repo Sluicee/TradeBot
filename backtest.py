@@ -82,21 +82,11 @@ async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 2
 			price = s["price"]
 			sig = s["signal"]
 			
-			# Получаем силу сигнала (разница между bullish и bearish голосами)
-			signal_strength = 3  # По умолчанию средняя сила
-			try:
-				reasons_text = str(s.get("reasons", [])[-1]) if s.get("reasons") else ""
-				if "Бычьи (" in reasons_text or "Бычье (" in reasons_text:
-					bullish = int(reasons_text.split("Бычьи (")[1].split(")")[0] if "Бычьи (" in reasons_text else reasons_text.split("Бычье (")[1].split(")")[0])
-					if "Медвежьи (" in reasons_text:
-						bearish = int(reasons_text.split("Медвежьи (")[1].split(")")[0])
-					elif "Медвежьих (" in reasons_text:
-						bearish = int(reasons_text.split("Медвежьих (")[1].split(")")[0])
-					else:
-						bearish = 0
-					signal_strength = abs(bullish - bearish)
-			except Exception as e:
-				pass  # Используем значение по умолчанию
+			# Получаем силу сигнала напрямую из результата (исправлено!)
+			bullish = s.get("bullish_votes", 0)
+			bearish = s.get("bearish_votes", 0)
+			signal_strength = abs(bullish - bearish)
+			atr = s.get("ATR", 0.0)
 			
 			# Проверка стоп-лосса и тейк-профита
 			if position > 0 and entry_price:
@@ -158,8 +148,8 @@ async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 2
 			
 			# Логика входа/выхода
 			if sig == "BUY" and position == 0 and balance > 0:
-				# Динамический размер позиции
-				position_size_percent = get_position_size_percent(signal_strength)
+				# Динамический размер позиции с учётом волатильности
+				position_size_percent = get_position_size_percent(signal_strength, atr, price)
 				invest_amount = balance * position_size_percent
 				
 				commission = invest_amount * COMMISSION_RATE

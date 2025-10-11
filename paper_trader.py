@@ -14,15 +14,94 @@ TRAILING_STOP_PERCENT = 0.02
 
 STATE_FILE = "paper_trading_state.json"
 
+# Группы коррелированных активов (упрощенно)
+CORRELATION_GROUPS = {
+	"BTC": ["BTCUSDT", "BTCUSD", "BTCBUSD"],
+	"ETH": ["ETHUSDT", "ETHUSD", "ETHBUSD", "ETHBTC"],
+	"BNB": ["BNBUSDT", "BNBUSD", "BNBBUSD"],
+	"SOL": ["SOLUSDT", "SOLUSD", "SOLBUSD"],
+	"XRP": ["XRPUSDT", "XRPUSD", "XRPBUSD"],
+	"ADA": ["ADAUSDT", "ADAUSD", "ADABUSD"],
+	# L1 блокчейны часто коррелируют
+	"L1": ["AVAXUSDT", "ATOMUSDT", "DOTUSDT", "NEARUSDT", "APTUSDT"],
+	# DeFi токены
+	"DEFI": ["UNIUSDT", "AAVEUSDT", "LINKUSDT", "MKRUSDT"],
+	# Мемы
+	"MEME": ["DOGEUSDT", "SHIBUSDT", "PEPEUSDT", "FLOKIUSDT"]
+}
 
-def get_position_size_percent(signal_strength: int) -> float:
-	"""Возвращает процент от баланса для входа в позицию"""
+
+def check_correlation_risk(new_symbol: str, existing_positions: Dict[str, Any]) -> bool:
+	"""
+	Проверяет риск корреляции.
+	Возвращает True если можно открывать позицию, False если риск высокий.
+	"""
+	if not existing_positions:
+		return True
+	
+	# Находим группу нового символа
+	new_group = None
+	for group_name, symbols in CORRELATION_GROUPS.items():
+		if new_symbol in symbols:
+			new_group = group_name
+			break
+	
+	# Если символ не в известных группах, разрешаем (неизвестная корреляция)
+	if new_group is None:
+		return True
+	
+	# Проверяем открытые позиции
+	for pos_symbol in existing_positions.keys():
+		for group_name, symbols in CORRELATION_GROUPS.items():
+			if pos_symbol in symbols:
+				# Нашли группу существующей позиции
+				if group_name == new_group:
+					# Уже есть позиция из той же группы - запрещаем
+					return False
+	
+	return True
+
+
+def get_position_size_percent(signal_strength: int, atr: float = 0, price: float = 0) -> float:
+	"""
+	Возвращает процент от баланса для входа в позицию.
+	Учитывает силу сигнала И волатильность (ATR).
+	"""
+	# Базовый размер по силе сигнала
 	if signal_strength >= 9:
-		return 0.70  # Сильный сигнал - 70%
+		base_size = 0.70  # Сильный сигнал - 70%
 	elif signal_strength >= 6:
-		return 0.50  # Средний сигнал - 50%
+		base_size = 0.50  # Средний сигнал - 50%
 	else:
-		return 0.30  # Слабый сигнал - 30%
+		base_size = 0.30  # Слабый сигнал - 30%
+	
+	# Корректировка на волатильность (если есть ATR)
+	if atr > 0 and price > 0:
+		atr_percent = (atr / price) * 100
+		# Если волатильность высокая (>3%), уменьшаем размер позиции
+		if atr_percent > 3.0:
+			volatility_factor = 3.0 / atr_percent  # Обратная пропорция
+			base_size *= volatility_factor
+		# Если волатильность низкая (<1%), можно чуть увеличить
+		elif atr_percent < 1.0:
+			base_size *= min(1.2, 1.0 / atr_percent)
+	
+	return min(base_size, 0.70)  # Максимум 70%
+
+
+def get_dynamic_stop_loss_percent(atr: float, price: float) -> float:
+	"""
+	Рассчитывает динамический стоп-лосс на основе ATR.
+	Минимум 3%, максимум 8%.
+	"""
+	if atr <= 0 or price <= 0:
+		return STOP_LOSS_PERCENT  # 5% по умолчанию
+	
+	# 2x ATR как стоп-лосс
+	atr_based_sl = (2 * atr / price)
+	
+	# Ограничиваем диапазоном 3-8%
+	return max(0.03, min(0.08, atr_based_sl))
 
 
 class Position:
@@ -35,7 +114,8 @@ class Position:
 		entry_time: str,
 		signal_strength: int,
 		invest_amount: float,
-		commission: float
+		commission: float,
+		atr: float = 0.0
 	):
 		self.symbol = symbol
 		self.entry_price = entry_price
@@ -44,9 +124,12 @@ class Position:
 		self.signal_strength = signal_strength
 		self.invest_amount = invest_amount  # Сколько вложено (с комиссией)
 		self.entry_commission = commission
+		self.atr = atr
 		
-		# Stop-loss и Take-profit уровни
-		self.stop_loss_price = entry_price * (1 - STOP_LOSS_PERCENT)
+		# Stop-loss и Take-profit уровни (динамические на основе ATR)
+		dynamic_sl = get_dynamic_stop_loss_percent(atr, entry_price)
+		self.stop_loss_price = entry_price * (1 - dynamic_sl)
+		self.stop_loss_percent = dynamic_sl
 		self.take_profit_price = entry_price * (1 + TAKE_PROFIT_PERCENT)
 		
 		# Флаги и состояние
@@ -78,6 +161,19 @@ class Position:
 			trailing_drop = (self.max_price - current_price) / self.max_price
 			return trailing_drop >= TRAILING_STOP_PERCENT
 		return False
+	
+	def check_time_exit(self, max_hours: int = 72) -> bool:
+		"""
+		Проверяет, не слишком ли долго удерживается позиция.
+		Если позиция висит >72 часов без движения - выходим принудительно.
+		"""
+		try:
+			entry_dt = datetime.fromisoformat(self.entry_time)
+			now_dt = datetime.now()
+			holding_hours = (now_dt - entry_dt).total_seconds() / 3600
+			return holding_hours > max_hours
+		except:
+			return False
 		
 	def get_pnl(self, current_price: float) -> Dict[str, float]:
 		"""Возвращает текущую прибыль/убыток"""
@@ -107,7 +203,9 @@ class Position:
 			"signal_strength": self.signal_strength,
 			"invest_amount": self.invest_amount,
 			"entry_commission": self.entry_commission,
+			"atr": self.atr,
 			"stop_loss_price": self.stop_loss_price,
+			"stop_loss_percent": self.stop_loss_percent,
 			"take_profit_price": self.take_profit_price,
 			"partial_closed": self.partial_closed,
 			"max_price": self.max_price,
@@ -125,14 +223,16 @@ class Position:
 			entry_time=data["entry_time"],
 			signal_strength=data["signal_strength"],
 			invest_amount=data["invest_amount"],
-			commission=data["entry_commission"]
+			commission=data["entry_commission"],
+			atr=data.get("atr", 0.0)  # Обратная совместимость
 		)
-		pos.stop_loss_price = data["stop_loss_price"]
-		pos.take_profit_price = data["take_profit_price"]
-		pos.partial_closed = data["partial_closed"]
-		pos.max_price = data["max_price"]
-		pos.partial_close_profit = data["partial_close_profit"]
-		pos.original_amount = data["original_amount"]
+		pos.stop_loss_price = data.get("stop_loss_price", pos.stop_loss_price)
+		pos.stop_loss_percent = data.get("stop_loss_percent", STOP_LOSS_PERCENT)
+		pos.take_profit_price = data.get("take_profit_price", pos.take_profit_price)
+		pos.partial_closed = data.get("partial_closed", False)
+		pos.max_price = data.get("max_price", pos.entry_price)
+		pos.partial_close_profit = data.get("partial_close_profit", 0.0)
+		pos.original_amount = data.get("original_amount", pos.amount)
 		return pos
 
 
@@ -201,14 +301,20 @@ class PaperTrader:
 		self,
 		symbol: str,
 		price: float,
-		signal_strength: int
+		signal_strength: int,
+		atr: float = 0.0
 	) -> Optional[Dict[str, Any]]:
 		"""Открывает позицию"""
 		if not self.can_open_position(symbol):
 			return None
+		
+		# Проверка корреляции - не открываем коррелированные позиции
+		if not check_correlation_risk(symbol, self.positions):
+			logger.info(f"[PAPER] Пропускаем {symbol} - уже есть коррелированная позиция")
+			return None
 			
-		# Рассчитываем размер позиции
-		position_size_percent = get_position_size_percent(signal_strength)
+		# Рассчитываем размер позиции с учётом волатильности
+		position_size_percent = get_position_size_percent(signal_strength, atr, price)
 		invest_amount = self.balance * position_size_percent
 		
 		if invest_amount <= 0:
@@ -221,7 +327,7 @@ class PaperTrader:
 		# Покупаем монеты
 		amount = (invest_amount - commission) / price
 		
-		# Создаем позицию
+		# Создаем позицию с ATR для динамического SL
 		position = Position(
 			symbol=symbol,
 			entry_price=price,
@@ -229,7 +335,8 @@ class PaperTrader:
 			entry_time=datetime.now().isoformat(),
 			signal_strength=signal_strength,
 			invest_amount=invest_amount,
-			commission=commission
+			commission=commission,
+			atr=atr
 		)
 		
 		# Обновляем баланс
@@ -378,7 +485,7 @@ class PaperTrader:
 		return trade_info
 		
 	def check_positions(self, prices: Dict[str, float]) -> List[Dict[str, Any]]:
-		"""Проверяет все позиции на стоп-лоссы и тейк-профиты"""
+		"""Проверяет все позиции на стоп-лоссы, тейк-профиты и время удержания"""
 		actions = []
 		
 		for symbol, position in list(self.positions.items()):
@@ -390,21 +497,28 @@ class PaperTrader:
 			# Обновляем максимальную цену
 			position.update_max_price(current_price)
 			
-			# Проверяем trailing stop (если позиция частично закрыта)
+			# 1. Проверяем время удержания (72 часа = 3 дня)
+			if position.check_time_exit(max_hours=72):
+				trade_info = self.close_position(symbol, current_price, "TIME-EXIT")
+				if trade_info:
+					actions.append(trade_info)
+				continue
+			
+			# 2. Проверяем trailing stop (если позиция частично закрыта)
 			if position.check_trailing_stop(current_price):
 				trade_info = self.close_position(symbol, current_price, "TRAILING-STOP")
 				if trade_info:
 					actions.append(trade_info)
 				continue
 				
-			# Проверяем стоп-лосс
+			# 3. Проверяем стоп-лосс
 			if position.check_stop_loss(current_price):
 				trade_info = self.close_position(symbol, current_price, "STOP-LOSS")
 				if trade_info:
 					actions.append(trade_info)
 				continue
 				
-			# Проверяем тейк-профит (частичное закрытие)
+			# 4. Проверяем тейк-профит (частичное закрытие)
 			if position.check_take_profit(current_price):
 				trade_info = self.partial_close_position(symbol, current_price)
 				if trade_info:

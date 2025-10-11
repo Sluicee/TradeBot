@@ -447,13 +447,14 @@ class TelegramBot:
                         if price is None:
                             continue
                         
-                        # Получаем силу сигнала
+                        # Получаем силу сигнала и ATR
                         signal_strength = abs(result.get("bullish_votes", 0) - result.get("bearish_votes", 0))
+                        atr = result.get("ATR", 0.0)
                         
                         # BUY сигнал - открываем позицию
                         if signal == "BUY" and symbol not in self.paper_trader.positions:
                             if self.paper_trader.can_open_position(symbol):
-                                trade_info = self.paper_trader.open_position(symbol, price, signal_strength)
+                                trade_info = self.paper_trader.open_position(symbol, price, signal_strength, atr)
                                 if trade_info:
                                     msg = (
                                         f"🟢 <b>КУПИЛ</b> {symbol}\n"
@@ -899,9 +900,10 @@ class TelegramBot:
                     max_price = 0.0
                     
                     for s in signals:
-                        price = s["price"]
-                        sig = s["signal"]
+                        price = s.get("price", 0)
+                        sig = s.get("signal", "HOLD")
                         signal_strength = abs(s.get("bullish_votes", 0) - s.get("bearish_votes", 0))
+                        atr = s.get("ATR", 0.0)
                         
                         # Проверка стоп-лоссов
                         if position > 0 and entry_price:
@@ -951,7 +953,7 @@ class TelegramBot:
                         
                         # Открытие/закрытие позиций
                         if sig == "BUY" and position == 0 and balance > 0:
-                            position_size_percent = get_position_size_percent(signal_strength)
+                            position_size_percent = get_position_size_percent(signal_strength, atr, price)
                             invest_amount = balance * position_size_percent
                             commission = invest_amount * COMMISSION_RATE
                             position = (invest_amount - commission) / price
@@ -1231,17 +1233,23 @@ class TelegramBot:
         try:
             async with aiohttp.ClientSession() as session:
                 provider = DataProvider(session)
-                klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=1)
+                klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=500)
                 df = provider.klines_to_dataframe(klines)
                 
                 if df.empty:
                     await update.message.reply_text("⚠️ Нет данных для получения цены")
                     return
                 
+                # Генерируем сигнал чтобы получить ATR
+                generator = SignalGenerator(df)
+                generator.compute_indicators()
+                result = generator.generate_signal()
+                
                 price = float(df['close'].iloc[-1])
                 signal_strength = 5  # Средняя сила для теста
+                atr = result.get("ATR", 0.0)
                 
-                trade_info = self.paper_trader.open_position(symbol, price, signal_strength)
+                trade_info = self.paper_trader.open_position(symbol, price, signal_strength, atr)
                 
                 if trade_info:
                     self.paper_trader.save_state()
