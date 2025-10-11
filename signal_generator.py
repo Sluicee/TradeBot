@@ -245,7 +245,7 @@ class SignalGenerator:
         # ====================================================================
         
         # Используем порог для "HOLD"
-        VOTE_THRESHOLD = 5  # Снижен обратно
+        VOTE_THRESHOLD = 3  # Снижен обратно
         
         # КЛЮЧЕВОЕ: Торгуем только на сильных трендах (ADX > 25)
         strong_trend = adx > 25
@@ -265,16 +265,16 @@ class SignalGenerator:
         if bullish - bearish >= VOTE_THRESHOLD and strong_trend and buy_trend_ok and buy_rsi_ok and macd_buy_ok:
             # BUY только при: сильный тренд + двойное подтверждение тренда + RSI ok + MACD ok
             signal = "BUY"
-            signal_emoji = "🚀"
+            signal_emoji = "🟢"
             reasons.append(f"✅ BUY: Голосов {bullish} vs {bearish}, ADX={adx:.1f}, все фильтры пройдены")
         elif bearish - bullish >= VOTE_THRESHOLD and strong_trend and sell_trend_ok and sell_rsi_ok and macd_sell_ok:
             # SELL только при: сильный тренд + двойное подтверждение тренда + RSI ok + MACD ok
             signal = "SELL"
-            signal_emoji = "🔻"
+            signal_emoji = "🔴"
             reasons.append(f"✅ SELL: Голосов {bearish} vs {bullish}, ADX={adx:.1f}, все фильтры пройдены")
         else:
             signal = "HOLD"
-            signal_emoji = "⏸️"
+            signal_emoji = "⚠️"
             if not strong_trend:
                 reasons.append(f"⏸ HOLD: Слабый тренд (ADX={adx:.1f} < 25)")
             else:
