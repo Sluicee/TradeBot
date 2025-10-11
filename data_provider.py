@@ -4,9 +4,10 @@ from typing import List
 from logger import logger
 from dataclasses import dataclass
 import time
+from config import API_TIMEOUT as API_TIMEOUT_SECONDS
 
-# Таймаут для API запросов (30 секунд)
-API_TIMEOUT = aiohttp.ClientTimeout(total=30)
+# Таймаут для API запросов
+API_TIMEOUT = aiohttp.ClientTimeout(total=API_TIMEOUT_SECONDS)
 
 @dataclass
 class Kline:

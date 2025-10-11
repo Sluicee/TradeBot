@@ -2,32 +2,19 @@ import os
 import pandas as pd
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
+from paper_trader import get_position_size_percent
 import aiohttp
 import asyncio
 import json
-
-# Комиссия биржи
-COMMISSION_RATE = 0.0018  # 0.18%
-
-# Настройки стратегии
-MAX_POSITIONS = 3  # Максимальное количество одновременных позиций
-STOP_LOSS_PERCENT = 0.05  # 5% стоп-лосс
-TAKE_PROFIT_PERCENT = 0.10  # 10% тейк-профит (первая цель)
-PARTIAL_CLOSE_PERCENT = 0.50  # Закрываем 50% позиции на первой цели
-TRAILING_STOP_PERCENT = 0.02  # 2% trailing stop после частичного закрытия
-
-# Динамический размер позиции по силе сигнала
-def get_position_size_percent(signal_strength: int) -> float:
-	"""Возвращает процент от баланса для входа в позицию"""
-	if signal_strength >= 9:
-		return 0.70  # Сильный сигнал - 70%
-	elif signal_strength >= 6:
-		return 0.50  # Средний сигнал - 50%
-	else:
-		return 0.30  # Слабый сигнал - 30%
+from config import (
+	COMMISSION_RATE, MAX_POSITIONS, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT,
+	PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT, INITIAL_BALANCE
+)
 
 # --- Бэктест стратегии ---
-async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 24, start_balance: float = 100.0):
+async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 24, start_balance: float = None):
+	if start_balance is None:
+		start_balance = INITIAL_BALANCE
 	candles_per_hour = int(60 / int(interval.replace('m',''))) if 'm' in interval else 1
 	limit = period_hours * candles_per_hour
 
@@ -238,8 +225,10 @@ async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 2
 		}
 
 
-async def run_backtest_multiple(symbols: list, interval: str = "15m", period_hours: int = 24, start_balance: float = 100.0):
+async def run_backtest_multiple(symbols: list, interval: str = "15m", period_hours: int = 24, start_balance: float = None):
 	"""Запускает бэктест для нескольких символов"""
+	if start_balance is None:
+		start_balance = INITIAL_BALANCE
 	results = []
 	
 	for symbol in symbols:
@@ -290,7 +279,7 @@ if __name__ == "__main__":
 			
 			interval = sys.argv[2] if len(sys.argv) > 2 else "15m"
 			period_hours = int(sys.argv[3]) if len(sys.argv) > 3 else 24
-			start_balance = float(sys.argv[4]) if len(sys.argv) > 4 else 100.0
+			start_balance = float(sys.argv[4]) if len(sys.argv) > 4 else INITIAL_BALANCE
 			
 			print(f"Запуск бэктеста для {len(symbols)} символов: {', '.join(symbols)}")
 			asyncio.run(run_backtest_multiple(symbols, interval, period_hours, start_balance))
@@ -303,7 +292,7 @@ if __name__ == "__main__":
 		symbol = sys.argv[1] if len(sys.argv) > 1 else "BTCUSDT"
 		interval = sys.argv[2] if len(sys.argv) > 2 else "15m"
 		period_hours = int(sys.argv[3]) if len(sys.argv) > 3 else 24
-		start_balance = float(sys.argv[4]) if len(sys.argv) > 4 else 100.0
+		start_balance = float(sys.argv[4]) if len(sys.argv) > 4 else INITIAL_BALANCE
 		asyncio.run(run_backtest(symbol, interval, period_hours, start_balance))
 	
 	# Примеры запуска:

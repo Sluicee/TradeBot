@@ -3,14 +3,15 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from logger import logger
-
-# Параметры стратегии (из backtest.py)
-COMMISSION_RATE = 0.0018  # 0.18%
-MAX_POSITIONS = 3
-STOP_LOSS_PERCENT = 0.05
-TAKE_PROFIT_PERCENT = 0.10
-PARTIAL_CLOSE_PERCENT = 0.50
-TRAILING_STOP_PERCENT = 0.02
+from config import (
+	COMMISSION_RATE, MAX_POSITIONS, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT,
+	PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT,
+	POSITION_SIZE_STRONG, POSITION_SIZE_MEDIUM, POSITION_SIZE_WEAK,
+	SIGNAL_STRENGTH_STRONG, SIGNAL_STRENGTH_MEDIUM,
+	DYNAMIC_SL_ATR_MULTIPLIER, DYNAMIC_SL_MIN, DYNAMIC_SL_MAX,
+	VOLATILITY_HIGH_THRESHOLD, VOLATILITY_LOW_THRESHOLD, VOLATILITY_ADJUSTMENT_MAX,
+	MAX_HOLDING_HOURS
+)
 
 STATE_FILE = "paper_trading_state.json"
 
@@ -68,40 +69,40 @@ def get_position_size_percent(signal_strength: int, atr: float = 0, price: float
 	Учитывает силу сигнала И волатильность (ATR).
 	"""
 	# Базовый размер по силе сигнала
-	if signal_strength >= 9:
-		base_size = 0.70  # Сильный сигнал - 70%
-	elif signal_strength >= 6:
-		base_size = 0.50  # Средний сигнал - 50%
+	if signal_strength >= SIGNAL_STRENGTH_STRONG:
+		base_size = POSITION_SIZE_STRONG
+	elif signal_strength >= SIGNAL_STRENGTH_MEDIUM:
+		base_size = POSITION_SIZE_MEDIUM
 	else:
-		base_size = 0.30  # Слабый сигнал - 30%
+		base_size = POSITION_SIZE_WEAK
 	
 	# Корректировка на волатильность (если есть ATR)
 	if atr > 0 and price > 0:
 		atr_percent = (atr / price) * 100
-		# Если волатильность высокая (>3%), уменьшаем размер позиции
-		if atr_percent > 3.0:
-			volatility_factor = 3.0 / atr_percent  # Обратная пропорция
+		# Если волатильность высокая (>VOLATILITY_HIGH_THRESHOLD%), уменьшаем размер позиции
+		if atr_percent > VOLATILITY_HIGH_THRESHOLD:
+			volatility_factor = VOLATILITY_HIGH_THRESHOLD / atr_percent  # Обратная пропорция
 			base_size *= volatility_factor
-		# Если волатильность низкая (<1%), можно чуть увеличить
-		elif atr_percent < 1.0:
-			base_size *= min(1.2, 1.0 / atr_percent)
+		# Если волатильность низкая (<VOLATILITY_LOW_THRESHOLD%), можно чуть увеличить
+		elif atr_percent < VOLATILITY_LOW_THRESHOLD:
+			base_size *= min(VOLATILITY_ADJUSTMENT_MAX, VOLATILITY_LOW_THRESHOLD / atr_percent)
 	
-	return min(base_size, 0.70)  # Максимум 70%
+	return min(base_size, POSITION_SIZE_STRONG)  # Максимум POSITION_SIZE_STRONG
 
 
 def get_dynamic_stop_loss_percent(atr: float, price: float) -> float:
 	"""
 	Рассчитывает динамический стоп-лосс на основе ATR.
-	Минимум 3%, максимум 8%.
+	Минимум DYNAMIC_SL_MIN%, максимум DYNAMIC_SL_MAX%.
 	"""
 	if atr <= 0 or price <= 0:
-		return STOP_LOSS_PERCENT  # 5% по умолчанию
+		return STOP_LOSS_PERCENT  # по умолчанию
 	
-	# 2x ATR как стоп-лосс
-	atr_based_sl = (2 * atr / price)
+	# DYNAMIC_SL_ATR_MULTIPLIER * ATR как стоп-лосс
+	atr_based_sl = (DYNAMIC_SL_ATR_MULTIPLIER * atr / price)
 	
-	# Ограничиваем диапазоном 3-8%
-	return max(0.03, min(0.08, atr_based_sl))
+	# Ограничиваем диапазоном DYNAMIC_SL_MIN-DYNAMIC_SL_MAX%
+	return max(DYNAMIC_SL_MIN, min(DYNAMIC_SL_MAX, atr_based_sl))
 
 
 class Position:
@@ -162,11 +163,13 @@ class Position:
 			return trailing_drop >= TRAILING_STOP_PERCENT
 		return False
 	
-	def check_time_exit(self, max_hours: int = 72) -> bool:
+	def check_time_exit(self, max_hours: int = None) -> bool:
 		"""
 		Проверяет, не слишком ли долго удерживается позиция.
-		Если позиция висит >72 часов без движения - выходим принудительно.
+		Если позиция висит >max_hours без движения - выходим принудительно.
 		"""
+		if max_hours is None:
+			max_hours = MAX_HOLDING_HOURS
 		try:
 			entry_dt = datetime.fromisoformat(self.entry_time)
 			now_dt = datetime.now()
@@ -239,7 +242,10 @@ class Position:
 class PaperTrader:
 	"""Система виртуальной торговли"""
 	
-	def __init__(self, initial_balance: float = 100.0):
+	def __init__(self, initial_balance: float = None):
+		if initial_balance is None:
+			from config import INITIAL_BALANCE
+			initial_balance = INITIAL_BALANCE
 		self.initial_balance = initial_balance
 		self.balance = initial_balance
 		self.positions: Dict[str, Position] = {}  # symbol -> Position
@@ -496,8 +502,8 @@ class PaperTrader:
 			# Обновляем максимальную цену
 			position.update_max_price(current_price)
 			
-			# 1. Проверяем время удержания (72 часа = 3 дня)
-			if position.check_time_exit(max_hours=72):
+			# 1. Проверяем время удержания
+			if position.check_time_exit():
 				trade_info = self.close_position(symbol, current_price, "TIME-EXIT")
 				if trade_info:
 					actions.append(trade_info)

@@ -3,7 +3,10 @@ import asyncio
 import json
 from telegram import Update, __version__ as tg_version
 from telegram.ext import Application, CommandHandler, ContextTypes
-from config import TELEGRAM_TOKEN, OWNER_CHAT_ID, DEFAULT_SYMBOL, DEFAULT_INTERVAL
+from config import (
+	TELEGRAM_TOKEN, OWNER_CHAT_ID, DEFAULT_SYMBOL, DEFAULT_INTERVAL,
+	POLL_INTERVAL, VOLATILITY_WINDOW, VOLATILITY_THRESHOLD, INITIAL_BALANCE
+)
 from signal_logger import log_signal
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
@@ -33,18 +36,15 @@ class TelegramBot:
             logger.warning("OWNER_CHAT_ID не установлен - бот доступен всем! Установите в .env для защиты.")
             self.owner_chat_id = None
         
-        self._load_tracked_symbols()
-        self.application = Application.builder().token(self.token).build()
-        self._register_handlers()
-        self.poll_interval = 60
-        self.last_signals: dict[str, str] = {}
-        self.volatility_window = 10
-        self.volatility_threshold = 0.05
-        self.last_volatility_alert: dict[str, float] = {}
-        
-        # Paper Trading
-        self.paper_trader = PaperTrader(initial_balance=100.0)
-        self.paper_trader.load_state()
+		self._load_tracked_symbols()
+		self.application = Application.builder().token(self.token).build()
+		self._register_handlers()
+		self.last_signals: dict[str, str] = {}
+		self.last_volatility_alert: dict[str, float] = {}
+		
+		# Paper Trading
+		self.paper_trader = PaperTrader()  # Использует INITIAL_BALANCE из config
+		self.paper_trader.load_state()
 
     def _is_authorized(self, update: Update) -> bool:
         """Проверяет, что пользователь является владельцем бота"""
@@ -83,26 +83,26 @@ class TelegramBot:
             with open(self.json_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 self.tracked_symbols = set(s.upper() for s in data.get("symbols", []))
-                self.chat_id = data.get("chat_id")
-                settings = data.get("settings", {})
-                self.poll_interval = settings.get("poll_interval", 60)
-                self.volatility_window = settings.get("volatility_window", 10)
-                self.volatility_threshold = settings.get("volatility_threshold", 0.02)
+				self.chat_id = data.get("chat_id")
+				settings = data.get("settings", {})
+				self.poll_interval = settings.get("poll_interval", POLL_INTERVAL)
+				self.volatility_window = settings.get("volatility_window", VOLATILITY_WINDOW)
+				self.volatility_threshold = settings.get("volatility_threshold", VOLATILITY_THRESHOLD)
                 logger.info("Загружено %d пар", len(self.tracked_symbols))
         except FileNotFoundError:
-            logger.info("JSON-файл %s не найден, создаём новый", self.json_file)
-            self.tracked_symbols = set()
-            self.chat_id = None
-            self.poll_interval = 60
-            self.volatility_window = 10
-            self.volatility_threshold = 0.05
+			logger.info("JSON-файл %s не найден, создаём новый", self.json_file)
+			self.tracked_symbols = set()
+			self.chat_id = None
+			self.poll_interval = POLL_INTERVAL
+			self.volatility_window = VOLATILITY_WINDOW
+			self.volatility_threshold = VOLATILITY_THRESHOLD
         except Exception as e:
-            logger.error("Ошибка загрузки %s: %s", self.json_file, e)
-            self.tracked_symbols = set()
-            self.chat_id = None
-            self.poll_interval = 60
-            self.volatility_window = 10
-            self.volatility_threshold = 0.05
+			logger.error("Ошибка загрузки %s: %s", self.json_file, e)
+			self.tracked_symbols = set()
+			self.chat_id = None
+			self.poll_interval = POLL_INTERVAL
+			self.volatility_window = VOLATILITY_WINDOW
+			self.volatility_threshold = VOLATILITY_THRESHOLD
 
     def _save_tracked_symbols(self):
         try:
@@ -131,7 +131,7 @@ class TelegramBot:
         def fmt(val):
             if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
                 return 'н/д'
-            return f'{val:.2f}' if isinstance(val, float) else str(val)
+            return f'{val:.8f}' if isinstance(val, float) else str(val)
 
         # Берём первую причину как основную
         main_reason = html_escape(result["reasons"][0]) if result["reasons"] else "нет данных"
@@ -144,7 +144,7 @@ class TelegramBot:
 
     def format_volatility(self, symbol, interval, change, close_price, window):
         direction = "↑" if change > 0 else "↓"
-        return f"<b>{symbol}</b> ⚠️ {change*100:.1f}% {direction} | Цена: {close_price:.2f}"
+        return f"<b>{symbol}</b> ⚠️ {change*100:.2f}% {direction} | Цена: {close_price:.8f}"
 
     # -------------------------
     # Основные команды
