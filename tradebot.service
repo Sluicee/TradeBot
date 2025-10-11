@@ -1,0 +1,20 @@
+[Unit]
+Description=Crypto Trading Bot with Paper Trading
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/TradeBot
+Environment="PATH=/home/YOUR_USERNAME/TradeBot/venv/bin"
+ExecStart=/home/YOUR_USERNAME/TradeBot/venv/bin/python bot.py
+Restart=always
+RestartSec=10
+
+# Логирование
+StandardOutput=append:/home/YOUR_USERNAME/TradeBot/logs/bot_service.log
+StandardError=append:/home/YOUR_USERNAME/TradeBot/logs/bot_service_error.log
+
+[Install]
+WantedBy=multi-user.target
+

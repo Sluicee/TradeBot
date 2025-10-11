@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  tradebot:
+    build: .
+    container_name: tradebot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Персистентное хранилище для состояния и логов
+      - ./logs:/app/logs
+      - ./signals:/app/signals
+      - ./backtests:/app/backtests
+      - ./paper_trading_state.json:/app/paper_trading_state.json
+      - ./tracked_symbols.json:/app/tracked_symbols.json
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+

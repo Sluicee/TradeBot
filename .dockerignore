@@ -1,0 +1,32 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+logs/
+backtests/
+signals/
+paper_trading_state.json
+tracked_symbols.json
+
+# Environment
+.env
+
+# Testing
+*.log
+
