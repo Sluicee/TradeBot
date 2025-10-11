@@ -1,6 +1,7 @@
 import os
 import pandas as pd
-from bot import SignalGenerator, DataProvider
+from data_provider import DataProvider
+from signal_generator import SignalGenerator
 import aiohttp
 import asyncio
 import json
