@@ -6,90 +6,316 @@ import aiohttp
 import asyncio
 import json
 
+# Комиссия биржи
+COMMISSION_RATE = 0.0018  # 0.18%
+
+# Настройки стратегии
+MAX_POSITIONS = 3  # Максимальное количество одновременных позиций
+STOP_LOSS_PERCENT = 0.05  # 5% стоп-лосс
+TAKE_PROFIT_PERCENT = 0.10  # 10% тейк-профит (первая цель)
+PARTIAL_CLOSE_PERCENT = 0.50  # Закрываем 50% позиции на первой цели
+TRAILING_STOP_PERCENT = 0.02  # 2% trailing stop после частичного закрытия
+
+# Динамический размер позиции по силе сигнала
+def get_position_size_percent(signal_strength: int) -> float:
+	"""Возвращает процент от баланса для входа в позицию"""
+	if signal_strength >= 9:
+		return 0.70  # Сильный сигнал - 70%
+	elif signal_strength >= 6:
+		return 0.50  # Средний сигнал - 50%
+	else:
+		return 0.30  # Слабый сигнал - 30%
+
 # --- Бэктест стратегии ---
 async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 24, start_balance: float = 100.0):
-    candles_per_hour = int(60 / int(interval.replace('m',''))) if 'm' in interval else 1
-    limit = period_hours * candles_per_hour
+	candles_per_hour = int(60 / int(interval.replace('m',''))) if 'm' in interval else 1
+	limit = period_hours * candles_per_hour
 
-    async with aiohttp.ClientSession() as session:
-        provider = DataProvider(session)
-        df = await provider.fetch_klines(symbol=symbol, interval=interval, limit=limit)
+	async with aiohttp.ClientSession() as session:
+		provider = DataProvider(session)
+		df = await provider.fetch_klines(symbol=symbol, interval=interval, limit=limit)
 
-        if df is None or df.empty:
-            print("Нет данных для бэктеста.")
-            return
+		if df is None or df.empty:
+			print(f"Нет данных для бэктеста {symbol}.")
+			return None
 
-        generator = SignalGenerator(df)
-        generator.compute_indicators()
-        signals = []
-        min_window = 14  # минимальное количество строк для индикаторов
+		generator = SignalGenerator(df)
+		generator.compute_indicators()
+		signals = []
+		min_window = 14  # минимальное количество строк для индикаторов
 
-        for i in range(len(df)):
-            sub_df = df.iloc[:i+1]
-            if len(sub_df) < min_window:
-                signals.append({
-                    "time": sub_df.index[-1],
-                    "price": sub_df["close"].iloc[-1],
-                    "signal": "HOLD",
-                    "reasons": ["Недостаточно данных для анализа"]
-                })
-                continue
-            gen = SignalGenerator(sub_df)
-            gen.compute_indicators()
-            res = gen.generate_signal()
-            signals.append({
-                "time": sub_df.index[-1],
-                "price": res["price"],
-                "signal": res["signal"],
-                "reasons": res["reasons"]
-            })
+		for i in range(len(df)):
+			sub_df = df.iloc[:i+1]
+			if len(sub_df) < min_window:
+				signals.append({
+					"time": sub_df.index[-1],
+					"price": sub_df["close"].iloc[-1],
+					"signal": "HOLD",
+					"reasons": ["Недостаточно данных для анализа"]
+				})
+				continue
+			gen = SignalGenerator(sub_df)
+			gen.compute_indicators()
+			res = gen.generate_signal()
+			signals.append({
+				"time": sub_df.index[-1],
+				"price": res["price"],
+				"signal": res["signal"],
+				"reasons": res["reasons"]
+			})
 
-        # --- Бэктест: расчёт баланса за период ---
-        balance = start_balance
-        position = 0.0
-        entry_price = None
-        trades = []
+		# --- Бэктест: расчёт баланса за период с учетом комиссии ---
+		balance = start_balance
+		position = 0.0
+		entry_price = None
+		entry_strength = 0
+		trades = []
+		total_commission = 0.0
+		stop_loss_triggers = 0
+		take_profit_triggers = 0
+		partial_close_triggers = 0
+		trailing_stop_triggers = 0
+		partial_closed = False  # Флаг частичного закрытия
+		max_price = 0.0  # Максимальная цена для trailing stop
 
-        for s in signals:
-            price = s["price"]
-            sig = s["signal"]
-            if sig == "BUY" and position == 0:
-                position = balance / price
-                entry_price = price
-                balance = 0.0
-                trades.append(f"BUY {position:.6f} @ {price}")
-            elif sig == "SELL" and position > 0:
-                balance = position * price
-                trades.append(f"SELL {position:.6f} @ {price}")
-                position = 0.0
-                entry_price = None
+		for s in signals:
+			price = s["price"]
+			sig = s["signal"]
+			
+			# Получаем силу сигнала (разница между bullish и bearish голосами)
+			signal_strength = 3  # По умолчанию средняя сила
+			try:
+				reasons_text = str(s.get("reasons", [])[-1]) if s.get("reasons") else ""
+				if "Бычьи (" in reasons_text or "Бычье (" in reasons_text:
+					bullish = int(reasons_text.split("Бычьи (")[1].split(")")[0] if "Бычьи (" in reasons_text else reasons_text.split("Бычье (")[1].split(")")[0])
+					if "Медвежьи (" in reasons_text:
+						bearish = int(reasons_text.split("Медвежьи (")[1].split(")")[0])
+					elif "Медвежьих (" in reasons_text:
+						bearish = int(reasons_text.split("Медвежьих (")[1].split(")")[0])
+					else:
+						bearish = 0
+					signal_strength = abs(bullish - bearish)
+			except Exception as e:
+				pass  # Используем значение по умолчанию
+			
+			# Проверка стоп-лосса и тейк-профита
+			if position > 0 and entry_price:
+				price_change = (price - entry_price) / entry_price
+				
+				# Если позиция частично закрыта - проверяем trailing stop
+				if partial_closed:
+					# Обновляем максимальную цену
+					if price > max_price:
+						max_price = price
+					
+					# Проверяем trailing stop от максимальной цены
+					trailing_drop = (max_price - price) / max_price
+					if trailing_drop >= TRAILING_STOP_PERCENT:
+						sell_value = position * price
+						commission = sell_value * COMMISSION_RATE
+						total_commission += commission
+						balance += sell_value - commission
+						profit_from_max = ((price - max_price) / max_price) * 100
+						trades.append(f"TRAILING-STOP {position:.6f} @ {price} (от макс: {profit_from_max:+.2f}%, комиссия: ${commission:.4f})")
+						position = 0.0
+						entry_price = None
+						partial_closed = False
+						max_price = 0.0
+						trailing_stop_triggers += 1
+						continue
+				else:
+					# Обычная логика до частичного закрытия
+					
+					# Стоп-лосс
+					if price_change <= -STOP_LOSS_PERCENT:
+						sell_value = position * price
+						commission = sell_value * COMMISSION_RATE
+						total_commission += commission
+						balance += sell_value - commission
+						trades.append(f"STOP-LOSS {position:.6f} @ {price} (потеря: {price_change*100:.2f}%, комиссия: ${commission:.4f})")
+						position = 0.0
+						entry_price = None
+						stop_loss_triggers += 1
+						continue
+					
+					# Тейк-профит - частичное закрытие
+					if price_change >= TAKE_PROFIT_PERCENT:
+						close_amount = position * PARTIAL_CLOSE_PERCENT
+						keep_amount = position - close_amount
+						
+						sell_value = close_amount * price
+						commission = sell_value * COMMISSION_RATE
+						total_commission += commission
+						balance += sell_value - commission
+						
+						trades.append(f"PARTIAL-TP {close_amount:.6f} @ {price} (прибыль: {price_change*100:.2f}%, закрыто: {PARTIAL_CLOSE_PERCENT*100:.0f}%, комиссия: ${commission:.4f})")
+						
+						position = keep_amount
+						partial_closed = True
+						max_price = price
+						partial_close_triggers += 1
+						continue
+			
+			# Логика входа/выхода
+			if sig == "BUY" and position == 0 and balance > 0:
+				# Динамический размер позиции
+				position_size_percent = get_position_size_percent(signal_strength)
+				invest_amount = balance * position_size_percent
+				
+				commission = invest_amount * COMMISSION_RATE
+				total_commission += commission
+				position = (invest_amount - commission) / price
+				entry_price = price
+				entry_strength = signal_strength
+				balance -= invest_amount
+				
+				trades.append(f"BUY {position:.6f} @ {price} (сила: {signal_strength}, размер: {position_size_percent*100:.0f}%, комиссия: ${commission:.4f})")
+				
+			elif sig == "SELL" and position > 0 and not partial_closed:
+				# Закрываем позицию только если она не была частично закрыта
+				# (после частичного закрытия управляет trailing stop)
+				sell_value = position * price
+				commission = sell_value * COMMISSION_RATE
+				total_commission += commission
+				balance += sell_value - commission
+				
+				profit_on_trade = ((price - entry_price) / entry_price) * 100
+				trades.append(f"SELL {position:.6f} @ {price} (прибыль: {profit_on_trade:+.2f}%, комиссия: ${commission:.4f})")
+				position = 0.0
+				entry_price = None
 
-        # Если позиция осталась открытой — закрываем по последней цене
-        if position > 0:
-            balance = position * signals[-1]["price"]
+		# Если позиция осталась открытой — закрываем по последней цене с учетом комиссии
+		if position > 0:
+			final_price = signals[-1]["price"]
+			sell_value = position * final_price
+			commission = sell_value * COMMISSION_RATE
+			total_commission += commission
+			balance += sell_value - commission
+			profit_on_trade = ((final_price - entry_price) / entry_price) * 100
+			close_type = "частичной" if partial_closed else "полной"
+			trades.append(f"Закрытие {close_type} позиции: SELL {position:.6f} @ {final_price} (прибыль: {profit_on_trade:+.2f}%, комиссия: ${commission:.4f})")
+			position = 0.0
+			partial_closed = False
 
-        profit = balance - start_balance
-        print(f"Бэктест за {period_hours} часов: итоговый баланс = ${balance:.2f}, доходность = {profit:.2f} USD")
-        print("Торговые действия:")
-        for t in trades:
-            print(t)
+		# Финальный баланс = свободные деньги
+		total_balance = balance
+		
+		profit = total_balance - start_balance
+		profit_percent = (profit / start_balance) * 100
+		
+		print(f"\n=== {symbol} ===")
+		print(f"Бэктест за {period_hours} часов")
+		print(f"Начальный баланс: ${start_balance:.2f}")
+		print(f"Итоговый баланс: ${total_balance:.2f}")
+		print(f"Доходность: {profit:.2f} USD ({profit_percent:+.2f}%)")
+		print(f"Общая комиссия: ${total_commission:.4f}")
+		print(f"Количество сделок: {len(trades)}")
+		print(f"Stop-loss срабатываний: {stop_loss_triggers}")
+		print(f"Partial Take-profit: {partial_close_triggers}")
+		print(f"Trailing-stop: {trailing_stop_triggers}")
+		if len(trades) > 0:
+			win_trades = sum(1 for t in trades if "прибыль: +" in t or "PARTIAL-TP" in t)
+			loss_trades = sum(1 for t in trades if "прибыль: -" in t or "STOP-LOSS" in t or "TRAILING-STOP" in t)
+			if win_trades + loss_trades > 0:
+				win_rate = (win_trades / (win_trades + loss_trades)) * 100
+				print(f"Винрейт: {win_rate:.1f}% ({win_trades}W / {loss_trades}L)")
+		print("Торговые действия:")
+		for t in trades:
+			print(t)
 
-        # --- Сохраняем результат ---
-        output_dir = "backtests"
-        os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(output_dir, f"backtest_{symbol}_{interval}.json")
+		# --- Сохраняем результат ---
+		output_dir = "backtests"
+		os.makedirs(output_dir, exist_ok=True)
+		output_file = os.path.join(output_dir, f"backtest_{symbol}_{interval}.json")
 
-        with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(signals, f, ensure_ascii=False, indent=2, default=str)
+		with open(output_file, "w", encoding="utf-8") as f:
+			json.dump(signals, f, ensure_ascii=False, indent=2, default=str)
 
-        print(f"Бэктест завершён. Результаты сохранены в {output_file}")
+		print(f"Результаты сохранены в {output_file}")
+		
+		return {
+			"symbol": symbol,
+			"start_balance": start_balance,
+			"final_balance": total_balance,
+			"profit": profit,
+			"profit_percent": profit_percent,
+			"total_commission": total_commission,
+			"trades_count": len(trades),
+			"stop_loss_triggers": stop_loss_triggers,
+			"partial_tp_triggers": partial_close_triggers,
+			"trailing_stop_triggers": trailing_stop_triggers,
+			"win_rate": win_rate if 'win_rate' in locals() else 0
+		}
+
+
+async def run_backtest_multiple(symbols: list, interval: str = "15m", period_hours: int = 24, start_balance: float = 100.0):
+	"""Запускает бэктест для нескольких символов"""
+	results = []
+	
+	for symbol in symbols:
+		result = await run_backtest(symbol, interval, period_hours, start_balance)
+		if result:
+			results.append(result)
+	
+	# Выводим сводную таблицу
+	if results:
+		print("\n" + "="*110)
+		print("СВОДНАЯ ТАБЛИЦА РЕЗУЛЬТАТОВ")
+		print("="*110)
+		print(f"{'Символ':<10} {'Баланс':<10} {'Прибыль':<10} {'%':<8} {'Комиссия':<10} {'Сделок':<8} {'SL':<5} {'PTP':<5} {'TSL':<5} {'WinRate':<10}")
+		print("-"*110)
+		
+		total_profit = 0
+		total_commission = 0
+		total_sl = 0
+		total_ptp = 0
+		total_tsl = 0
+		
+		for r in results:
+			wr = f"{r['win_rate']:.1f}%" if r['win_rate'] > 0 else "N/A"
+			print(f"{r['symbol']:<10} ${r['final_balance']:<9.2f} ${r['profit']:<9.2f} {r['profit_percent']:>+6.2f}% ${r['total_commission']:<9.4f} {r['trades_count']:<8} {r['stop_loss_triggers']:<5} {r['partial_tp_triggers']:<5} {r['trailing_stop_triggers']:<5} {wr:<10}")
+			total_profit += r['profit']
+			total_commission += r['total_commission']
+			total_sl += r['stop_loss_triggers']
+			total_ptp += r['partial_tp_triggers']
+			total_tsl += r['trailing_stop_triggers']
+		
+		print("-"*110)
+		avg_profit_percent = (total_profit / (start_balance * len(results))) * 100
+		print(f"{'ИТОГО:':<10} {'':10} ${total_profit:<9.2f} {avg_profit_percent:>+6.2f}% ${total_commission:<9.4f} {'':8} {total_sl:<5} {total_ptp:<5} {total_tsl:<5}")
+		print("="*110)
+		print("\nЛегенда: SL=Stop-Loss, PTP=Partial Take-Profit, TSL=Trailing-Stop")
 
 
 if __name__ == "__main__":
-    import sys
-    symbol = sys.argv[1] if len(sys.argv) > 1 else "BTCUSDT"
-    interval = sys.argv[2] if len(sys.argv) > 2 else "15m"
-    period_hours = int(sys.argv[3]) if len(sys.argv) > 3 else 24
-    start_balance = float(sys.argv[4]) if len(sys.argv) > 4 else 100.0
-    asyncio.run(run_backtest(symbol, interval, period_hours, start_balance))
-    # Пример запуска: python backtest.py BTCUSDT 15m 24 100
+	import sys
+	
+	# Проверяем, хочет ли пользователь протестировать tracked_symbols
+	if len(sys.argv) > 1 and sys.argv[1] == "--tracked":
+		# Читаем tracked_symbols.json
+		try:
+			with open("tracked_symbols.json", "r", encoding="utf-8") as f:
+				data = json.load(f)
+				symbols = data.get("symbols", [])
+			
+			interval = sys.argv[2] if len(sys.argv) > 2 else "15m"
+			period_hours = int(sys.argv[3]) if len(sys.argv) > 3 else 24
+			start_balance = float(sys.argv[4]) if len(sys.argv) > 4 else 100.0
+			
+			print(f"Запуск бэктеста для {len(symbols)} символов: {', '.join(symbols)}")
+			asyncio.run(run_backtest_multiple(symbols, interval, period_hours, start_balance))
+		except FileNotFoundError:
+			print("Файл tracked_symbols.json не найден!")
+		except Exception as e:
+			print(f"Ошибка при чтении tracked_symbols.json: {e}")
+	else:
+		# Обычный режим - одна пара
+		symbol = sys.argv[1] if len(sys.argv) > 1 else "BTCUSDT"
+		interval = sys.argv[2] if len(sys.argv) > 2 else "15m"
+		period_hours = int(sys.argv[3]) if len(sys.argv) > 3 else 24
+		start_balance = float(sys.argv[4]) if len(sys.argv) > 4 else 100.0
+		asyncio.run(run_backtest(symbol, interval, period_hours, start_balance))
+	
+	# Примеры запуска:
+	# python backtest.py BTCUSDT 15m 24 100  -- одна пара
+	# python backtest.py --tracked 15m 24 100  -- все пары из tracked_symbols.json
