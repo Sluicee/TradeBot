@@ -52,11 +52,17 @@ echo ""
 if [ "$METHOD" = "docker" ]; then
 	echo "🐳 Обновление Docker контейнера..."
 	
-	# Создание бэкапа состояния
-	if [ -f "paper_trading_state.json" ]; then
-		echo "💾 Бэкап состояния..."
-		cp paper_trading_state.json "paper_trading_state.json.backup"
-	fi
+	# Создание бэкапа данных
+	echo "💾 Создание бэкапа данных..."
+	BACKUP_DIR="backups/backup_$(date +%Y%m%d_%H%M%S)"
+	mkdir -p "$BACKUP_DIR"
+	
+	# Бэкап важных файлов
+	[ -f "paper_trading_state.json" ] && cp paper_trading_state.json "$BACKUP_DIR/"
+	[ -f "tracked_symbols.json" ] && cp tracked_symbols.json "$BACKUP_DIR/"
+	[ -f ".env" ] && cp .env "$BACKUP_DIR/"
+	
+	echo "✅ Бэкап создан в: $BACKUP_DIR"
 	
 	# Определение версии docker-compose
 	if docker compose version &> /dev/null; then

@@ -13,9 +13,14 @@ DEFAULT_SYMBOL = os.getenv("DEFAULT_SYMBOL", "BTCUSDT")
 DEFAULT_INTERVAL = os.getenv("DEFAULT_INTERVAL", "1m")
 
 # Настройки фонового мониторинга
-POLL_INTERVAL = 60  # Интервал проверки сигналов (секунды)
+POLL_INTERVAL = 60  # Базовый интервал проверки сигналов (секунды)
+POLL_INTERVAL_MIN = 60  # Минимальный интервал при низкой волатильности
+POLL_INTERVAL_MAX = 300  # Максимальный интервал при высокой волатильности (5 минут)
 VOLATILITY_WINDOW = 10  # Окно для детекции волатильности (свечей)
 VOLATILITY_THRESHOLD = 0.05  # Порог волатильности для алерта (5%)
+VOLATILITY_HIGH_THRESHOLD = 0.08  # Порог высокой волатильности (8%) - увеличиваем интервал
+VOLATILITY_LOW_THRESHOLD = 0.02  # Порог низкой волатильности (2%) - можно проверять чаще
+VOLATILITY_ALERT_COOLDOWN = 600  # Cooldown для повторных уведомлений о волатильности (10 минут)
 
 # ====================================================================
 # ИНДИКАТОРЫ (SignalGenerator)

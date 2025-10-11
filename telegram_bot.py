@@ -5,7 +5,10 @@ from telegram import Update, __version__ as tg_version
 from telegram.ext import Application, CommandHandler, ContextTypes
 from config import (
 	TELEGRAM_TOKEN, OWNER_CHAT_ID, DEFAULT_SYMBOL, DEFAULT_INTERVAL,
-	POLL_INTERVAL, VOLATILITY_WINDOW, VOLATILITY_THRESHOLD, INITIAL_BALANCE
+	POLL_INTERVAL, POLL_INTERVAL_MIN, POLL_INTERVAL_MAX,
+	VOLATILITY_WINDOW, VOLATILITY_THRESHOLD,
+	VOLATILITY_HIGH_THRESHOLD, VOLATILITY_LOW_THRESHOLD, VOLATILITY_ALERT_COOLDOWN,
+	INITIAL_BALANCE
 )
 from signal_logger import log_signal
 from data_provider import DataProvider
@@ -41,6 +44,8 @@ class TelegramBot:
 		self._register_handlers()
 		self.last_signals: dict[str, str] = {}
 		self.last_volatility_alert: dict[str, float] = {}
+		self.last_volatility_alert_time: dict[str, float] = {}  # Время последнего уведомления о волатильности
+		self.current_poll_interval = POLL_INTERVAL  # Динамический интервал
 		
 		# Paper Trading
 		self.paper_trader = PaperTrader()  # Использует INITIAL_BALANCE из config
@@ -315,16 +320,42 @@ class TelegramBot:
 		except Exception as e:
 			await msg.edit_text(f"Ошибка при анализе: {e}")
 
+	def _calculate_adaptive_poll_interval(self, volatilities: list[float]) -> int:
+		"""Вычисляет адаптивный интервал опроса на основе волатильности"""
+		if not volatilities:
+			return POLL_INTERVAL
+		
+		avg_volatility = sum(abs(v) for v in volatilities) / len(volatilities)
+		
+		# Высокая волатильность - проверяем реже (снижаем спам)
+		if avg_volatility >= VOLATILITY_HIGH_THRESHOLD:
+			interval = POLL_INTERVAL_MAX
+			logger.info(f"Высокая волатильность {avg_volatility*100:.2f}%, увеличиваю интервал до {interval}с")
+		# Низкая волатильность - можно проверять чаще
+		elif avg_volatility <= VOLATILITY_LOW_THRESHOLD:
+			interval = POLL_INTERVAL_MIN
+			logger.info(f"Низкая волатильность {avg_volatility*100:.2f}%, интервал {interval}с")
+		# Умеренная волатильность - линейная интерполяция
+		else:
+			# Интерполируем между MIN и MAX
+			ratio = (avg_volatility - VOLATILITY_LOW_THRESHOLD) / (VOLATILITY_HIGH_THRESHOLD - VOLATILITY_LOW_THRESHOLD)
+			interval = int(POLL_INTERVAL_MIN + (POLL_INTERVAL_MAX - POLL_INTERVAL_MIN) * ratio)
+			logger.info(f"Умеренная волатильность {avg_volatility*100:.2f}%, интервал {interval}с")
+		
+		return interval
+
 	# -------------------------
 	# Фоновая задача
 	# -------------------------
 	async def _background_task(self):
+		import time
+		
 		while True:
 			if not self.tracked_symbols:
-				await asyncio.sleep(self.poll_interval)
+				await asyncio.sleep(self.current_poll_interval)
 				continue
 			if self.chat_id is None:
-				await asyncio.sleep(self.poll_interval)
+				await asyncio.sleep(self.current_poll_interval)
 				continue
 			
 			# Накапливаем все сообщения для отправки одним батчем
@@ -333,6 +364,9 @@ class TelegramBot:
 			# Для paper trading собираем цены и сигналы
 			current_prices = {}
 			trading_signals = {}
+			
+			# Для адаптивного интервала
+			volatilities = []
 			
 			async with aiohttp.ClientSession() as session:
 				provider = DataProvider(session)
@@ -409,13 +443,28 @@ class TelegramBot:
 							prev_close = df["close"].iloc[-(self.volatility_window + 1)]
 							current_close = df["close"].iloc[-1]
 							change = (current_close - prev_close) / prev_close
+							
+							# Собираем волатильность для адаптивного интервала
+							volatilities.append(change)
 
+							# Проверяем cooldown для уведомлений о волатильности
+							current_time = time.time()
+							last_alert_time = self.last_volatility_alert_time.get(symbol, 0)
+							time_since_last_alert = current_time - last_alert_time
+							
+							# Отправляем уведомление только если:
+							# 1. Волатильность выше порога
+							# 2. Прошло достаточно времени с последнего уведомления (cooldown)
+							# 3. Цена изменилась значительно с последнего уведомления
 							last_alert_price = self.last_volatility_alert.get(symbol)
-							if abs(change) >= self.volatility_threshold and last_alert_price != current_close:
+							price_changed_significantly = last_alert_price is None or abs(current_close - last_alert_price) / last_alert_price >= self.volatility_threshold * 0.5
+							
+							if abs(change) >= self.volatility_threshold and time_since_last_alert >= VOLATILITY_ALERT_COOLDOWN and price_changed_significantly:
 								text = self.format_volatility(symbol, self.default_interval, change, current_close, self.volatility_window)
 								all_messages.append(text)
 								self.last_volatility_alert[symbol] = current_close
-								logger.info("Волатильность %s: %.2f%%", symbol, change*100)
+								self.last_volatility_alert_time[symbol] = current_time
+								logger.info("Волатильность %s: %.2f%% (cooldown: %.1f мин)", symbol, change*100, VOLATILITY_ALERT_COOLDOWN/60)
 
 					except Exception as e:
 						logger.error("Ошибка фонового анализа %s: %s", symbol, e)
@@ -472,7 +521,13 @@ class TelegramBot:
 				await self.application.bot.send_message(chat_id=self.chat_id, text=combined_message, parse_mode="HTML")
 				logger.info("Отправлено %d изменений", len(all_messages))
 			
-			await asyncio.sleep(self.poll_interval)
+			# Адаптивный интервал на основе волатильности
+			if volatilities:
+				self.current_poll_interval = self._calculate_adaptive_poll_interval(volatilities)
+			else:
+				self.current_poll_interval = POLL_INTERVAL
+			
+			await asyncio.sleep(self.current_poll_interval)
 
 	# -------------------------
 	# Настройки
@@ -485,12 +540,21 @@ class TelegramBot:
 		args = context.args
 		if not args:
 			text = (
-				f"Текущие настройки:\n"
-				f"Фоновый интервал (poll_interval): {self.poll_interval} сек\n"
-				f"Окно волатильности (volatility_window): {self.volatility_window} свечей\n"
-				f"Порог волатильности (volatility_threshold): {self.volatility_threshold*100:.2f}%"
+				f"<b>⚙️ Текущие настройки:</b>\n\n"
+				f"<b>Интервал опроса:</b>\n"
+				f"  • Текущий: {self.current_poll_interval} сек\n"
+				f"  • Базовый: {self.poll_interval} сек\n"
+				f"  • Диапазон: {POLL_INTERVAL_MIN}-{POLL_INTERVAL_MAX} сек\n\n"
+				f"<b>Волатильность:</b>\n"
+				f"  • Окно: {self.volatility_window} свечей\n"
+				f"  • Порог алерта: {self.volatility_threshold*100:.2f}%\n"
+				f"  • Порог высокой: {VOLATILITY_HIGH_THRESHOLD*100:.2f}%\n"
+				f"  • Порог низкой: {VOLATILITY_LOW_THRESHOLD*100:.2f}%\n"
+				f"  • Cooldown: {VOLATILITY_ALERT_COOLDOWN/60:.0f} мин\n\n"
+				f"<i>При высокой волатильности интервал автоматически\n"
+				f"увеличивается до {POLL_INTERVAL_MAX}с для снижения спама</i>"
 			)
-			await update.message.reply_text(text)
+			await update.message.reply_text(text, parse_mode="HTML")
 			return
 
 		try:
@@ -502,7 +566,7 @@ class TelegramBot:
 				self.volatility_threshold = float(args[2])
 			self._save_tracked_symbols()
 			await update.message.reply_text(
-				f"Настройки обновлены:\n"
+				f"✅ Настройки обновлены:\n"
 				f"poll_interval = {self.poll_interval} сек\n"
 				f"volatility_window = {self.volatility_window} свечей\n"
 				f"volatility_threshold = {self.volatility_threshold*100:.2f}%"
