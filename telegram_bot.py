@@ -50,7 +50,7 @@ class TelegramBot:
                 settings = data.get("settings", {})
                 self.poll_interval = settings.get("poll_interval", 60)
                 self.volatility_window = settings.get("volatility_window", 10)
-                self.volatility_threshold = settings.get("volatility_threshold")
+                self.volatility_threshold = settings.get("volatility_threshold", 0.02)
                 logger.info("Загружено %d пар, chat_id=%s, настройки=%s",
                             len(self.tracked_symbols), self.chat_id, settings)
         except FileNotFoundError:
@@ -104,7 +104,7 @@ class TelegramBot:
         )
         if self.chat_id is None:
             self.chat_id = update.effective_chat.id
-            self._save_tracked_symbols()
+            self._load_tracked_symbols()
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
@@ -182,7 +182,7 @@ class TelegramBot:
                 df = provider.klines_to_dataframe(klines)
 
             if df.empty:
-                await msg.edit_text("Не удалось получить данные от Binance.")
+                await msg.edit_text("Не удалось получить данные от ByBIT.")
                 return
 
             generator = SignalGenerator(df)
