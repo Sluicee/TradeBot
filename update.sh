@@ -11,6 +11,26 @@ echo ""
 if [ -f "docker-compose.yml" ] && command -v docker-compose &> /dev/null; then
 	METHOD="docker"
 	echo "📦 Обнаружен Docker"
+	
+	# Проверка доступа к Docker
+	if ! docker ps &> /dev/null; then
+		echo ""
+		echo "❌ Нет доступа к Docker!"
+		echo ""
+		echo "Решения:"
+		echo "  1. Добавить пользователя в группу docker:"
+		echo "     sudo usermod -aG docker \$USER"
+		echo "     exit  # И перелогиниться"
+		echo ""
+		echo "  2. Или запустить с sudo:"
+		echo "     sudo docker-compose down"
+		echo "     sudo docker-compose up -d --build"
+		echo ""
+		echo "  3. Проверить что Docker запущен:"
+		echo "     sudo systemctl status docker"
+		exit 1
+	fi
+	
 elif systemctl is-active --quiet tradebot 2>/dev/null; then
 	METHOD="systemd"
 	echo "⚙️  Обнаружен Systemd"
@@ -38,11 +58,23 @@ if [ "$METHOD" = "docker" ]; then
 		cp paper_trading_state.json "paper_trading_state.json.backup"
 	fi
 	
+	# Определение версии docker-compose
+	if docker compose version &> /dev/null; then
+		DC_CMD="docker compose"
+	elif command -v docker-compose &> /dev/null; then
+		DC_CMD="docker-compose"
+	else
+		echo "❌ docker-compose не найден!"
+		exit 1
+	fi
+	
+	echo "Используется: $DC_CMD"
+	
 	# Остановка
-	docker-compose down
+	$DC_CMD down
 	
 	# Пересборка и запуск
-	docker-compose up -d --build
+	$DC_CMD up -d --build
 	
 	echo ""
 	echo "✅ Обновление завершено!"

@@ -129,6 +129,34 @@ docker-compose up -d
 
 ## Проблемы и решения
 
+### Ошибка "permission denied" или "http+docker"
+
+Нет прав доступа к Docker:
+
+```bash
+# Добавить себя в группу docker
+sudo usermod -aG docker $USER
+
+# Перелогиниться
+exit
+ssh user@server
+
+# Проверить
+docker ps
+groups  # Должна быть группа docker
+```
+
+### Docker daemon не запущен
+
+```bash
+# Запустить Docker
+sudo systemctl start docker
+sudo systemctl enable docker
+
+# Проверить статус
+sudo systemctl status docker
+```
+
 ### Бот не запускается
 
 ```bash

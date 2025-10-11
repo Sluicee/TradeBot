@@ -20,7 +20,7 @@ ssh user@your-server
 # Установите Docker (если еще не установлен)
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
-sudo apt install docker-compose
+sudo apt install docker-compose-plugin
 
 # Перелогиньтесь
 exit
@@ -36,10 +36,10 @@ nano .env
 # Заполните TELEGRAM_TOKEN и OWNER_CHAT_ID
 
 # Запустите!
-docker-compose up -d
+docker compose up -d
 
 # Проверьте логи
-docker-compose logs -f
+docker compose logs -f
 ```
 
 **Готово!** Бот запущен и работает в фоне.

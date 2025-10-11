@@ -15,6 +15,22 @@ fi
 PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1,2)
 echo "✅ Python $PYTHON_VERSION найден"
 
+# Проверка Docker если используется
+if [ -f "docker-compose.yml" ] && command -v docker &> /dev/null; then
+	echo "🐳 Обнаружен Docker"
+	
+	if ! docker ps &> /dev/null; then
+		echo "⚠️  Нет доступа к Docker."
+		echo "Добавьте себя в группу docker: sudo usermod -aG docker \$USER"
+		echo "Затем перелогиньтесь или продолжите установку для Systemd"
+		read -p "Продолжить установку для Systemd? (y/N) " -n 1 -r
+		echo
+		if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+			exit 1
+		fi
+	fi
+fi
+
 # Создание виртуального окружения
 if [ ! -d "venv" ]; then
 	echo "📦 Создание виртуального окружения..."
