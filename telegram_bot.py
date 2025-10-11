@@ -88,8 +88,7 @@ class TelegramBot:
                 self.poll_interval = settings.get("poll_interval", 60)
                 self.volatility_window = settings.get("volatility_window", 10)
                 self.volatility_threshold = settings.get("volatility_threshold", 0.02)
-                logger.info("Загружено %d пар, chat_id=%s, настройки=%s",
-                            len(self.tracked_symbols), self.chat_id, settings)
+                logger.info("Загружено %d пар", len(self.tracked_symbols))
         except FileNotFoundError:
             logger.info("JSON-файл %s не найден, создаём новый", self.json_file)
             self.tracked_symbols = set()
@@ -117,11 +116,6 @@ class TelegramBot:
                         "volatility_threshold": self.volatility_threshold
                     }
                 }, f, indent=2)
-            logger.info("Сохранено %d пар и chat_id=%s, настройки=%s",
-                        len(self.tracked_symbols), self.chat_id,
-                        {"poll_interval": self.poll_interval,
-                        "volatility_window": self.volatility_window,
-                        "volatility_threshold": self.volatility_threshold})
         except Exception as e:
             logger.error("Ошибка сохранения %s: %s", self.json_file, e)
 
@@ -327,14 +321,11 @@ class TelegramBot:
     async def _background_task(self):
         while True:
             if not self.tracked_symbols:
-                logger.info("Нет отслеживаемых символов, пропускаем цикл")
                 await asyncio.sleep(self.poll_interval)
                 continue
             if self.chat_id is None:
-                logger.info("chat_id не установлен, пропускаем цикл")
                 await asyncio.sleep(self.poll_interval)
                 continue
-            logger.info("Фоновый анализ для %d пар...", len(self.tracked_symbols))
             
             # Накапливаем все сообщения для отправки одним батчем
             all_messages = []
@@ -385,20 +376,17 @@ class TelegramBot:
                 # Анализируем отслеживаемые символы
                 for symbol in self.tracked_symbols:
                     try:
-                        logger.info("Запрашиваем свечи для %s (%s)", symbol, self.default_interval)
                         klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=500)
                         df = provider.klines_to_dataframe(klines)
                         if df.empty:
                             logger.warning("Нет данных для %s, пропускаем", symbol)
                             continue
-                        logger.info("Получено %d свечей для %s", len(df), symbol)
 
                         generator = SignalGenerator(df)
                         generator.compute_indicators()
                         result = generator.generate_signal()
                         signal = result["signal"]
                         current_price = float(df['close'].iloc[-1])
-                        logger.info("Сгенерирован сигнал для %s: %s", symbol, signal)
                         
                         # Сохраняем для paper trading
                         current_prices[symbol] = current_price
@@ -410,9 +398,7 @@ class TelegramBot:
                             all_messages.append(text)
                             self.last_signals[symbol] = signal
                             log_signal(symbol, self.default_interval, signal, result["reasons"], result["price"])
-                            logger.info("Сигнал для %s: %s", symbol, signal)
-                        else:
-                            logger.info("Сигнал для %s не изменился (%s)", symbol, signal)
+                            logger.info("Сигнал %s: %s", symbol, signal)
 
                         # -------------------
                         # Волатильность
@@ -429,9 +415,7 @@ class TelegramBot:
                                 text = self.format_volatility(symbol, self.default_interval, change, current_close, self.volatility_window)
                                 all_messages.append(text)
                                 self.last_volatility_alert[symbol] = current_close
-                                logger.info("Отправлено уведомление о волатильности для %s: %.2f%%", symbol, change*100)
-                            else:
-                                logger.info("Волатильность для %s ниже порога или сообщение уже отправлено", symbol)
+                                logger.info("Волатильность %s: %.2f%%", symbol, change*100)
 
                     except Exception as e:
                         logger.error("Ошибка фонового анализа %s: %s", symbol, e)
@@ -486,9 +470,8 @@ class TelegramBot:
             if all_messages:
                 combined_message = "\n\n".join(all_messages)
                 await self.application.bot.send_message(chat_id=self.chat_id, text=combined_message, parse_mode="HTML")
-                logger.info("Отправлено объединённое сообщение с %d изменениями", len(all_messages))
+                logger.info("Отправлено %d изменений", len(all_messages))
             
-            logger.info("Фоновый анализ завершён, ждём %d секунд", self.poll_interval)
             await asyncio.sleep(self.poll_interval)
 
     # -------------------------

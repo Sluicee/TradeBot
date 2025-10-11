@@ -260,7 +260,7 @@ class PaperTrader:
 		"""Запускает paper trading"""
 		self.is_running = True
 		self.start_time = datetime.now().isoformat()
-		logger.info(f"Paper Trading запущен с балансом ${self.balance:.2f}")
+		logger.info(f"Paper Trading запущен: ${self.balance:.2f}")
 		
 	def stop(self):
 		"""Останавливает paper trading"""
@@ -282,7 +282,6 @@ class PaperTrader:
 			"trailing_stop_triggers": 0
 		}
 		self.start_time = datetime.now().isoformat()
-		logger.info("Paper Trading сброшен")
 		
 	def can_open_position(self, symbol: str) -> bool:
 		"""Проверяет, можно ли открыть позицию"""
@@ -310,7 +309,7 @@ class PaperTrader:
 		
 		# Проверка корреляции - не открываем коррелированные позиции
 		if not check_correlation_risk(symbol, self.positions):
-			logger.info(f"[PAPER] Пропускаем {symbol} - уже есть коррелированная позиция")
+			logger.warning(f"[PAPER] {symbol} - корреляция с открытой позицией")
 			return None
 			
 		# Рассчитываем размер позиции с учётом волатильности
@@ -360,7 +359,7 @@ class PaperTrader:
 		self.trades_history.append(trade_info)
 		self.stats["total_trades"] += 1
 		
-		logger.info(f"[PAPER] BUY {amount:.6f} {symbol} @ ${price:.2f} (сила: {signal_strength}, размер: {position_size_percent*100:.0f}%, комиссия: ${commission:.4f})")
+		logger.info(f"[PAPER] BUY {symbol} @ ${price:.2f} ({position_size_percent*100:.0f}%)")
 		
 		return trade_info
 		
@@ -416,7 +415,7 @@ class PaperTrader:
 		}
 		self.trades_history.append(trade_info)
 		
-		logger.info(f"[PAPER] {reason} {position.amount:.6f} {symbol} @ ${price:.2f} (прибыль: {profit:+.2f} USD / {profit_percent:+.2f}%, комиссия: ${commission:.4f})")
+		logger.info(f"[PAPER] {reason} {symbol} @ ${price:.2f} ({profit:+.2f} USD / {profit_percent:+.2f}%)")
 		
 		# Удаляем позицию
 		del self.positions[symbol]
@@ -480,7 +479,7 @@ class PaperTrader:
 		}
 		self.trades_history.append(trade_info)
 		
-		logger.info(f"[PAPER] PARTIAL-TP {close_amount:.6f} {symbol} @ ${price:.2f} (прибыль: {profit:+.2f} USD / {profit_percent:+.2f}%, закрыто: {PARTIAL_CLOSE_PERCENT*100:.0f}%)")
+		logger.info(f"[PAPER] PARTIAL-TP {symbol} @ ${price:.2f} ({profit:+.2f} USD / {profit_percent:+.2f}%)")
 		
 		return trade_info
 		
@@ -608,14 +607,12 @@ class PaperTrader:
 		try:
 			with open(STATE_FILE, "w", encoding="utf-8") as f:
 				json.dump(state, f, ensure_ascii=False, indent=2)
-			logger.info(f"Состояние Paper Trading сохранено в {STATE_FILE}")
 		except Exception as e:
 			logger.error(f"Ошибка сохранения состояния: {e}")
 			
 	def load_state(self) -> bool:
 		"""Загружает состояние из файла"""
 		if not os.path.exists(STATE_FILE):
-			logger.info(f"Файл состояния {STATE_FILE} не найден, начинаем с чистого листа")
 			return False
 			
 		try:
@@ -644,8 +641,7 @@ class PaperTrader:
 				for symbol, pos_data in positions_data.items()
 			}
 			
-			logger.info(f"Состояние Paper Trading загружено из {STATE_FILE}")
-			logger.info(f"Баланс: ${self.balance:.2f}, Позиций: {len(self.positions)}, Сделок: {len(self.trades_history)}")
+			logger.info(f"Paper Trading: ${self.balance:.2f}, {len(self.positions)} позиций, {len(self.trades_history)} сделок")
 			return True
 			
 		except Exception as e:

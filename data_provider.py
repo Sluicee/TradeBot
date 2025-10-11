@@ -95,7 +95,7 @@ class DataProvider:
             
             # Проверка на NaN после конвертации
             if df[["open", "high", "low", "close", "volume"]].isna().any().any():
-                logger.warning(f"NaN values detected in data for {symbol} ({cat}), filling...")
+                logger.warning(f"NaN values in {symbol} ({cat}), filling...")
                 df.ffill(inplace=True)
                 df.bfill(inplace=True)
             
@@ -109,7 +109,6 @@ class DataProvider:
             df = df.sort_values("open_time").reset_index(drop=True)
             df.set_index("open_time", inplace=True)
             df = df.astype(float)
-            logger.info(f"Получено {len(df)} свечей для {symbol} ({cat})")
             return df
 
         raise ValueError(f"Не удалось получить данные для {symbol}: {last_error}")
