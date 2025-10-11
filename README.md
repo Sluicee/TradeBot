@@ -68,8 +68,7 @@ chmod +x deploy.sh
 sudo systemctl start tradebot
 ```
 
-**📖 Подробная инструкция:** см. [DEPLOYMENT.md](DEPLOYMENT.md)  
-**💾 Резервное копирование:** см. [BACKUP.md](BACKUP.md)
+**📖 Подробная инструкция:** см. [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ### Настройка .env файла
 
