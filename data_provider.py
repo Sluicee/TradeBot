@@ -5,6 +5,9 @@ from logger import logger
 from dataclasses import dataclass
 import time
 
+# Таймаут для API запросов (30 секунд)
+API_TIMEOUT = aiohttp.ClientTimeout(total=30)
+
 @dataclass
 class Kline:
     open_time: int
@@ -43,7 +46,15 @@ class DataProvider:
         try:
             interval_minutes = int(interval)
         except ValueError:
-            interval_minutes = 15  # если вдруг 'D' или 'W'
+            # Для дневных/недельных/месячных интервалов
+            if interval == 'D':
+                interval_minutes = 1440  # 24 часа
+            elif interval == 'W':
+                interval_minutes = 10080  # 7 дней
+            elif interval == 'M':
+                interval_minutes = 43200  # ~30 дней
+            else:
+                interval_minutes = 15  # fallback
         start_time = now - limit * interval_minutes * 60 * 1000
 
         for cat in categories:
@@ -56,7 +67,7 @@ class DataProvider:
                 "end": now
             }
 
-            async with self.session.get(self.BYBIT_KLINES, params=params) as resp:
+            async with self.session.get(self.BYBIT_KLINES, params=params, timeout=API_TIMEOUT) as resp:
                 data = await resp.json()
 
             if data.get("retCode") != 0:
@@ -72,8 +83,28 @@ class DataProvider:
 
             klines = result["list"]
             df = pd.DataFrame(klines, columns=["open_time", "open", "high", "low", "close", "volume", "turnover"])
+            
+            # Валидация данных
+            if df.empty:
+                last_error = f"Empty dataframe for {symbol} ({cat})"
+                logger.warning(last_error)
+                continue
+            
             for col in ["open", "high", "low", "close", "volume"]:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
+            
+            # Проверка на NaN после конвертации
+            if df[["open", "high", "low", "close", "volume"]].isna().any().any():
+                logger.warning(f"NaN values detected in data for {symbol} ({cat}), filling...")
+                df.ffill(inplace=True)
+                df.bfill(inplace=True)
+            
+            # Проверка на отрицательные значения
+            if (df[["open", "high", "low", "close", "volume"]] < 0).any().any():
+                last_error = f"Invalid negative values in data for {symbol} ({cat})"
+                logger.warning(last_error)
+                continue
+            
             df["open_time"] = pd.to_datetime(pd.to_numeric(df["open_time"]), unit="ms")
             df = df.sort_values("open_time").reset_index(drop=True)
             df.set_index("open_time", inplace=True)

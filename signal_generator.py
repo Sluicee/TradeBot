@@ -52,22 +52,22 @@ class SignalGenerator:
             self.df["Ichimoku_b"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
 
         # Осцилляторы
-            self.df["RSI_14"] = ta.momentum.rsi(close, window=14) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-            self.df["Stoch_K"] = ta.momentum.stoch(high, low, close, window=14, smooth_window=3) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-            self.df["Stoch_D"] = ta.momentum.stoch_signal(high, low, close, window=14, smooth_window=3) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-            self.df["CCI_20"] = ta.trend.cci(high, low, close, window=20) if len(self.df) >= 20 else pd.Series([np.nan]*len(self.df), index=self.df.index)
-            # ADX с обработкой ошибок
-            if (
-                len(self.df) >= 14
-                and len(self.df.tail(14)) == 14
-                and self.df[["high", "low", "close"]].tail(14).isna().sum().sum() == 0
-            ):
-                try:
-                    self.df["ADX_14"] = ta.trend.adx(high, low, close, window=14)
-                except Exception:
-                    self.df["ADX_14"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
-            else:
+        self.df["RSI_14"] = ta.momentum.rsi(close, window=14) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
+        self.df["Stoch_K"] = ta.momentum.stoch(high, low, close, window=14, smooth_window=3) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
+        self.df["Stoch_D"] = ta.momentum.stoch_signal(high, low, close, window=14, smooth_window=3) if len(self.df) >= 14 else pd.Series([np.nan]*len(self.df), index=self.df.index)
+        self.df["CCI_20"] = ta.trend.cci(high, low, close, window=20) if len(self.df) >= 20 else pd.Series([np.nan]*len(self.df), index=self.df.index)
+        # ADX с обработкой ошибок
+        if (
+            len(self.df) >= 14
+            and len(self.df.tail(14)) == 14
+            and self.df[["high", "low", "close"]].tail(14).isna().sum().sum() == 0
+        ):
+            try:
+                self.df["ADX_14"] = ta.trend.adx(high, low, close, window=14)
+            except Exception:
                 self.df["ADX_14"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
+        else:
+            self.df["ADX_14"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
         self.df["Awesome"] = ta.momentum.awesome_oscillator(high, low, window1=5, window2=34) if len(self.df) >= 34 else pd.Series([np.nan]*len(self.df), index=self.df.index)
         self.df["Momentum_10"] = ta.momentum.roc(close, window=10) if len(self.df) >= 10 else pd.Series([np.nan]*len(self.df), index=self.df.index)
         self.df["MACD_level"] = ta.trend.macd(close, window_slow=26, window_fast=12) if len(self.df) >= 26 else pd.Series([np.nan]*len(self.df), index=self.df.index)
@@ -92,8 +92,6 @@ class SignalGenerator:
             self.df["MACD_hist"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
 
         self.df.ffill(inplace=True)
-        self.df.bfill(inplace=True)
-        return self.df
         self.df.bfill(inplace=True)
         return self.df
 

@@ -26,7 +26,7 @@ class TelegramBot:
         self.last_signals: dict[str, str] = {}
         #self.chat_id: int | None = None
         self.volatility_window = 10
-        self.volatility_threshold = 0.02
+        self.volatility_threshold = 0.05
         self.last_volatility_alert: dict[str, float] = {}
 
     def _register_handlers(self):
@@ -292,17 +292,18 @@ class TelegramBot:
                         # -------------------
                         # Волатильность
                         # -------------------
-                        if len(df) >= self.volatility_window:
+                        if len(df) >= self.volatility_window + 1:
                             recent_df = df.iloc[-self.volatility_window:]
-                            open_price = recent_df["open"].iloc[0]
-                            close_price = recent_df["close"].iloc[-1]
-                            change = (close_price - open_price) / open_price
+                            # Сравниваем текущую цену с ценой N свечей назад
+                            prev_close = df["close"].iloc[-(self.volatility_window + 1)]
+                            current_close = df["close"].iloc[-1]
+                            change = (current_close - prev_close) / prev_close
 
                             last_alert_price = self.last_volatility_alert.get(symbol)
-                            if abs(change) >= self.volatility_threshold and last_alert_price != close_price:
-                                text = self.format_volatility(symbol, self.default_interval, change, close_price, self.volatility_window)
+                            if abs(change) >= self.volatility_threshold and last_alert_price != current_close:
+                                text = self.format_volatility(symbol, self.default_interval, change, current_close, self.volatility_window)
                                 await self.application.bot.send_message(chat_id=self.chat_id, text=text, parse_mode="HTML")
-                                self.last_volatility_alert[symbol] = close_price
+                                self.last_volatility_alert[symbol] = current_close
                                 logger.info("Отправлено уведомление о волатильности для %s: %.2f%%", symbol, change*100)
                             else:
                                 logger.info("Волатильность для %s ниже порога или сообщение уже отправлено", symbol)
