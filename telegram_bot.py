@@ -24,7 +24,7 @@ class TelegramBot:
         self._register_handlers()
         self.poll_interval = 60
         self.last_signals: dict[str, str] = {}
-        self.chat_id: int | None = None
+        #self.chat_id: int | None = None
         self.volatility_window = 10
         self.volatility_threshold = 0.02
         self.last_volatility_alert: dict[str, float] = {}
@@ -252,23 +252,32 @@ class TelegramBot:
     # -------------------------
     async def _background_task(self):
         while True:
-            if not self.tracked_symbols or self.chat_id is None:
+            if not self.tracked_symbols:
+                logger.info("Нет отслеживаемых символов, пропускаем цикл")
                 await asyncio.sleep(self.poll_interval)
                 continue
-
+            if self.chat_id is None:
+                logger.info("chat_id не установлен, пропускаем цикл")
+                await asyncio.sleep(self.poll_interval)
+                continue
+            logger.info("Фоновый анализ для %d пар...", len(self.tracked_symbols))
             async with aiohttp.ClientSession() as session:
                 provider = DataProvider(session)
                 for symbol in self.tracked_symbols:
                     try:
+                        logger.info("Запрашиваем свечи для %s (%s)", symbol, self.default_interval)
                         klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=500)
                         df = provider.klines_to_dataframe(klines)
                         if df.empty:
+                            logger.warning("Нет данных для %s, пропускаем", symbol)
                             continue
+                        logger.info("Получено %d свечей для %s", len(df), symbol)
 
                         generator = SignalGenerator(df)
                         generator.compute_indicators()
                         result = generator.generate_signal()
                         signal = result["signal"]
+                        logger.info("Сгенерирован сигнал для %s: %s", symbol, signal)
 
                         last = self.last_signals.get(symbol)
                         if last != signal:
@@ -277,6 +286,8 @@ class TelegramBot:
                             self.last_signals[symbol] = signal
                             log_signal(symbol, self.default_interval, signal, result["reasons"], result["price"])
                             logger.info("Сигнал для %s: %s", symbol, signal)
+                        else:
+                            logger.info("Сигнал для %s не изменился (%s)", symbol, signal)
 
                         # -------------------
                         # Волатильность
@@ -292,9 +303,13 @@ class TelegramBot:
                                 text = self.format_volatility(symbol, self.default_interval, change, close_price, self.volatility_window)
                                 await self.application.bot.send_message(chat_id=self.chat_id, text=text, parse_mode="HTML")
                                 self.last_volatility_alert[symbol] = close_price
+                                logger.info("Отправлено уведомление о волатильности для %s: %.2f%%", symbol, change*100)
+                            else:
+                                logger.info("Волатильность для %s ниже порога или сообщение уже отправлено", symbol)
 
                     except Exception as e:
                         logger.error("Ошибка фонового анализа %s: %s", symbol, e)
+            logger.info("Фоновый анализ завершён, ждём %d секунд", self.poll_interval)
             await asyncio.sleep(self.poll_interval)
 
     # -------------------------
