@@ -100,40 +100,21 @@ class TelegramBot:
 
         def fmt(val):
             if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
-                return 'нет данных'
-            return f'{val:.5f}' if isinstance(val, float) else str(val)
+                return 'н/д'
+            return f'{val:.2f}' if isinstance(val, float) else str(val)
 
-        header = f"<b>📊 Авто-анализ {html_escape(symbol)} ({html_escape(interval)})</b>\n"
-        price_line = f"💰 Цена: <b>{fmt(result['price'])}</b>\n"
-        signal_line = f"⚡ Сигнал: <b>{html_escape(result['signal'])}</b> {result['signal_emoji']}\n"
-        reasons = '\n'.join([f"• {html_escape(r)}" for r in result["reasons"]])
-        reasons_block = f"\n<b>📖 Обоснование:</b>\n{reasons}\n"
-
-        ind = result
-        indicators_block = (
-            "<b>📈 Индикаторы:</b>\n"
-            f"<code>EMA_short    : {fmt(ind['EMA_short'])}\n"
-            f"EMA_long     : {fmt(ind['EMA_long'])}\n"
-            f"RSI          : {fmt(ind['RSI'])}\n"
-            f"MACD         : {fmt(ind['MACD'])}\n"
-            f"MACD_signal  : {fmt(ind['MACD_signal'])}\n"
-            f"MACD_hist    : {fmt(ind['MACD_hist'])}</code>\n"
+        # Берём первую причину как основную
+        main_reason = html_escape(result["reasons"][0]) if result["reasons"] else "нет данных"
+        
+        return (
+            f"<b>{html_escape(symbol)}</b> {result['signal_emoji']} <b>{html_escape(result['signal'])}</b>\n"
+            f"  ₿{fmt(result['price'])} | RSI {fmt(result['RSI'])}\n"
+            f"  {main_reason}"
         )
-
-        footer = "<i>Простой индикаторный сигнал — не торговая рекомендация.</i>"
-
-        return header + price_line + signal_line + reasons_block + indicators_block + footer
 
     def format_volatility(self, symbol, interval, change, close_price, window):
         direction = "↑" if change > 0 else "↓"
-        impact = "Резкое движение цены, возможна волатильность в ближайшие минуты"
-        text = (
-            f"<b>⚠️ Волатильность {symbol} ({interval})</b>\n"
-            f"За последние {window} свечей: {change*100:.2f}% {direction}\n"
-            f"Текущая цена: <b>{close_price:.8f}</b>\n"
-            f"<i>{impact}</i>"
-        )
-        return text
+        return f"<b>{symbol}</b> ⚠️ {change*100:.1f}% {direction} | Цена: {close_price:.2f}"
 
     # -------------------------
     # Основные команды
@@ -261,6 +242,10 @@ class TelegramBot:
                 await asyncio.sleep(self.poll_interval)
                 continue
             logger.info("Фоновый анализ для %d пар...", len(self.tracked_symbols))
+            
+            # Накапливаем все сообщения для отправки одним батчем
+            all_messages = []
+            
             async with aiohttp.ClientSession() as session:
                 provider = DataProvider(session)
                 for symbol in self.tracked_symbols:
@@ -282,7 +267,7 @@ class TelegramBot:
                         last = self.last_signals.get(symbol)
                         if last != signal:
                             text = self.format_analysis(result, symbol, self.default_interval)
-                            await self.application.bot.send_message(chat_id=self.chat_id, text=text, parse_mode="HTML")
+                            all_messages.append(text)
                             self.last_signals[symbol] = signal
                             log_signal(symbol, self.default_interval, signal, result["reasons"], result["price"])
                             logger.info("Сигнал для %s: %s", symbol, signal)
@@ -302,7 +287,7 @@ class TelegramBot:
                             last_alert_price = self.last_volatility_alert.get(symbol)
                             if abs(change) >= self.volatility_threshold and last_alert_price != current_close:
                                 text = self.format_volatility(symbol, self.default_interval, change, current_close, self.volatility_window)
-                                await self.application.bot.send_message(chat_id=self.chat_id, text=text, parse_mode="HTML")
+                                all_messages.append(text)
                                 self.last_volatility_alert[symbol] = current_close
                                 logger.info("Отправлено уведомление о волатильности для %s: %.2f%%", symbol, change*100)
                             else:
@@ -310,6 +295,13 @@ class TelegramBot:
 
                     except Exception as e:
                         logger.error("Ошибка фонового анализа %s: %s", symbol, e)
+            
+            # Отправляем все накопленные сообщения одним батчем
+            if all_messages:
+                combined_message = "\n\n".join(all_messages)
+                await self.application.bot.send_message(chat_id=self.chat_id, text=combined_message, parse_mode="HTML")
+                logger.info("Отправлено объединённое сообщение с %d изменениями", len(all_messages))
+            
             logger.info("Фоновый анализ завершён, ждём %d секунд", self.poll_interval)
             await asyncio.sleep(self.poll_interval)
 
