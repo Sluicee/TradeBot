@@ -107,9 +107,14 @@ docker-compose restart
 # Остановка
 docker-compose stop
 
-# Обновление
+# Обновление (автоматически)
+./update.sh
+
+# Или вручную:
 git pull && docker-compose up -d --build
 ```
+
+📖 **Полная шпаргалка:** [DOCKER_COMMANDS.md](DOCKER_COMMANDS.md)
 
 ### Systemd
 
