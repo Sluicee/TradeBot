@@ -3,7 +3,7 @@ import asyncio
 import json
 from telegram import Update, __version__ as tg_version
 from telegram.ext import Application, CommandHandler, ContextTypes
-from config import TELEGRAM_TOKEN, DEFAULT_SYMBOL, DEFAULT_INTERVAL
+from config import TELEGRAM_TOKEN, OWNER_CHAT_ID, DEFAULT_SYMBOL, DEFAULT_INTERVAL
 from signal_logger import log_signal
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
@@ -20,12 +20,24 @@ class TelegramBot:
         self.default_interval = default_interval
         self.tracked_symbols: set[str] = set()
         self.json_file = "tracked_symbols.json"
+        
+        # Устанавливаем владельца из переменной окружения
+        if OWNER_CHAT_ID:
+            try:
+                self.owner_chat_id = int(OWNER_CHAT_ID)
+                logger.info(f"Владелец бота: {self.owner_chat_id}")
+            except ValueError:
+                logger.error("OWNER_CHAT_ID должен быть числом!")
+                self.owner_chat_id = None
+        else:
+            logger.warning("OWNER_CHAT_ID не установлен - бот доступен всем! Установите в .env для защиты.")
+            self.owner_chat_id = None
+        
         self._load_tracked_symbols()
         self.application = Application.builder().token(self.token).build()
         self._register_handlers()
         self.poll_interval = 60
         self.last_signals: dict[str, str] = {}
-        #self.chat_id: int | None = None
         self.volatility_window = 10
         self.volatility_threshold = 0.05
         self.last_volatility_alert: dict[str, float] = {}
@@ -34,6 +46,13 @@ class TelegramBot:
         self.paper_trader = PaperTrader(initial_balance=100.0)
         self.paper_trader.load_state()
 
+    def _is_authorized(self, update: Update) -> bool:
+        """Проверяет, что пользователь является владельцем бота"""
+        if self.owner_chat_id is None:
+            # Если владелец не установлен, разрешаем всем (небезопасный режим)
+            return True
+        return update.effective_chat.id == self.owner_chat_id
+    
     def _register_handlers(self):
         self.application.add_handler(CommandHandler("start", self.start))
         self.application.add_handler(CommandHandler("help", self.help))
@@ -137,6 +156,17 @@ class TelegramBot:
     # Основные команды
     # -------------------------
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._is_authorized(update):
+            await update.message.reply_text(
+                "🚫 <b>Доступ запрещен</b>\n\n"
+                "Этот бот настроен только для владельца.\n"
+                f"Ваш ID: <code>{update.effective_chat.id}</code>\n\n"
+                "Если это ваш бот, добавьте свой ID в файл .env:\n"
+                "<code>OWNER_CHAT_ID={}</code>".format(update.effective_chat.id),
+                parse_mode="HTML"
+            )
+            return
+        
         text = (
             "<b>👋 Привет! Я — бот для анализа криптовалют.</b>\n\n"
             "<b>Основные команды:</b>\n"
@@ -165,6 +195,10 @@ class TelegramBot:
             self._save_tracked_symbols()
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         text = (
             "<b>🆘 Помощь:</b>\n\n"
             "<b>Анализ:</b>\n"
@@ -188,6 +222,10 @@ class TelegramBot:
         await update.message.reply_text(text, parse_mode="HTML")
 
     async def status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         symbols = ", ".join(self.tracked_symbols) if self.tracked_symbols else "нет"
         text = (
             f"<b>ℹ️ Статус бота</b>\n"
@@ -207,6 +245,10 @@ class TelegramBot:
     # Управление парами
     # -------------------------
     async def add_symbol(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         if not context.args:
             await update.message.reply_text("⚠️ Использование: /add SYMBOL")
             return
@@ -219,6 +261,10 @@ class TelegramBot:
             await update.message.reply_text(f"✅ {symbol} добавлен в список отслеживаемых.")
 
     async def remove_symbol(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         if not context.args:
             await update.message.reply_text("⚠️ Использование: /remove SYMBOL")
             return
@@ -231,6 +277,10 @@ class TelegramBot:
             await update.message.reply_text(f"ℹ️ {symbol} нет в списке отслеживаемых.")
 
     async def list_symbols(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         if self.tracked_symbols:
             text = "<b>📋 Отслеживаемые пары:</b>\n" + "\n".join([f"• {s}" for s in self.tracked_symbols])
         else:
@@ -242,6 +292,10 @@ class TelegramBot:
     # Анализ пары
     # -------------------------
     async def analyze(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         args = context.args or []
         symbol = args[0].upper() if len(args) >= 1 else self.default_symbol
         interval = args[1] if len(args) >= 2 else self.default_interval
@@ -440,6 +494,10 @@ class TelegramBot:
     # Настройки
     # -------------------------
     async def settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         args = context.args
         if not args:
             text = (
@@ -473,6 +531,10 @@ class TelegramBot:
     # -------------------------
     async def paper_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Запускает paper trading"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         if self.paper_trader.is_running:
             await update.message.reply_text("⚠️ Paper Trading уже запущен!")
             return
@@ -507,6 +569,10 @@ class TelegramBot:
 
     async def paper_stop(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Останавливает paper trading и закрывает все позиции"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         if not self.paper_trader.is_running:
             await update.message.reply_text("⚠️ Paper Trading не запущен.")
             return
@@ -552,6 +618,10 @@ class TelegramBot:
 
     async def paper_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показывает текущий статус paper trading"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         status = self.paper_trader.get_status()
         
         # Получаем текущие цены для расчета PnL
@@ -627,6 +697,10 @@ class TelegramBot:
 
     async def paper_balance(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показывает детальную информацию о балансе"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         status = self.paper_trader.get_status()
         
         # Получаем текущие цены
@@ -675,6 +749,10 @@ class TelegramBot:
 
     async def paper_trades(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показывает последние сделки"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         limit = 10
         if context.args and len(context.args) > 0:
             try:
@@ -726,6 +804,10 @@ class TelegramBot:
 
     async def paper_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Сбрасывает paper trading"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         if self.paper_trader.is_running:
             await update.message.reply_text("⚠️ Сначала остановите Paper Trading командой /paper_stop")
             return
@@ -746,6 +828,10 @@ class TelegramBot:
 
     async def paper_backtest(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Быстрая симуляция paper trading на исторических данных"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         period_hours = 24  # По умолчанию 24 часа
         if context.args and len(context.args) > 0:
             try:
@@ -945,6 +1031,10 @@ class TelegramBot:
 
     async def paper_debug(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Отладочная информация по сигналу"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         if not context.args:
             await update.message.reply_text("⚠️ Использование: /paper_debug SYMBOL")
             return
@@ -1032,6 +1122,10 @@ class TelegramBot:
 
     async def paper_candidates(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показывает пары близкие к сигналу"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         if not self.tracked_symbols:
             await update.message.reply_text("⚠️ Нет отслеживаемых символов")
             return
@@ -1112,6 +1206,10 @@ class TelegramBot:
 
     async def paper_force_buy(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Принудительно открывает позицию для тестирования"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
         if not self.paper_trader.is_running:
             await update.message.reply_text("⚠️ Paper Trading не запущен. Используйте /paper_start")
             return
