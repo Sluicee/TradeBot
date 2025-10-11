@@ -4,6 +4,7 @@ import json
 from telegram import Update, __version__ as tg_version
 from telegram.ext import Application, CommandHandler, ContextTypes
 from config import TELEGRAM_TOKEN, DEFAULT_SYMBOL, DEFAULT_INTERVAL
+from signal_logger import log_signal
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
 from logger import logger
@@ -274,6 +275,8 @@ class TelegramBot:
                             text = self.format_analysis(result, symbol, self.default_interval)
                             await self.application.bot.send_message(chat_id=self.chat_id, text=text, parse_mode="HTML")
                             self.last_signals[symbol] = signal
+                            log_signal(symbol, self.default_interval, signal, result["reasons"], result["price"])
+                            logger.info("Сигнал для %s: %s", symbol, signal)
 
                         # -------------------
                         # Волатильность
