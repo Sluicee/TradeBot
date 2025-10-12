@@ -5,6 +5,10 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import json
 import os
+import sys
+import subprocess
+import time
+import traceback
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 import numpy as np
@@ -46,9 +50,10 @@ def get_latest_log_file() -> Optional[str]:
 	if not log_files:
 		return None
 	
-	# Сортируем по имени (которое содержит дату)
-	log_files.sort(reverse=True)
-	return os.path.join(LOG_DIR, log_files[0])
+	# Сортируем по времени модификации (самый новый первый)
+	log_files_with_time = [(f, os.path.getmtime(os.path.join(LOG_DIR, f))) for f in log_files]
+	log_files_with_time.sort(key=lambda x: x[1], reverse=True)
+	return os.path.join(LOG_DIR, log_files_with_time[0][0])
 
 # ====================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -476,10 +481,13 @@ def overview_page(state: Dict[str, Any]):
 	if trades:
 		st.subheader("Equity Curve")
 		
+		# Сортируем сделки по времени (от старых к новым)
+		sorted_trades = sorted(trades, key=lambda x: x.get("time", ""))
+		
 		balance_history = initial
 		equity_data = []
 		
-		for trade in trades:
+		for trade in sorted_trades:
 			time = trade.get("time")
 			if "profit" in trade and trade["profit"] is not None:
 				balance_history += trade["profit"]
@@ -852,6 +860,9 @@ def metrics_page(state: Dict[str, Any]):
 	# Equity Drawdown Chart
 	st.subheader("Equity Drawdown")
 	
+	# Сортируем сделки для правильного отображения
+	dd_df = calculate_drawdown(sorted(trades, key=lambda x: x.get("time", "")), state.get("initial_balance", 100))
+	
 	if not dd_df.empty:
 		fig = make_subplots(
 			rows=2, cols=1,
@@ -916,10 +927,137 @@ def backtests_page():
 	"""Страница бэктестов"""
 	st.header("🧪 Бэктесты")
 	
+	# Форма запуска нового бэктеста
+	with st.expander("▶️ Запустить новый бэктест", expanded=False):
+		st.subheader("Параметры бэктеста")
+		
+		col1, col2 = st.columns(2)
+		
+		with col1:
+			# Популярные символы
+			popular_symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT", "XRPUSDT", "DOGEUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT"]
+			symbol_choice = st.selectbox("Выбрать символ", popular_symbols + ["Другой..."], index=0)
+			
+			if symbol_choice == "Другой...":
+				symbol = st.text_input("Введите символ", value="BTCUSDT", help="Торговая пара")
+			else:
+				symbol = symbol_choice
+			
+			interval = st.selectbox("Таймфрейм", ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"], index=3)
+			initial_balance = st.number_input("Начальный баланс", value=100.0, min_value=1.0, step=10.0)
+		
+		with col2:
+			# Даты
+			days_back = st.number_input("Дней назад (от сегодня)", value=90, min_value=1, max_value=365, help="Сколько дней истории использовать")
+			
+			# Тип бэктеста
+			backtest_type = st.selectbox("Тип бэктеста", 
+				["Обычный", "Multi-Timeframe", "Mean Reversion", "Walk-Forward"],
+				help="Выберите тип бэктеста для запуска")
+		
+		# Кнопка запуска
+		if st.button("🚀 Запустить бэктест", type="primary"):
+			# Валидация символа
+			if not symbol or len(symbol) < 4:
+				st.error("❌ Укажите корректный символ (например: BTCUSDT)")
+				return
+			
+			status_container = st.empty()
+			progress_bar = st.progress(0)
+			
+			try:
+				status_container.info(f"🔄 Подготовка бэктеста {symbol} {interval}...")
+				progress_bar.progress(10)
+				
+				# Определяем скрипт для запуска
+				if backtest_type == "Multi-Timeframe":
+					script = "backtest_multitf.py"
+				elif backtest_type == "Mean Reversion":
+					script = "backtest_mean_reversion.py"
+				elif backtest_type == "Walk-Forward":
+					script = "backtest_walkforward.py"
+				else:
+					script = "backtest.py"
+				
+				# Формируем команду
+				end_date = datetime.now()
+				start_date = end_date - timedelta(days=days_back)
+				
+				cmd = [
+					sys.executable,
+					script,
+					symbol,
+					interval,
+					start_date.strftime("%Y-%m-%d"),
+					end_date.strftime("%Y-%m-%d"),
+					str(initial_balance)
+				]
+				
+				status_container.info(f"🔄 Загрузка данных и выполнение бэктеста...")
+				progress_bar.progress(30)
+				
+				# Запускаем процесс
+				result = subprocess.run(
+					cmd,
+					capture_output=True,
+					text=True,
+					timeout=300  # 5 минут таймаут
+				)
+				
+				progress_bar.progress(90)
+				
+				if result.returncode == 0:
+					progress_bar.progress(100)
+					status_container.success(f"✅ Бэктест завершён успешно!")
+					
+					# Показываем вывод (последние 1000 символов)
+					if result.stdout:
+						with st.expander("📋 Вывод бэктеста"):
+							st.code(result.stdout[-1000:] if len(result.stdout) > 1000 else result.stdout, language="text")
+					
+					st.cache_data.clear()
+					st.balloons()
+					
+					# Небольшая задержка чтобы пользователь увидел успех
+					time.sleep(1)
+					st.rerun()
+				else:
+					progress_bar.empty()
+					status_container.error(f"❌ Ошибка выполнения бэктеста")
+					st.code(result.stderr if result.stderr else "Неизвестная ошибка", language="text")
+					
+			except subprocess.TimeoutExpired:
+				progress_bar.empty()
+				status_container.error("❌ Таймаут выполнения (>5 минут)")
+				st.warning("Попробуйте уменьшить период или выбрать больший таймфрейм")
+			except Exception as e:
+				progress_bar.empty()
+				status_container.error(f"❌ Ошибка: {e}")
+				st.code(traceback.format_exc(), language="text")
+		
+		st.info("💡 Бэктест сохранится в БД и появится в списке ниже")
+	
+	st.divider()
+	
+	# Список существующих бэктестов
+	col1, col2 = st.columns([3, 1])
+	with col1:
+		st.subheader("📂 Результаты бэктестов")
+	with col2:
+		if st.button("🗑️ Очистить все", help="Удалить все бэктесты из БД"):
+			try:
+				# Очистка всех бэктестов
+				count = db.clear_backtests()
+				st.success(f"✅ Удалено {count} бэктестов")
+				st.cache_data.clear()
+				st.rerun()
+			except Exception as e:
+				st.error(f"Ошибка: {e}")
+	
 	backtests = load_backtest_results()
 	
 	if not backtests:
-		st.info("Нет результатов бэктестов. Запустите backtest.py")
+		st.info("Нет результатов бэктестов.")
 		return
 	
 	# Выбор файла
@@ -943,12 +1081,14 @@ def backtests_page():
 				# Старый формат - просто список сделок
 				trades = data
 				initial = 100.0
+				# Сортируем сделки по времени
+				sorted_trades = sorted(trades, key=lambda x: x.get("time", ""))
 				# Рассчитываем метрики из сделок
-				metrics = calculate_metrics(trades)
+				metrics = calculate_metrics(sorted_trades)
 				
 				# Рассчитываем equity
 				balance = initial
-				for trade in trades:
+				for trade in sorted_trades:
 					if "profit" in trade and trade["profit"] is not None:
 						balance += trade["profit"]
 				final_balance = balance
@@ -967,6 +1107,9 @@ def backtests_page():
 				
 				with col4:
 					st.metric("Sharpe", f"{metrics.get('sharpe_ratio', 0):.2f}")
+				
+				# Используем sorted_trades дальше
+				trades = sorted_trades
 				
 			else:
 				# Новый формат - словарь с метриками
@@ -994,10 +1137,13 @@ def backtests_page():
 			
 			# Equity curve
 			if trades:
+				# Сортируем сделки по времени
+				sorted_trades = sorted(trades, key=lambda x: x.get("time", ""))
+				
 				balance_history = [initial]
 				balance = initial
 				
-				for trade in trades:
+				for trade in sorted_trades:
 					if "balance_after" in trade:
 						balance_history.append(trade["balance_after"])
 					elif "profit" in trade and trade["profit"] is not None:
@@ -1038,10 +1184,12 @@ def backtests_page():
 			if isinstance(data, list):
 				trades = data
 				initial = 100.0
-				metrics = calculate_metrics(trades)
+				# Сортируем сделки для правильного расчёта
+				sorted_trades = sorted(trades, key=lambda x: x.get("time", ""))
+				metrics = calculate_metrics(sorted_trades)
 				
 				balance = initial
-				for trade in trades:
+				for trade in sorted_trades:
 					if "profit" in trade:
 						balance += trade["profit"]
 				roi = ((balance - initial) / initial) * 100 if initial > 0 else 0
@@ -1084,10 +1232,13 @@ def backtests_page():
 				initial = data.get("initial_balance", 100)
 			
 			if trades:
+				# Сортируем сделки по времени
+				sorted_trades = sorted(trades, key=lambda x: x.get("time", ""))
+				
 				balance_history = [initial]
 				balance = initial
 				
-				for trade in trades:
+				for trade in sorted_trades:
 					if "balance_after" in trade:
 						balance_history.append(trade["balance_after"])
 					elif "profit" in trade and trade["profit"] is not None:

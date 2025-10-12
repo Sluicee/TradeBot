@@ -770,6 +770,16 @@ class DatabaseManager:
 				}
 				for b in backtests
 			]
+	
+	def clear_backtests(self) -> int:
+		"""Удалить все бэктесты из БД"""
+		with self.session_scope() as session:
+			# Сначала удаляем все сделки
+			trades_count = session.query(BacktestTrade).delete()
+			# Затем удаляем сами бэктесты
+			backtests_count = session.query(Backtest).delete()
+			session.commit()
+			return backtests_count
 
 
 # Глобальный экземпляр
