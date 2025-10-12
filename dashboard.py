@@ -10,6 +10,12 @@ from typing import Dict, List, Any, Optional
 import numpy as np
 from scipy import stats as scipy_stats
 
+# Импорты опциональные (могут не работать на всех системах)
+try:
+	import psutil
+except ImportError:
+	psutil = None
+
 # Настройка страницы
 st.set_page_config(
 	page_title="TradeBot Dashboard",
@@ -22,6 +28,8 @@ st.set_page_config(
 STATE_FILE = "paper_trading_state.json"
 SETTINGS_FILE = "dashboard_settings.json"
 BACKTESTS_DIR = "backtests"
+LOG_FILE = "trading_bot.log"
+PROCESS_NAME = "main.py"
 
 # ====================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -38,6 +46,74 @@ def load_paper_trader_state() -> Optional[Dict[str, Any]]:
 	except Exception as e:
 		st.error(f"Ошибка загрузки состояния: {e}")
 		return None
+
+def check_bot_status() -> Dict[str, Any]:
+	"""Проверяет состояние торгового бота"""
+	status = {
+		"is_running": False,
+		"last_update": None,
+		"state_file_exists": os.path.exists(STATE_FILE),
+		"state_file_age": None,
+		"log_file_exists": os.path.exists(LOG_FILE),
+		"process_found": False,
+		"uptime": None
+	}
+	
+	# Проверка существования state файла и его возраста
+	if status["state_file_exists"]:
+		try:
+			mtime = os.path.getmtime(STATE_FILE)
+			status["last_update"] = datetime.fromtimestamp(mtime)
+			age_seconds = (datetime.now() - status["last_update"]).total_seconds()
+			status["state_file_age"] = age_seconds
+			
+			# Считаем бот живым если state обновлялся в последние 5 минут
+			if age_seconds < 300:
+				status["is_running"] = True
+		except Exception as e:
+			pass
+	
+	# Проверка процесса (опционально, может быть медленно на Windows)
+	if psutil:
+		try:
+			for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time']):
+				try:
+					cmdline = proc.info.get('cmdline', [])
+					if cmdline and any(PROCESS_NAME in cmd for cmd in cmdline):
+						status["process_found"] = True
+						status["uptime"] = datetime.now() - datetime.fromtimestamp(proc.info['create_time'])
+						break
+				except (psutil.NoSuchProcess, psutil.AccessDenied):
+					continue
+		except Exception:
+			pass  # psutil может не работать, не критично
+	
+	return status
+
+def read_recent_logs(num_lines: int = 50) -> List[str]:
+	"""Читает последние N строк из лог-файла"""
+	if not os.path.exists(LOG_FILE):
+		return ["Лог-файл не найден"]
+	
+	try:
+		with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+			lines = f.readlines()
+			return lines[-num_lines:] if len(lines) > num_lines else lines
+	except Exception as e:
+		return [f"Ошибка чтения логов: {e}"]
+
+def parse_log_line(line: str) -> Dict[str, str]:
+	"""Парсит строку лога и возвращает уровень и сообщение"""
+	line = line.strip()
+	if not line:
+		return {"level": "INFO", "message": ""}
+	
+	# Пытаемся определить уровень логирования
+	for level in ["ERROR", "WARNING", "INFO", "DEBUG", "CRITICAL"]:
+		if level in line.upper():
+			return {"level": level, "message": line}
+	
+	return {"level": "INFO", "message": line}
 
 @st.cache_data(ttl=300)
 def load_backtest_results() -> Dict[str, Any]:
@@ -954,8 +1030,190 @@ def settings_page():
 			st.info(f"Размер файла состояния: {file_size:.2f} KB")
 
 # ====================================================================
+# СТРАНИЦА: ЛОГИ
+# ====================================================================
+
+def logs_page():
+	"""Страница просмотра логов"""
+	st.title("📋 Логи системы")
+	
+	# Настройки отображения
+	col1, col2, col3 = st.columns([2, 2, 1])
+	
+	with col1:
+		num_lines = st.select_slider(
+			"Количество строк",
+			options=[20, 50, 100, 200, 500],
+			value=100
+		)
+	
+	with col2:
+		log_level_filter = st.multiselect(
+			"Фильтр по уровню",
+			options=["ERROR", "WARNING", "INFO", "DEBUG", "CRITICAL"],
+			default=["ERROR", "WARNING", "INFO"]
+		)
+	
+	with col3:
+		if st.button("🔄 Обновить"):
+			st.rerun()
+	
+	st.divider()
+	
+	# Чтение логов
+	log_lines = read_recent_logs(num_lines)
+	
+	if not log_lines or log_lines == ["Лог-файл не найден"]:
+		st.warning("Лог-файл не найден или пуст")
+		st.info(f"Ожидается файл: `{LOG_FILE}`")
+		return
+	
+	# Парсинг и фильтрация
+	parsed_logs = [parse_log_line(line) for line in log_lines]
+	filtered_logs = [log for log in parsed_logs if log["level"] in log_level_filter or not log_level_filter]
+	
+	# Статистика
+	col1, col2, col3, col4 = st.columns(4)
+	
+	error_count = sum(1 for log in parsed_logs if "ERROR" in log["level"])
+	warning_count = sum(1 for log in parsed_logs if "WARNING" in log["level"])
+	info_count = sum(1 for log in parsed_logs if "INFO" in log["level"])
+	
+	with col1:
+		st.metric("Всего строк", len(log_lines))
+	with col2:
+		st.metric("Ошибки", error_count, delta=None if error_count == 0 else f"-{error_count}", delta_color="inverse")
+	with col3:
+		st.metric("Предупреждения", warning_count, delta=None if warning_count == 0 else f"-{warning_count}", delta_color="inverse")
+	with col4:
+		st.metric("Инфо", info_count)
+	
+	st.divider()
+	
+	# Вкладки для разных представлений
+	tab1, tab2 = st.tabs(["📜 Консоль", "📊 Таблица"])
+	
+	with tab1:
+		# Консольное отображение с цветовой кодировкой
+		st.subheader("Последние события")
+		
+		log_container = st.container()
+		with log_container:
+			for log in reversed(filtered_logs):  # Новые сверху
+				message = log["message"]
+				level = log["level"]
+				
+				if "ERROR" in level or "CRITICAL" in level:
+					st.error(message)
+				elif "WARNING" in level:
+					st.warning(message)
+				elif "DEBUG" in level:
+					st.code(message, language=None)
+				else:
+					st.text(message)
+	
+	with tab2:
+		# Табличное отображение
+		if filtered_logs:
+			# Создаём DataFrame
+			df_logs = pd.DataFrame(filtered_logs)
+			
+			# Добавляем цвет в зависимости от уровня
+			def color_level(val):
+				if "ERROR" in val or "CRITICAL" in val:
+					return 'background-color: #ff4444; color: white'
+				elif "WARNING" in val:
+					return 'background-color: #ffaa00; color: black'
+				elif "DEBUG" in val:
+					return 'background-color: #aaaaaa; color: white'
+				return ''
+			
+			# Отображаем таблицу
+			styled_df = df_logs.style.applymap(color_level, subset=['level'])
+			st.dataframe(styled_df, use_container_width=True, height=600)
+		else:
+			st.info("Нет логов соответствующих фильтру")
+	
+	# Дополнительная информация
+	st.divider()
+	
+	with st.expander("ℹ️ Информация о логировании"):
+		st.markdown("""
+		**Уровни логирования:**
+		- 🔴 **ERROR/CRITICAL**: Критические ошибки требующие внимания
+		- 🟡 **WARNING**: Предупреждения о потенциальных проблемах
+		- 🔵 **INFO**: Информационные сообщения о работе системы
+		- ⚪ **DEBUG**: Детальная отладочная информация
+		
+		**Полезные паттерны для поиска:**
+		- Ошибки API: `ERROR.*API`
+		- Открытие позиций: `BUY.*@`
+		- Закрытие позиций: `SELL.*@`
+		- Averaging: `AVERAGING`
+		- Kelly: `Kelly`
+		""")
+	
+	# Кнопка очистки логов (опасно!)
+	st.divider()
+	with st.expander("⚠️ Опасная зона"):
+		st.warning("Очистка лог-файла необратима!")
+		if st.button("🗑️ Очистить лог-файл", type="secondary"):
+			try:
+				with open(LOG_FILE, "w", encoding="utf-8") as f:
+					f.write(f"# Log cleared at {datetime.now().isoformat()}\n")
+				st.success("Лог-файл очищен")
+				st.rerun()
+			except Exception as e:
+				st.error(f"Ошибка очистки: {e}")
+
+# ====================================================================
 # ГЛАВНОЕ ПРИЛОЖЕНИЕ
 # ====================================================================
+
+def render_bot_status_widget():
+	"""Отображает виджет состояния бота в sidebar"""
+	status = check_bot_status()
+	
+	st.subheader("🤖 Состояние бота")
+	
+	# Статус работы
+	if status["is_running"]:
+		st.success("✅ Работает")
+	else:
+		st.error("❌ Не работает")
+	
+	# Последнее обновление
+	if status["last_update"]:
+		age = status["state_file_age"]
+		if age < 60:
+			age_str = f"{int(age)} сек назад"
+		elif age < 3600:
+			age_str = f"{int(age/60)} мин назад"
+		else:
+			age_str = f"{int(age/3600)} ч назад"
+		
+		st.caption(f"📝 Обновлено: {age_str}")
+	else:
+		st.caption("📝 Нет данных")
+	
+	# Uptime (если процесс найден)
+	if status["uptime"]:
+		hours = int(status["uptime"].total_seconds() / 3600)
+		minutes = int((status["uptime"].total_seconds() % 3600) / 60)
+		st.caption(f"⏱️ Uptime: {hours}ч {minutes}м")
+	
+	# Индикаторы файлов
+	col1, col2 = st.columns(2)
+	with col1:
+		if status["state_file_exists"]:
+			st.caption("📄 State ✓")
+		else:
+			st.caption("📄 State ✗")
+	with col2:
+		if status["log_file_exists"]:
+			st.caption("📋 Logs ✓")
+		else:
+			st.caption("📋 Logs ✗")
 
 def main():
 	"""Главная функция dashboard"""
@@ -965,11 +1223,15 @@ def main():
 		st.title("📈 TradeBot")
 		st.divider()
 		
+		# Индикатор состояния бота
+		render_bot_status_widget()
+		st.divider()
+		
 		# Навигация
 		page = st.radio(
 			"Навигация",
 			["📊 Обзор", "💼 Текущие позиции", "📜 История сделок", 
-			 "📈 Метрики", "🧪 Бэктесты", "⚙️ Настройки"]
+			 "📈 Метрики", "🧪 Бэктесты", "📋 Логи", "⚙️ Настройки"]
 		)
 		
 		st.divider()
@@ -1000,6 +1262,8 @@ def main():
 		metrics_page(state)
 	elif page == "🧪 Бэктесты":
 		backtests_page()
+	elif page == "📋 Логи":
+		logs_page()
 	elif page == "⚙️ Настройки":
 		settings_page()
 
