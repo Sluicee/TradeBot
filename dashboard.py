@@ -33,16 +33,8 @@ PROCESS_NAME = "main.py"
 
 # Конфигурация Plotly для графиков
 PLOTLY_CONFIG = {
-	'displayModeBar': True,
 	'displaylogo': False,
-	'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d'],
-	'toImageButtonOptions': {
-		'format': 'png',
-		'filename': 'chart',
-		'height': 1080,
-		'width': 1920,
-		'scale': 2
-	}
+	'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
 }
 
 def get_latest_log_file() -> Optional[str]:
@@ -512,7 +504,7 @@ def overview_page(state: Dict[str, Any]):
 				fillcolor='rgba(0, 204, 150, 0.1)'
 			))
 			
-			fig.add_hline(y=initial, line_dash="dash", line_color="gray", annotation_text="Initial")
+			fig.add_hline(y=initial, line_dash="dash", line_color="gray")
 			
 			fig.update_layout(
 				xaxis_title="Время",
@@ -521,7 +513,7 @@ def overview_page(state: Dict[str, Any]):
 				height=400
 			)
 			
-			st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
+			st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 	
 	st.divider()
 	
@@ -749,7 +741,7 @@ def history_page(state: Dict[str, Any]):
 				height=300
 			)
 			
-			st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
+			st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 	else:
 		st.info("Нет сделок, соответствующих фильтрам.")
 	
@@ -895,7 +887,7 @@ def metrics_page(state: Dict[str, Any]):
 		
 		fig.update_layout(height=600, showlegend=True)
 		
-		st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
+		st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 	
 	# Box plot P&L
 	st.divider()
@@ -914,7 +906,7 @@ def metrics_page(state: Dict[str, Any]):
 			height=400
 		)
 		
-		st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
+		st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
 # ====================================================================
 # СТРАНИЦА 5: БЭКТЕСТЫ
@@ -1029,7 +1021,7 @@ def backtests_page():
 						height=300
 					)
 					
-					st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
+					st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 			else:
 				st.info("Нет данных о сделках в этом бэктесте")
 	
@@ -1116,7 +1108,7 @@ def backtests_page():
 			height=400
 		)
 		
-		st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
+		st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
 # ====================================================================
 # СТРАНИЦА 6: НАСТРОЙКИ
