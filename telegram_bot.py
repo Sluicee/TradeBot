@@ -1184,14 +1184,14 @@ class TelegramBot:
 				
 				# Собираем информацию о фильтрах
 				last = df.iloc[-1]
-				ema_s = float(last["EMA_short"])
-				ema_l = float(last["EMA_long"])
+				ema_s = float(last.get("EMA_short", 0))
+				ema_l = float(last.get("EMA_long", 0))
 				sma_20 = float(last.get("SMA_20", 0))
 				sma_50 = float(last.get("SMA_50", 0))
-				rsi = float(last["RSI"])
-				macd = float(last["MACD"])
-				macd_signal = float(last["MACD_signal"])
-				macd_hist = float(last["MACD_hist"])
+				rsi = float(last.get("RSI", 50))
+				macd = float(last.get("MACD", 0))
+				macd_signal = float(last.get("MACD_signal", 0))
+				macd_hist = float(last.get("MACD_hist", 0))
 				adx = float(last.get("ADX_14", 0))
 				
 				# Проверяем фильтры для BUY
@@ -1277,7 +1277,7 @@ class TelegramBot:
 						
 						last = df.iloc[-1]
 						adx = float(last.get("ADX_14", 0))
-						rsi = float(last["RSI"])
+						rsi = float(last.get("RSI", 50))
 						
 						# Кандидат если:
 						# 1. Голосов 3-5 (близко к порогу)
