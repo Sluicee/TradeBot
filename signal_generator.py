@@ -823,39 +823,41 @@ class SignalGenerator:
 			confidence = min(1.0, (rsi - MR_RSI_EXIT) / (70 - MR_RSI_EXIT) * 0.5 + (zscore / 2.0) * 0.5)
 			
 			reasons.append(f"✅ EXIT: Возврат к среднему")
-			if is_rsi_normal:
-				reasons.append(f"📊 RSI={rsi:.1f} > {MR_RSI_EXIT} (вернулся к норме)")
-			if is_zscore_normalized:
-				reasons.append(f"📈 Z-score={zscore:.2f} > {MR_ZSCORE_SELL_THRESHOLD} (цена вернулась к среднему)")
-		
-		# Если не BUY и не SELL - HOLD
-		if signal == "HOLD" and not reasons:
-			reasons.append(f"⏸ HOLD: RSI={rsi:.1f}, Z-score={zscore:.2f}")
-			reasons.append(f"📊 ADX={adx:.1f}, EMA дивергенция={(abs(ema_12-ema_26)/ema_26*100 if ema_26 > 0 else 0):.2f}%")
-			reasons.append("🔍 Ожидаем перепроданности (RSI<30, Z<-2.5)")
-		
-		return {
-			"signal": signal,
-			"signal_emoji": signal_emoji,
-			"price": price,
-			"RSI": rsi,
-			"zscore": zscore,
-			"ADX": adx,
-			"ATR": atr,
-			"EMA_12": ema_12,
-			"EMA_26": ema_26,
-			"ema_divergence": abs(ema_12 - ema_26) / ema_26 if ema_26 > 0 else 0,
-			"stoch_k": stoch_k,
-			"is_not_trending": is_not_trending,
-			"is_sideways": is_sideways,
-			"position_size_percent": position_size_percent,
-			"confidence": confidence,
-			"falling_knife_detected": falling_knife_detected,
-			"dynamic_sl": dynamic_sl,  # Динамический SL для бэктеста
-			"dynamic_tp": dynamic_tp,  # Динамический TP для бэктеста (v4)
-			"reasons": reasons,
-			"strategy": "MEAN_REVERSION"
-		}
+		if is_rsi_normal:
+			reasons.append(f"📊 RSI={rsi:.1f} > {MR_RSI_EXIT} (вернулся к норме)")
+		if is_zscore_normalized:
+			reasons.append(f"📈 Z-score={zscore:.2f} > {MR_ZSCORE_SELL_THRESHOLD} (цена вернулась к среднему)")
+	
+	# Если не BUY и не SELL - HOLD
+	if signal == "HOLD" and not reasons:
+		reasons.append(f"⏸ HOLD: RSI={rsi:.1f}, Z-score={zscore:.2f}")
+		reasons.append(f"📊 ADX={adx:.1f}, EMA дивергенция={(abs(ema_12-ema_26)/ema_26*100 if ema_26 > 0 else 0):.2f}%")
+		reasons.append("🔍 Ожидаем перепроданности (RSI<30, Z<-2.5)")
+	
+	return {
+		"signal": signal,
+		"signal_emoji": signal_emoji,
+		"price": price,
+		"RSI": rsi,
+		"zscore": zscore,
+		"ADX": adx,
+		"ATR": atr,
+		"EMA_12": ema_12,
+		"EMA_26": ema_26,
+		"ema_divergence": abs(ema_12 - ema_26) / ema_26 if ema_26 > 0 else 0,
+		"stoch_k": stoch_k,
+		"is_not_trending": is_not_trending,
+		"is_sideways": is_sideways,
+		"position_size_percent": position_size_percent,
+		"confidence": confidence,
+		"falling_knife_detected": falling_knife_detected,
+		"dynamic_sl": dynamic_sl,  # Динамический SL для бэктеста
+		"dynamic_tp": dynamic_tp,  # Динамический TP для бэктеста (v4)
+		"reasons": reasons,
+		"strategy": "MEAN_REVERSION",
+		"bullish_votes": 0,  # Mean reversion не использует систему голосования
+		"bearish_votes": 0
+	}
 	
 	def generate_signal_hybrid(self, last_mode: str = None, last_mode_time: float = 0) -> Dict[str, Any]:
 		"""
@@ -872,78 +874,84 @@ class SignalGenerator:
 		
 		Возвращает сигнал с указанием активного режима.
 		"""
-		if self.df.empty:
-			return {
-				"signal": "HOLD",
-				"signal_emoji": "⚠️",
-				"price": 0,
-				"ADX": 0,
-				"active_mode": "NONE",
-				"reasons": ["⚠️ DataFrame пустой"],
-				"strategy": "HYBRID"
-			}
-		
-		reasons = []
-		
-		# Получаем ADX и цену из последней строки DataFrame
-		last = self.df.iloc[-1]
-		price = float(last["close"])
-		adx = float(last.get(f"ADX_{ADX_WINDOW}", 0))
-		
-		if adx == 0 or price == 0:
-			return {
-				"signal": "HOLD",
-				"signal_emoji": "⚠️",
-				"price": price,
-				"ADX": adx,
-				"active_mode": "NONE",
-				"reasons": ["⚠️ Недостаточно данных для расчёта индикаторов"],
-				"strategy": "HYBRID"
-			}
-		
-		# Определяем текущий режим на основе ADX
-		if adx < HYBRID_ADX_MR_THRESHOLD:
-			current_mode = "MR"
-			reasons.append(f"📊 ADX={adx:.1f} < {HYBRID_ADX_MR_THRESHOLD} → MEAN REVERSION режим")
-		elif adx > HYBRID_ADX_TF_THRESHOLD:
-			current_mode = "TF"
-			reasons.append(f"📊 ADX={adx:.1f} > {HYBRID_ADX_TF_THRESHOLD} → TREND FOLLOWING режим")
-		else:
-			# Переходная зона
-			if HYBRID_TRANSITION_MODE == "HOLD":
-				current_mode = "HOLD"
-				reasons.append(f"⏸ ADX={adx:.1f} в переходной зоне [{HYBRID_ADX_MR_THRESHOLD}, {HYBRID_ADX_TF_THRESHOLD}] → HOLD")
-			else:  # LAST
-				current_mode = last_mode if last_mode else "HOLD"
-				reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
-		
-		# Проверяем минимальное время в режиме (защита от частого переключения)
-		if last_mode and last_mode != current_mode and last_mode_time < HYBRID_MIN_TIME_IN_MODE:
-			current_mode = last_mode
-			reasons.append(f"⏱ Остаёмся в режиме {last_mode} (прошло {last_mode_time:.1f}h < {HYBRID_MIN_TIME_IN_MODE}h)")
-		
-		# Генерируем сигнал в зависимости от режима
-		if current_mode == "MR":
-			signal_result = self.generate_signal_mean_reversion()
-			signal_result["active_mode"] = "MEAN_REVERSION"
-			signal_result["strategy"] = "HYBRID"
-			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
-		
-		elif current_mode == "TF":
-			signal_result = self.generate_signal()
-			signal_result["active_mode"] = "TREND_FOLLOWING"
-			signal_result["strategy"] = "HYBRID"
-			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
-		
-		else:  # HOLD
-			signal_result = {
-				"signal": "HOLD",
-				"signal_emoji": "⚠️",
-				"price": price,
-				"ADX": adx,
-				"active_mode": "TRANSITION",
-				"reasons": reasons,
-				"strategy": "HYBRID"
-			}
-		
-		return signal_result
+	if self.df.empty:
+		return {
+			"signal": "HOLD",
+			"signal_emoji": "⚠️",
+			"price": 0,
+			"ADX": 0,
+			"active_mode": "NONE",
+			"reasons": ["⚠️ DataFrame пустой"],
+			"strategy": "HYBRID",
+			"bullish_votes": 0,
+			"bearish_votes": 0
+		}
+	
+	reasons = []
+	
+	# Получаем ADX и цену из последней строки DataFrame
+	last = self.df.iloc[-1]
+	price = float(last["close"])
+	adx = float(last.get(f"ADX_{ADX_WINDOW}", 0))
+	
+	if adx == 0 or price == 0:
+		return {
+			"signal": "HOLD",
+			"signal_emoji": "⚠️",
+			"price": price,
+			"ADX": adx,
+			"active_mode": "NONE",
+			"reasons": ["⚠️ Недостаточно данных для расчёта индикаторов"],
+			"strategy": "HYBRID",
+			"bullish_votes": 0,
+			"bearish_votes": 0
+		}
+	
+	# Определяем текущий режим на основе ADX
+	if adx < HYBRID_ADX_MR_THRESHOLD:
+		current_mode = "MR"
+		reasons.append(f"📊 ADX={adx:.1f} < {HYBRID_ADX_MR_THRESHOLD} → MEAN REVERSION режим")
+	elif adx > HYBRID_ADX_TF_THRESHOLD:
+		current_mode = "TF"
+		reasons.append(f"📊 ADX={adx:.1f} > {HYBRID_ADX_TF_THRESHOLD} → TREND FOLLOWING режим")
+	else:
+		# Переходная зона
+		if HYBRID_TRANSITION_MODE == "HOLD":
+			current_mode = "HOLD"
+			reasons.append(f"⏸ ADX={adx:.1f} в переходной зоне [{HYBRID_ADX_MR_THRESHOLD}, {HYBRID_ADX_TF_THRESHOLD}] → HOLD")
+		else:  # LAST
+			current_mode = last_mode if last_mode else "HOLD"
+			reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
+	
+	# Проверяем минимальное время в режиме (защита от частого переключения)
+	if last_mode and last_mode != current_mode and last_mode_time < HYBRID_MIN_TIME_IN_MODE:
+		current_mode = last_mode
+		reasons.append(f"⏱ Остаёмся в режиме {last_mode} (прошло {last_mode_time:.1f}h < {HYBRID_MIN_TIME_IN_MODE}h)")
+	
+	# Генерируем сигнал в зависимости от режима
+	if current_mode == "MR":
+		signal_result = self.generate_signal_mean_reversion()
+		signal_result["active_mode"] = "MEAN_REVERSION"
+		signal_result["strategy"] = "HYBRID"
+		signal_result["reasons"] = reasons + signal_result.get("reasons", [])
+	
+	elif current_mode == "TF":
+		signal_result = self.generate_signal()
+		signal_result["active_mode"] = "TREND_FOLLOWING"
+		signal_result["strategy"] = "HYBRID"
+		signal_result["reasons"] = reasons + signal_result.get("reasons", [])
+	
+	else:  # HOLD
+		signal_result = {
+			"signal": "HOLD",
+			"signal_emoji": "⚠️",
+			"price": price,
+			"ADX": adx,
+			"active_mode": "TRANSITION",
+			"reasons": reasons,
+			"strategy": "HYBRID",
+			"bullish_votes": 0,
+			"bearish_votes": 0
+		}
+	
+	return signal_result

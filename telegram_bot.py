@@ -10,7 +10,7 @@ from config import (
 	POLL_INTERVAL, POLL_INTERVAL_MIN, POLL_INTERVAL_MAX,
 	VOLATILITY_WINDOW, VOLATILITY_THRESHOLD,
 	VOLATILITY_HIGH_THRESHOLD, VOLATILITY_LOW_THRESHOLD, VOLATILITY_ALERT_COOLDOWN,
-	INITIAL_BALANCE, STRATEGY_MODE
+	INITIAL_BALANCE, STRATEGY_MODE, ADX_WINDOW
 )
 from signal_logger import log_signal
 from data_provider import DataProvider
@@ -1178,65 +1178,69 @@ class TelegramBot:
 				generator.compute_indicators()
 				result = self._generate_signal_with_strategy(generator)
 				
-				signal = result["signal"]
-				price = result["price"]
-				bullish = result.get("bullish_votes", 0)
-				bearish = result.get("bearish_votes", 0)
-				
-				# Собираем информацию о фильтрах
-				last = df.iloc[-1]
-				ema_s = float(last.get("EMA_short", 0))
-				ema_l = float(last.get("EMA_long", 0))
-				sma_20 = float(last.get("SMA_20", 0))
-				sma_50 = float(last.get("SMA_50", 0))
-				rsi = float(last.get("RSI", 50))
-				macd = float(last.get("MACD", 0))
-				macd_signal = float(last.get("MACD_signal", 0))
-				macd_hist = float(last.get("MACD_hist", 0))
-				adx = float(last.get("ADX_14", 0))
-				
-				# Проверяем фильтры для BUY
-				buy_trend_ok = ema_s > ema_l and sma_20 > sma_50
-				buy_rsi_ok = 35 < rsi < 70
-				macd_buy_ok = macd > macd_signal and macd_hist > 0
-				strong_trend = adx > 25
-				vote_diff = bullish - bearish
-				
-				# Проверяем фильтры для SELL
-				sell_trend_ok = ema_s < ema_l and sma_20 < sma_50
-				sell_rsi_ok = 30 < rsi < 65
-				macd_sell_ok = macd < macd_signal and macd_hist < 0
-				
-				signal_emoji = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "⚠️"
-				
-				text = (
-					f"<b>🔍 Debug: {symbol}</b> [{signal_emoji} {signal}]\n\n"
-					f"💰 Цена: {format_price(price)}\n\n"
-					f"<b>📊 Голосование:</b>\n"
-					f"  Бычьи: {bullish} | Медвежьи: {bearish}\n"
-					f"  Разница: {vote_diff} (порог: 5)\n\n"
-					f"<b>📈 Индикаторы:</b>\n"
-					f"  EMA: {ema_s:.2f} vs {ema_l:.2f} {'✅' if ema_s > ema_l else '❌'}\n"
-					f"  SMA: {sma_20:.2f} vs {sma_50:.2f} {'✅' if sma_20 > sma_50 else '❌'}\n"
-					f"  RSI: {rsi:.1f} (35-70 для BUY) {'✅' if buy_rsi_ok else '❌'}\n"
-					f"  MACD: {macd:.4f} vs {macd_signal:.4f} {'✅' if macd > macd_signal else '❌'}\n"
-					f"  MACD hist: {macd_hist:.4f} {'✅' if macd_hist > 0 else '❌'}\n"
-					f"  ADX: {adx:.1f} (&gt;25 для сигнала) {'✅' if strong_trend else '❌'}\n\n"
-					f"<b>🎯 Фильтры BUY:</b>\n"
-					f"  {'✅' if vote_diff >= 5 else '❌'} Голосов &gt;= 5: {vote_diff}/5\n"
-					f"  {'✅' if strong_trend else '❌'} Сильный тренд: ADX {adx:.1f}/25\n"
-					f"  {'✅' if buy_trend_ok else '❌'} Тренд вверх: EMA+SMA\n"
-					f"  {'✅' if buy_rsi_ok else '❌'} RSI в зоне: {rsi:.1f}\n"
-					f"  {'✅' if macd_buy_ok else '❌'} MACD подтверждает\n\n"
-				)
-				
-				# Добавляем причины
-				text += "<b>📝 Причины:</b>\n"
-				for i, reason in enumerate(result["reasons"][-5:], 1):
-					escaped_reason = html.escape(reason)
-					text += f"{i}. {escaped_reason[:80]}...\n" if len(escaped_reason) > 80 else f"{i}. {escaped_reason}\n"
-				
-				await msg.edit_text(text, parse_mode="HTML")
+			signal = result["signal"]
+			price = result["price"]
+			bullish = result.get("bullish_votes", 0)
+			bearish = result.get("bearish_votes", 0)
+			
+			# Собираем информацию об индикаторах (из result или из DataFrame)
+			last = df.iloc[-1]
+			
+			# Используем значения из result, если доступны, иначе из DataFrame
+			rsi = float(result.get("RSI", last.get("RSI", 50)))
+			adx = float(result.get("ADX", last.get(f"ADX_{ADX_WINDOW}", 0)))
+			
+			# Эти индикаторы всегда берем из DataFrame
+			ema_s = float(last.get("EMA_short", 0))
+			ema_l = float(last.get("EMA_long", 0))
+			sma_20 = float(last.get("SMA_20", 0))
+			sma_50 = float(last.get("SMA_50", 0))
+			macd = float(last.get("MACD", 0))
+			macd_signal = float(last.get("MACD_signal", 0))
+			macd_hist = float(last.get("MACD_hist", 0))
+			
+			# Проверяем фильтры для BUY
+			buy_trend_ok = ema_s > ema_l and sma_20 > sma_50
+			buy_rsi_ok = 35 < rsi < 70
+			macd_buy_ok = macd > macd_signal and macd_hist > 0
+			strong_trend = adx > 25
+			vote_diff = bullish - bearish
+			
+			# Проверяем фильтры для SELL
+			sell_trend_ok = ema_s < ema_l and sma_20 < sma_50
+			sell_rsi_ok = 30 < rsi < 65
+			macd_sell_ok = macd < macd_signal and macd_hist < 0
+			
+			signal_emoji = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "⚠️"
+			
+			text = (
+				f"<b>🔍 Debug: {symbol}</b> [{signal_emoji} {signal}]\n\n"
+				f"💰 Цена: {format_price(price)}\n\n"
+				f"<b>📊 Голосование:</b>\n"
+				f"  Бычьи: {bullish} | Медвежьи: {bearish}\n"
+				f"  Разница: {vote_diff} (порог: 5)\n\n"
+				f"<b>📈 Индикаторы:</b>\n"
+				f"  EMA: {ema_s:.2f} vs {ema_l:.2f} {'✅' if ema_s > ema_l else '❌'}\n"
+				f"  SMA: {sma_20:.2f} vs {sma_50:.2f} {'✅' if sma_20 > sma_50 else '❌'}\n"
+				f"  RSI: {rsi:.1f} (35-70 для BUY) {'✅' if buy_rsi_ok else '❌'}\n"
+				f"  MACD: {macd:.4f} vs {macd_signal:.4f} {'✅' if macd > macd_signal else '❌'}\n"
+				f"  MACD hist: {macd_hist:.4f} {'✅' if macd_hist > 0 else '❌'}\n"
+				f"  ADX: {adx:.1f} (&gt;25 для сигнала) {'✅' if strong_trend else '❌'}\n\n"
+				f"<b>🎯 Фильтры BUY:</b>\n"
+				f"  {'✅' if vote_diff >= 5 else '❌'} Голосов &gt;= 5: {vote_diff}/5\n"
+				f"  {'✅' if strong_trend else '❌'} Сильный тренд: ADX {adx:.1f}/25\n"
+				f"  {'✅' if buy_trend_ok else '❌'} Тренд вверх: EMA+SMA\n"
+				f"  {'✅' if buy_rsi_ok else '❌'} RSI в зоне: {rsi:.1f}\n"
+				f"  {'✅' if macd_buy_ok else '❌'} MACD подтверждает\n\n"
+			)
+			
+			# Добавляем причины
+			text += "<b>📝 Причины:</b>\n"
+			for i, reason in enumerate(result["reasons"][-5:], 1):
+				escaped_reason = html.escape(reason)
+				text += f"{i}. {escaped_reason[:80]}...\n" if len(escaped_reason) > 80 else f"{i}. {escaped_reason}\n"
+			
+			await msg.edit_text(text, parse_mode="HTML")
 				
 		except Exception as e:
 			logger.error(f"Ошибка debug для {symbol}: {e}")
@@ -1258,9 +1262,9 @@ class TelegramBot:
 		
 		try:
 			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				
-				for symbol in self.tracked_symbols:
+			provider = DataProvider(session)
+			
+			for symbol in self.tracked_symbols:
 					try:
 						klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=500)
 						df = provider.klines_to_dataframe(klines)
@@ -1277,9 +1281,10 @@ class TelegramBot:
 						bullish = result.get("bullish_votes", 0)
 						bearish = result.get("bearish_votes", 0)
 						
+						# Берем индикаторы из result или DataFrame
 						last = df.iloc[-1]
-						adx = float(last.get("ADX_14", 0))
-						rsi = float(last.get("RSI", 50))
+						adx = float(result.get("ADX", last.get(f"ADX_{ADX_WINDOW}", 0)))
+						rsi = float(result.get("RSI", last.get("RSI", 50)))
 						
 						# Кандидат если:
 						# 1. Голосов 3-5 (близко к порогу)
@@ -1299,7 +1304,7 @@ class TelegramBot:
 								"rsi": rsi,
 								"price": price
 							})
-							
+					
 					except Exception as e:
 						logger.error(f"Ошибка анализа {symbol}: {e}")
 			
