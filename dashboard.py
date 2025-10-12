@@ -947,12 +947,13 @@ def backtests_page():
 			initial_balance = st.number_input("Начальный баланс", value=100.0, min_value=1.0, step=10.0)
 		
 		with col2:
-			# Даты
+			# Период
 			days_back = st.number_input("Дней назад (от сегодня)", value=90, min_value=1, max_value=365, help="Сколько дней истории использовать")
+			period_hours = days_back * 24  # Конвертируем в часы
 			
 			# Тип бэктеста
 			backtest_type = st.selectbox("Тип бэктеста", 
-				["Обычный", "Multi-Timeframe", "Mean Reversion", "Walk-Forward"],
+				["Обычный", "Multi-Timeframe", "Walk-Forward"],
 				help="Выберите тип бэктеста для запуска")
 		
 		# Кнопка запуска
@@ -969,29 +970,39 @@ def backtests_page():
 				status_container.info(f"🔄 Подготовка бэктеста {symbol} {interval}...")
 				progress_bar.progress(10)
 				
-				# Определяем скрипт для запуска
+				# Определяем скрипт и формируем команду с правильными аргументами
 				if backtest_type == "Multi-Timeframe":
-					script = "backtest_multitf.py"
-				elif backtest_type == "Mean Reversion":
-					script = "backtest_mean_reversion.py"
+					# backtest_multitf.py: symbol interval lookback_days
+					cmd = [
+						sys.executable,
+						"backtest_multitf.py",
+						symbol,
+						interval,
+						str(days_back)
+					]
 				elif backtest_type == "Walk-Forward":
-					script = "backtest_walkforward.py"
+					# backtest_walkforward.py: symbol interval is_hours oos_hours balance
+					is_hours = int(period_hours * 0.7)  # 70% для обучения
+					oos_hours = int(period_hours * 0.3)  # 30% для теста
+					cmd = [
+						sys.executable,
+						"backtest_walkforward.py",
+						symbol,
+						interval,
+						str(is_hours),
+						str(oos_hours),
+						str(initial_balance)
+					]
 				else:
-					script = "backtest.py"
-				
-				# Формируем команду
-				end_date = datetime.now()
-				start_date = end_date - timedelta(days=days_back)
-				
-				cmd = [
-					sys.executable,
-					script,
-					symbol,
-					interval,
-					start_date.strftime("%Y-%m-%d"),
-					end_date.strftime("%Y-%m-%d"),
-					str(initial_balance)
-				]
+					# backtest.py: symbol interval period_hours start_balance
+					cmd = [
+						sys.executable,
+						"backtest.py",
+						symbol,
+						interval,
+						str(period_hours),
+						str(initial_balance)
+					]
 				
 				status_container.info(f"🔄 Загрузка данных и выполнение бэктеста...")
 				progress_bar.progress(30)
