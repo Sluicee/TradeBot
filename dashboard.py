@@ -114,14 +114,18 @@ def check_bot_status() -> Dict[str, Any]:
 	# Проверка БД и последнего обновления
 	try:
 		db_state = db.get_paper_state()
-		if db_state and db_state.updated_at:
+		if db_state:
 			status["state_file_exists"] = True
-			status["last_update"] = db_state.updated_at
-			age_seconds = (datetime.now() - db_state.updated_at).total_seconds()
-			status["state_file_age"] = age_seconds
-			
-			# Считаем бот живым если БД обновлялась в последние 5 минут
-			if age_seconds < 300:
+			if db_state.updated_at:
+				status["last_update"] = db_state.updated_at
+				age_seconds = (datetime.now() - db_state.updated_at).total_seconds()
+				status["state_file_age"] = age_seconds
+				
+				# Считаем бот живым если БД обновлялась в последние 5 минут
+				if age_seconds < 300:
+					status["is_running"] = True
+			# Также проверяем флаг is_running
+			if db_state.is_running:
 				status["is_running"] = True
 	except Exception as e:
 		pass
@@ -132,9 +136,11 @@ def check_bot_status() -> Dict[str, Any]:
 			for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time']):
 				try:
 					cmdline = proc.info.get('cmdline', [])
-					if cmdline and any(PROCESS_NAME in cmd for cmd in cmdline):
+					# Проверяем различные варианты имен процессов
+					if cmdline and any(name in ' '.join(cmdline) for name in ['bot.py', 'main.py', 'telegram_bot.py', 'paper_trader.py']):
 						status["process_found"] = True
 						status["uptime"] = datetime.now() - datetime.fromtimestamp(proc.info['create_time'])
+						status["is_running"] = True
 						break
 				except (psutil.NoSuchProcess, psutil.AccessDenied):
 					continue
@@ -237,6 +243,19 @@ def save_settings(settings: Dict[str, Any]):
 	except Exception as e:
 		st.error(f"Ошибка сохранения настроек: {e}")
 
+def format_price(price: float) -> str:
+	"""Форматирует цену с правильным количеством знаков после запятой"""
+	if price == 0:
+		return "$0.00"
+	elif price < 0.01:
+		return f"${price:.8f}"
+	elif price < 1:
+		return f"${price:.6f}"
+	elif price < 100:
+		return f"${price:.4f}"
+	else:
+		return f"${price:.2f}"
+
 def calculate_metrics(trades: List[Dict[str, Any]]) -> Dict[str, float]:
 	"""Рассчитывает торговые метрики"""
 	if not trades:
@@ -327,7 +346,7 @@ def calculate_drawdown(trades: List[Dict[str, Any]], initial_balance: float) -> 
 	equity_data = [{"time": None, "balance": initial_balance, "peak": initial_balance, "drawdown": 0}]
 	
 	for trade in trades:
-		if "profit" in trade:
+		if "profit" in trade and trade["profit"] is not None:
 			balance += trade["profit"]
 		elif "invest_amount" in trade and trade.get("type") == "BUY":
 			balance -= trade["invest_amount"]
@@ -356,31 +375,46 @@ def overview_page(state: Dict[str, Any]):
 		st.warning("Нет данных для отображения. Запустите paper trading.")
 		return
 	
-	# KPI карточки
-	col1, col2, col3, col4 = st.columns(4)
-	
+	# Рассчитываем стоимость активов
 	balance = state.get("balance", 0)
 	initial = state.get("initial_balance", 100)
-	total_profit = balance - initial
+	positions = state.get("positions", {})
+	
+	# Суммируем стоимость открытых позиций
+	positions_value = 0
+	for symbol, pos in positions.items():
+		# Используем entry_price как текущую цену (TODO: можно получить реальную)
+		current_price = pos.get("entry_price", 0)
+		amount = pos.get("amount", 0)
+		positions_value += current_price * amount
+	
+	total_equity = balance + positions_value
+	total_profit = total_equity - initial
 	profit_percent = (total_profit / initial) * 100 if initial > 0 else 0
 	
-	positions_count = len(state.get("positions", {}))
+	positions_count = len(positions)
 	
 	trades = state.get("trades_history", [])
 	metrics = calculate_metrics(trades)
 	win_rate = metrics.get("win_rate", 0)
 	
+	# KPI карточки - 5 колонок теперь
+	col1, col2, col3, col4, col5 = st.columns(5)
+	
 	with col1:
-		st.metric("Баланс", f"${balance:.2f}", f"{total_profit:+.2f} USD")
+		st.metric("Свободно", f"${balance:.2f}")
 	
 	with col2:
-		st.metric("P&L", f"{profit_percent:+.2f}%", f"{total_profit:+.2f} USD")
+		st.metric("В позициях", f"${positions_value:.2f}")
 	
 	with col3:
-		st.metric("Win Rate", f"{win_rate:.1f}%", f"{metrics.get('winning_trades', 0)}/{metrics.get('total_trades', 0)}")
+		st.metric("Всего капитал", f"${total_equity:.2f}", f"{total_profit:+.2f} USD")
 	
 	with col4:
-		st.metric("Позиции", positions_count, f"из {state.get('max_positions', 3)}")
+		st.metric("P&L", f"{profit_percent:+.2f}%", f"{total_profit:+.2f} USD")
+	
+	with col5:
+		st.metric("Win Rate", f"{win_rate:.1f}%", f"{metrics.get('winning_trades', 0)}/{metrics.get('total_trades', 0)}")
 	
 	st.divider()
 	
@@ -393,7 +427,7 @@ def overview_page(state: Dict[str, Any]):
 		
 		for trade in trades:
 			time = trade.get("time")
-			if "profit" in trade:
+			if "profit" in trade and trade["profit"] is not None:
 				balance_history += trade["profit"]
 			
 			equity_data.append({
@@ -444,10 +478,10 @@ def overview_page(state: Dict[str, Any]):
 			time = trade.get("time", "N/A")
 			
 			# Цвет в зависимости от типа и прибыли
-			if profit > 0:
+			if profit and profit > 0:
 				color = "green"
 				emoji = "✅"
-			elif profit < 0:
+			elif profit and profit < 0:
 				color = "red"
 				emoji = "❌"
 			else:
@@ -464,9 +498,9 @@ def overview_page(state: Dict[str, Any]):
 			with col2:
 				st.write(f"**{trade_type}**")
 			with col3:
-				st.write(f"{symbol} @ ${price:.2f}")
+				st.write(f"{symbol} @ {format_price(price)}")
 			with col4:
-				if profit != 0:
+				if profit and profit != 0:
 					st.markdown(f":{color}[{profit:+.2f} USD ({profit_pct:+.2f}%)]")
 			with col5:
 				st.write(time[:19] if len(time) > 19 else time)
@@ -509,12 +543,12 @@ def positions_page(state: Dict[str, Any]):
 		
 		positions_data.append({
 			"Символ": symbol,
-			"Вход": f"${entry_price:.2f}",
-			"Средняя": f"${avg_entry:.2f}" if averaging_count > 0 else "-",
+			"Вход": format_price(entry_price),
+			"Средняя": format_price(avg_entry) if averaging_count > 0 else "-",
 			"Количество": f"{amount:.4f}",
 			"P&L%": f"{pnl_pct:+.2f}%",
-			"SL": f"${sl:.2f}",
-			"TP": f"${tp:.2f}",
+			"SL": format_price(sl),
+			"TP": format_price(tp),
 			"Докупания": f"{averaging_count} ({mode})" if averaging_count > 0 else "0",
 			"Время": entry_time[:19] if len(entry_time) > 19 else entry_time
 		})
@@ -531,12 +565,12 @@ def positions_page(state: Dict[str, Any]):
 			col1, col2, col3 = st.columns(3)
 			
 			with col1:
-				st.metric("Цена входа", f"${pos.get('entry_price', 0):.2f}")
-				st.metric("Средняя цена", f"${pos.get('average_entry_price', pos.get('entry_price', 0)):.2f}")
+				st.metric("Цена входа", format_price(pos.get('entry_price', 0)))
+				st.metric("Средняя цена", format_price(pos.get('average_entry_price', pos.get('entry_price', 0))))
 			
 			with col2:
-				st.metric("Stop Loss", f"${pos.get('stop_loss_price', 0):.2f}")
-				st.metric("Take Profit", f"${pos.get('take_profit_price', 0):.2f}")
+				st.metric("Stop Loss", format_price(pos.get('stop_loss_price', 0)))
+				st.metric("Take Profit", format_price(pos.get('take_profit_price', 0)))
 			
 			with col3:
 				st.metric("Докупания", pos.get("averaging_count", 0))
@@ -547,7 +581,7 @@ def positions_page(state: Dict[str, Any]):
 			if averaging_entries:
 				st.write("**История докупаний:**")
 				for i, entry in enumerate(averaging_entries, 1):
-					st.write(f"{i}. {entry.get('mode', 'N/A')} @ ${entry.get('price', 0):.2f} - {entry.get('reason', 'N/A')}")
+					st.write(f"{i}. {entry.get('mode', 'N/A')} @ {format_price(entry.get('price', 0))} - {entry.get('reason', 'N/A')}")
 
 # ====================================================================
 # СТРАНИЦА 3: ИСТОРИЯ СДЕЛОК
@@ -604,7 +638,7 @@ def history_page(state: Dict[str, Any]):
 				"Время": trade.get("time", "N/A")[:19],
 				"Тип": trade.get("type", "N/A"),
 				"Символ": trade.get("symbol", "N/A"),
-				"Цена": f"${trade.get('price', 0):.2f}",
+				"Цена": format_price(trade.get('price', 0)),
 				"Количество": f"{trade.get('amount', 0):.4f}",
 				"P&L": f"${trade.get('profit', 0):.2f}" if "profit" in trade else "-",
 				"P&L%": f"{trade.get('profit_percent', 0):.2f}%" if "profit_percent" in trade else "-",
@@ -847,7 +881,7 @@ def backtests_page():
 				# Рассчитываем equity
 				balance = initial
 				for trade in trades:
-					if "profit" in trade:
+					if "profit" in trade and trade["profit"] is not None:
 						balance += trade["profit"]
 				final_balance = balance
 				roi = ((final_balance - initial) / initial) * 100 if initial > 0 else 0
@@ -898,7 +932,7 @@ def backtests_page():
 				for trade in trades:
 					if "balance_after" in trade:
 						balance_history.append(trade["balance_after"])
-					elif "profit" in trade:
+					elif "profit" in trade and trade["profit"] is not None:
 						balance += trade["profit"]
 						balance_history.append(balance)
 				
@@ -988,7 +1022,7 @@ def backtests_page():
 				for trade in trades:
 					if "balance_after" in trade:
 						balance_history.append(trade["balance_after"])
-					elif "profit" in trade:
+					elif "profit" in trade and trade["profit"] is not None:
 						balance += trade["profit"]
 						balance_history.append(balance)
 				
@@ -1219,9 +1253,8 @@ def logs_page():
 					return 'background-color: #aaaaaa; color: white'
 				return ''
 			
-			# Отображаем таблицу
-			styled_df = df_logs.style.applymap(color_level, subset=['level'])
-			st.dataframe(styled_df, use_container_width=True, height=600)
+			# Отображаем таблицу (без стилей для совместимости)
+			st.dataframe(df_logs, use_container_width=True, height=600)
 		else:
 			st.info("Нет логов соответствующих фильтру")
 	
