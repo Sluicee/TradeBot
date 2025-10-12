@@ -31,7 +31,9 @@ from config import (
 	USE_DYNAMIC_TP_FOR_MR, MR_ATR_TP_MULTIPLIER, MR_ATR_TP_MIN, MR_ATR_TP_MAX,
 	# Гибридная стратегия
 	STRATEGY_HYBRID_MODE, HYBRID_ADX_MR_THRESHOLD, HYBRID_ADX_TF_THRESHOLD,
-	HYBRID_TRANSITION_MODE, HYBRID_MIN_TIME_IN_MODE
+	HYBRID_TRANSITION_MODE, HYBRID_MIN_TIME_IN_MODE,
+	# Multi-timeframe анализ
+	USE_MULTI_TIMEFRAME, MTF_TIMEFRAMES, MTF_WEIGHTS, MTF_MIN_AGREEMENT, MTF_FULL_ALIGNMENT_BONUS
 )
 
 try:
@@ -955,3 +957,249 @@ class SignalGenerator:
 			}
 		
 		return signal_result
+	
+	async def generate_signal_multi_timeframe(
+		self,
+		data_provider,
+		symbol: str,
+		strategy: str = "TREND_FOLLOWING"
+	) -> Dict[str, Any]:
+		"""
+		🔀 MULTI-TIMEFRAME ANALYSIS
+		
+		Анализирует сигналы на нескольких таймфреймах (15m, 1h, 4h) и
+		объединяет их через weighted voting для повышения точности.
+		
+		Параметры:
+		- data_provider: объект DataProvider для загрузки данных
+		- symbol: торговая пара (например, "BTCUSDT")
+		- strategy: "TREND_FOLLOWING", "MEAN_REVERSION", или "HYBRID"
+		
+		Возвращает:
+		- Объединённый сигнал с информацией по каждому таймфрейму
+		"""
+		import asyncio
+		
+		if not USE_MULTI_TIMEFRAME:
+			# Fallback: используем текущий DataFrame если MTF отключен
+			if strategy == "MEAN_REVERSION":
+				return self.generate_signal_mean_reversion()
+			elif strategy == "HYBRID":
+				return self.generate_signal_hybrid()
+			else:
+				return self.generate_signal()
+		
+		reasons = []
+		timeframe_signals = {}
+		
+		# ====================================================================
+		# 1. ЗАГРУЗКА ДАННЫХ ДЛЯ КАЖДОГО ТАЙМФРЕЙМА
+		# ====================================================================
+		
+		async def fetch_all_timeframes():
+			"""Параллельная загрузка всех таймфреймов"""
+			tasks = []
+			for tf in MTF_TIMEFRAMES:
+				tasks.append(data_provider.fetch_klines(symbol, tf, limit=200))
+			return await asyncio.gather(*tasks, return_exceptions=True)
+		
+		# Запускаем загрузку
+		try:
+			# Если уже в async контексте, используем gather, иначе создаём event loop
+			try:
+				loop = asyncio.get_running_loop()
+				# Мы уже в async контексте - просто await
+				tf_data = await fetch_all_timeframes()
+			except RuntimeError:
+				# Нет running loop - создаём новый
+				tf_data = asyncio.run(fetch_all_timeframes())
+		except Exception as e:
+			logger.error(f"Ошибка загрузки MTF данных: {e}")
+			# Fallback на single TF
+			if strategy == "MEAN_REVERSION":
+				return self.generate_signal_mean_reversion()
+			elif strategy == "HYBRID":
+				return self.generate_signal_hybrid()
+			else:
+				return self.generate_signal()
+		
+		# ====================================================================
+		# 2. ГЕНЕРАЦИЯ СИГНАЛОВ ДЛЯ КАЖДОГО ТАЙМФРЕЙМА
+		# ====================================================================
+		
+		for i, tf in enumerate(MTF_TIMEFRAMES):
+			if isinstance(tf_data[i], Exception):
+				logger.warning(f"Ошибка данных для {tf}: {tf_data[i]}")
+				timeframe_signals[tf] = {
+					"signal": "HOLD",
+					"error": str(tf_data[i]),
+					"weight": MTF_WEIGHTS.get(tf, 0)
+				}
+				continue
+			
+			df = tf_data[i]
+			if df.empty:
+				timeframe_signals[tf] = {
+					"signal": "HOLD",
+					"error": "Empty dataframe",
+					"weight": MTF_WEIGHTS.get(tf, 0)
+				}
+				continue
+			
+			# Создаём отдельный генератор для этого таймфрейма
+			try:
+				sg = SignalGenerator(df, use_statistical_models=self.use_statistical_models)
+				sg.compute_indicators()
+				
+				# Генерируем сигнал в зависимости от стратегии
+				if strategy == "MEAN_REVERSION":
+					signal_result = sg.generate_signal_mean_reversion()
+				elif strategy == "HYBRID":
+					signal_result = sg.generate_signal_hybrid()
+				else:
+					signal_result = sg.generate_signal()
+				
+				# Сохраняем результат
+				timeframe_signals[tf] = {
+					"signal": signal_result.get("signal", "HOLD"),
+					"price": signal_result.get("price", 0),
+					"RSI": signal_result.get("RSI", 0),
+					"ADX": signal_result.get("ADX", 0),
+					"MACD_hist": signal_result.get("MACD_hist", 0),
+					"market_regime": signal_result.get("market_regime", "NEUTRAL"),
+					"bullish_votes": signal_result.get("bullish_votes", 0),
+					"bearish_votes": signal_result.get("bearish_votes", 0),
+					"weight": MTF_WEIGHTS.get(tf, 0),
+					"confidence": signal_result.get("confidence", 0)
+				}
+				
+			except Exception as e:
+				logger.error(f"Ошибка генерации сигнала для {tf}: {e}")
+				timeframe_signals[tf] = {
+					"signal": "HOLD",
+					"error": str(e),
+					"weight": MTF_WEIGHTS.get(tf, 0)
+				}
+		
+		# ====================================================================
+		# 3. WEIGHTED VOTING
+		# ====================================================================
+		
+		buy_score = 0.0
+		sell_score = 0.0
+		hold_score = 0.0
+		
+		buy_count = 0
+		sell_count = 0
+		hold_count = 0
+		
+		for tf, sig_data in timeframe_signals.items():
+			signal = sig_data.get("signal", "HOLD")
+			weight = sig_data.get("weight", 0)
+			confidence = sig_data.get("confidence", 0.5)
+			
+			# Взвешиваем по весу таймфрейма и уверенности сигнала
+			weighted_score = weight * (1 + confidence)
+			
+			if signal == "BUY":
+				buy_score += weighted_score
+				buy_count += 1
+				reasons.append(f"📊 {tf}: BUY (вес={weight:.2f}, conf={confidence:.2f})")
+			elif signal == "SELL":
+				sell_score += weighted_score
+				sell_count += 1
+				reasons.append(f"📊 {tf}: SELL (вес={weight:.2f}, conf={confidence:.2f})")
+			else:
+				hold_score += weighted_score
+				hold_count += 1
+				reasons.append(f"📊 {tf}: HOLD (вес={weight:.2f})")
+		
+		# ====================================================================
+		# 4. ПРОВЕРКА СОГЛАСОВАННОСТИ (ALIGNMENT)
+		# ====================================================================
+		
+		total_tf = len(MTF_TIMEFRAMES)
+		alignment_strength = 0
+		final_signal = "HOLD"
+		signal_emoji = "⚠️"
+		
+		# Проверяем полное согласие (все 3 TF показывают одинаково)
+		if buy_count == total_tf:
+			alignment_strength = 1.0
+			final_signal = "BUY"
+			signal_emoji = "🟢🔥"
+			buy_score *= MTF_FULL_ALIGNMENT_BONUS
+			reasons.append(f"✅ ПОЛНОЕ СОГЛАСИЕ: все {total_tf} таймфрейма показывают BUY! (бонус {MTF_FULL_ALIGNMENT_BONUS}x)")
+		elif sell_count == total_tf:
+			alignment_strength = 1.0
+			final_signal = "SELL"
+			signal_emoji = "🔴🔥"
+			sell_score *= MTF_FULL_ALIGNMENT_BONUS
+			reasons.append(f"✅ ПОЛНОЕ СОГЛАСИЕ: все {total_tf} таймфрейма показывают SELL! (бонус {MTF_FULL_ALIGNMENT_BONUS}x)")
+		
+		# Проверяем частичное согласие (минимум MTF_MIN_AGREEMENT)
+		elif buy_count >= MTF_MIN_AGREEMENT and buy_score > sell_score:
+			alignment_strength = buy_count / total_tf
+			final_signal = "BUY"
+			signal_emoji = "🟢"
+			reasons.append(f"✓ Частичное согласие: {buy_count}/{total_tf} таймфреймов показывают BUY")
+		elif sell_count >= MTF_MIN_AGREEMENT and sell_score > buy_score:
+			alignment_strength = sell_count / total_tf
+			final_signal = "SELL"
+			signal_emoji = "🔴"
+			reasons.append(f"✓ Частичное согласие: {sell_count}/{total_tf} таймфреймов показывают SELL")
+		
+		# Конфликт таймфреймов - остаёмся в HOLD
+		else:
+			final_signal = "HOLD"
+			signal_emoji = "⚠️"
+			reasons.append(f"⚠️ КОНФЛИКТ ТАЙМФРЕЙМОВ: BUY={buy_count}, SELL={sell_count}, HOLD={hold_count}")
+			reasons.append(f"   Weighted scores: BUY={buy_score:.2f}, SELL={sell_score:.2f}, HOLD={hold_score:.2f}")
+		
+		# ====================================================================
+		# 5. ФИНАЛЬНЫЙ РЕЗУЛЬТАТ
+		# ====================================================================
+		
+		# Берём данные из основного таймфрейма (обычно 1h)
+		main_tf = '1h' if '1h' in timeframe_signals else MTF_TIMEFRAMES[0]
+		main_data = timeframe_signals.get(main_tf, {})
+		
+		# Расчёт итоговой силы сигнала (для адаптивного размера позиции)
+		signal_strength = 0
+		if final_signal == "BUY":
+			signal_strength = int(buy_score * 3)  # Нормализуем к scale ~3-15
+		elif final_signal == "SELL":
+			signal_strength = int(sell_score * 3)
+		
+		result = {
+			"signal": final_signal,
+			"signal_emoji": signal_emoji,
+			"price": main_data.get("price", 0),
+			"strategy": f"{strategy}_MTF",
+			
+			# Multi-timeframe данные
+			"mtf_enabled": True,
+			"timeframe_signals": timeframe_signals,
+			"alignment_strength": alignment_strength,
+			"buy_score": buy_score,
+			"sell_score": sell_score,
+			"hold_score": hold_score,
+			"buy_count": buy_count,
+			"sell_count": sell_count,
+			"hold_count": hold_count,
+			
+			# Данные из основного таймфрейма
+			"RSI": main_data.get("RSI", 0),
+			"ADX": main_data.get("ADX", 0),
+			"MACD_hist": main_data.get("MACD_hist", 0),
+			"market_regime": main_data.get("market_regime", "NEUTRAL"),
+			
+			# Голоса (для совместимости)
+			"bullish_votes": signal_strength if final_signal == "BUY" else 0,
+			"bearish_votes": signal_strength if final_signal == "SELL" else 0,
+			
+			# Причины
+			"reasons": reasons
+		}
+		
+		return result

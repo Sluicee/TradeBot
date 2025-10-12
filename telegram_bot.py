@@ -78,10 +78,39 @@ class TelegramBot:
 			return True
 		return update.effective_chat.id == self.owner_chat_id
 	
-	def _generate_signal_with_strategy(self, generator: SignalGenerator) -> dict:
+	def _generate_signal_with_strategy(self, generator: SignalGenerator, symbol: str = None, use_mtf: bool = None) -> dict:
 		"""
 		Генерирует сигнал в зависимости от выбранной стратегии (STRATEGY_MODE)
+		
+		Args:
+			generator: SignalGenerator с загруженными данными
+			symbol: торговая пара (нужна для MTF анализа)
+			use_mtf: использовать multi-timeframe анализ (если None, берётся из USE_MULTI_TIMEFRAME)
 		"""
+		from config import USE_MULTI_TIMEFRAME
+		
+		# Определяем, использовать ли MTF
+		if use_mtf is None:
+			use_mtf = USE_MULTI_TIMEFRAME
+		
+		# Если MTF включен и символ указан - используем MTF анализ
+		if use_mtf and symbol and hasattr(self, 'data_provider'):
+			try:
+				# MTF анализ - асинхронный
+				import asyncio
+				loop = asyncio.get_event_loop()
+				return loop.run_until_complete(
+					generator.generate_signal_multi_timeframe(
+						data_provider=self.data_provider,
+						symbol=symbol,
+						strategy=STRATEGY_MODE
+					)
+				)
+			except Exception as e:
+				logger.error(f"Ошибка MTF анализа: {e}, fallback на single TF")
+				# Fallback на обычный анализ при ошибке
+		
+		# Обычный single-timeframe анализ
 		if STRATEGY_MODE == "MEAN_REVERSION":
 			return generator.generate_signal_mean_reversion()
 		elif STRATEGY_MODE == "HYBRID":
@@ -112,6 +141,7 @@ class TelegramBot:
 		self.application.add_handler(CommandHandler("help", self.help))
 		self.application.add_handler(CommandHandler("status", self.status))
 		self.application.add_handler(CommandHandler("analyze", self.analyze))
+		self.application.add_handler(CommandHandler("mtf_signal", self.mtf_signal))
 		self.application.add_handler(CommandHandler("add", self.add_symbol))
 		self.application.add_handler(CommandHandler("remove", self.remove_symbol))
 		self.application.add_handler(CommandHandler("list", self.list_symbols))
@@ -272,6 +302,7 @@ class TelegramBot:
 			"<b>🆘 Помощь:</b>\n\n"
 			"<b>Анализ:</b>\n"
 			"• /analyze SYMBOL INTERVAL — анализ указанной пары\n"
+			"• /mtf_signal SYMBOL — multi-timeframe анализ (15m+1h+4h)\n"
 			"• /add SYMBOL — добавить пару в отслеживаемые\n"
 			"• /remove SYMBOL — удалить пару из отслеживаемых\n"
 			"• /list — показать все отслеживаемые пары\n\n"
@@ -383,12 +414,128 @@ class TelegramBot:
 
 			generator = SignalGenerator(df)
 			generator.compute_indicators()
-			result = self._generate_signal_with_strategy(generator)
+			result = self._generate_signal_with_strategy(generator, symbol=symbol)
 
 			text = self.format_analysis(result, symbol, interval)
 			await msg.edit_text(text, parse_mode="HTML")
 		except Exception as e:
 			await msg.edit_text(f"Ошибка при анализе: {e}")
+	
+	async def mtf_signal(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+		"""🔀 Multi-timeframe анализ сигнала"""
+		if not self._is_authorized(update):
+			await update.message.reply_text("🚫 Доступ запрещен")
+			return
+		
+		if not context.args:
+			await update.message.reply_text("⚠️ Использование: /mtf_signal SYMBOL")
+			return
+		
+		symbol = context.args[0].upper()
+		msg = await update.message.reply_text(f"🔍 Multi-timeframe анализ {symbol}...")
+		
+		try:
+			from config import MTF_TIMEFRAMES, STRATEGY_MODE
+			
+			async with aiohttp.ClientSession() as session:
+				provider = DataProvider(session)
+				
+				# Загружаем данные для основного таймфрейма
+				klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=200)
+				df = provider.klines_to_dataframe(klines)
+				
+				if df.empty:
+					await msg.edit_text("⚠️ Не удалось получить данные")
+					return
+			
+			# Генерируем MTF сигнал напрямую (async)
+			generator = SignalGenerator(df)
+			generator.compute_indicators()
+			result = await generator.generate_signal_multi_timeframe(
+				data_provider=provider,
+				symbol=symbol,
+				strategy=STRATEGY_MODE
+			)
+			
+			# Форматируем вывод
+			text = self._format_mtf_analysis(result, symbol)
+			await msg.edit_text(text, parse_mode="HTML")
+		
+		except Exception as e:
+			logger.error(f"Ошибка MTF анализа: {e}")
+			await msg.edit_text(f"❌ Ошибка: {e}")
+	
+	def _format_mtf_analysis(self, result: dict, symbol: str) -> str:
+		"""Форматирует вывод MTF анализа"""
+		from config import MTF_TIMEFRAMES
+		
+		signal = result.get("signal", "HOLD")
+		emoji = result.get("signal_emoji", "⚠️")
+		price = result.get("price", 0)
+		
+		# Основная информация
+		lines = [
+			f"🔀 <b>Multi-Timeframe Анализ: {symbol}</b>",
+			f"💰 Цена: <code>${price:.4f}</code>",
+			f"",
+			f"{emoji} <b>Итоговый сигнал: {signal}</b>",
+			f""
+		]
+		
+		# Информация по каждому таймфрейму
+		timeframe_signals = result.get("timeframe_signals", {})
+		if timeframe_signals:
+			lines.append("📊 <b>Сигналы по таймфреймам:</b>")
+			for tf in MTF_TIMEFRAMES:
+				tf_data = timeframe_signals.get(tf, {})
+				tf_signal = tf_data.get("signal", "HOLD")
+				tf_weight = tf_data.get("weight", 0)
+				tf_rsi = tf_data.get("RSI", 0)
+				tf_adx = tf_data.get("ADX", 0)
+				
+				# Emoji для сигнала
+				if tf_signal == "BUY":
+					tf_emoji = "🟢"
+				elif tf_signal == "SELL":
+					tf_emoji = "🔴"
+				else:
+					tf_emoji = "⚠️"
+				
+				lines.append(
+					f"  {tf_emoji} <b>{tf}</b>: {tf_signal} "
+					f"(вес: {tf_weight:.2f}, RSI: {tf_rsi:.1f}, ADX: {tf_adx:.1f})"
+				)
+			lines.append("")
+		
+		# Согласованность
+		alignment_strength = result.get("alignment_strength", 0)
+		buy_count = result.get("buy_count", 0)
+		sell_count = result.get("sell_count", 0)
+		hold_count = result.get("hold_count", 0)
+		
+		lines.append(f"🎯 <b>Согласованность:</b> {alignment_strength*100:.0f}%")
+		lines.append(f"   BUY: {buy_count} | SELL: {sell_count} | HOLD: {hold_count}")
+		lines.append("")
+		
+		# Weighted scores
+		buy_score = result.get("buy_score", 0)
+		sell_score = result.get("sell_score", 0)
+		hold_score = result.get("hold_score", 0)
+		
+		lines.append(f"⚖️ <b>Взвешенные оценки:</b>")
+		lines.append(f"   BUY: {buy_score:.2f} | SELL: {sell_score:.2f} | HOLD: {hold_score:.2f}")
+		lines.append("")
+		
+		# Причины
+		reasons = result.get("reasons", [])
+		if reasons:
+			lines.append("<b>📝 Причины:</b>")
+			for reason in reasons[:10]:  # Показываем первые 10
+				# Убираем emoji из причин для чистоты
+				clean_reason = reason.replace("📊", "").replace("✅", "").replace("⚠️", "").strip()
+				lines.append(f"  • {clean_reason}")
+		
+		return "\n".join(lines)
 
 	def _calculate_adaptive_poll_interval(self, volatilities: list[float]) -> int:
 		"""Вычисляет адаптивный интервал опроса на основе волатильности"""
@@ -488,7 +635,7 @@ class TelegramBot:
 
 						generator = SignalGenerator(df)
 						generator.compute_indicators()
-						result = self._generate_signal_with_strategy(generator)
+						result = self._generate_signal_with_strategy(generator, symbol=symbol)
 						signal = result["signal"]
 						current_price = float(df['close'].iloc[-1])
 						
@@ -1176,7 +1323,7 @@ class TelegramBot:
 				
 				generator = SignalGenerator(df)
 				generator.compute_indicators()
-				result = self._generate_signal_with_strategy(generator)
+				result = self._generate_signal_with_strategy(generator, symbol=symbol)
 				
 			signal = result["signal"]
 			price = result["price"]
@@ -1272,7 +1419,7 @@ class TelegramBot:
 						
 						generator = SignalGenerator(df)
 						generator.compute_indicators()
-						result = self._generate_signal_with_strategy(generator)
+						result = self._generate_signal_with_strategy(generator, symbol=symbol)
 						
 						signal = result["signal"]
 						price = result["price"]
@@ -1366,7 +1513,7 @@ class TelegramBot:
 			# Генерируем сигнал чтобы получить ATR
 			generator = SignalGenerator(df)
 			generator.compute_indicators()
-			result = self._generate_signal_with_strategy(generator)
+			result = self._generate_signal_with_strategy(generator, symbol=symbol)
 			
 			price = float(df['close'].iloc[-1])
 			signal_strength = 5  # Средняя сила для теста
