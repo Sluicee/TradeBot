@@ -212,7 +212,7 @@ class TelegramBot:
 		
 		return (
 			f"<b>{html_escape(symbol)}</b> {result['signal_emoji']} <b>{html_escape(result['signal'])}</b>\n"
-			f"  ₿{fmt(result['price'])} | RSI {fmt(result['RSI'])}\n"
+			f"  ₿{fmt(result['price'])} | RSI {fmt(result.get('RSI'))}\n"
 			f"  {main_reason}"
 		)
 
