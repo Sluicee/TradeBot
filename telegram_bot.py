@@ -233,19 +233,64 @@ class TelegramBot:
 			s = s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
 			return s
 
-		def fmt(val):
+		def fmt_price(val):
+			"""Форматирование цены (2 знака для USDT пар)"""
 			if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
 				return 'н/д'
-			return f'{val:.8f}' if isinstance(val, float) else str(val)
-
-		# Берём первую причину как основную
-		main_reason = html_escape(result["reasons"][0]) if result["reasons"] else "нет данных"
+			if isinstance(val, float):
+				# Для больших цен (>1000) показываем 2 знака, для маленьких (<1) - 8
+				if val > 1000:
+					return f'{val:.2f}'
+				elif val > 1:
+					return f'{val:.4f}'
+				else:
+					return f'{val:.8f}'
+			return str(val)
 		
-		return (
-			f"<b>{html_escape(symbol)}</b> {result['signal_emoji']} <b>{html_escape(result['signal'])}</b>\n"
-			f"  ₿{fmt(result['price'])} | RSI {fmt(result.get('RSI'))}\n"
-			f"  {main_reason}"
-		)
+		def fmt_indicator(val):
+			"""Форматирование индикаторов (RSI, ADX) - 1 знак после запятой"""
+			if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+				return 'н/д'
+			if isinstance(val, (int, float)) and val == 0:
+				return 'н/д'
+			return f'{val:.1f}' if isinstance(val, float) else str(val)
+
+		# Извлекаем данные
+		signal = html_escape(result.get('signal', 'HOLD'))
+		emoji = result.get('signal_emoji', '⚠️')
+		price = result.get('price', 0)
+		rsi = result.get('RSI', 0)
+		adx = result.get('ADX', 0)
+		
+		# Определяем режим
+		market_regime = result.get('market_regime', 'NEUTRAL')
+		strategy_mode = result.get('strategy', 'UNKNOWN')
+		
+		# Проверяем MTF
+		is_mtf = result.get('mtf_enabled', False)
+		alignment = result.get('alignment_strength', 0)
+		
+		# Основная информация
+		lines = [
+			f"<b>{html_escape(symbol)}</b> {emoji} <b>{signal}</b>",
+			f"💰 Цена: <code>${fmt_price(price)}</code> | 📊 RSI: <code>{fmt_indicator(rsi)}</code> | ADX: <code>{fmt_indicator(adx)}</code>"
+		]
+		
+		# Режим стратегии
+		if market_regime != 'NEUTRAL':
+			lines.append(f"🎯 Режим: <b>{market_regime}</b>")
+		
+		# MTF информация
+		if is_mtf:
+			lines.append(f"🔀 MTF: согласованность {alignment*100:.0f}%")
+		
+		# Первые 2 причины (самые важные)
+		if result.get("reasons"):
+			lines.append(f"\n📝 <i>{html_escape(result['reasons'][0])}</i>")
+			if len(result["reasons"]) > 1:
+				lines.append(f"<i>{html_escape(result['reasons'][1])}</i>")
+		
+		return "\n".join(lines)
 
 	def format_volatility(self, symbol, interval, change, close_price, window):
 		direction = "↑" if change > 0 else "↓"
