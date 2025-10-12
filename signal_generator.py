@@ -31,13 +31,50 @@ class SignalGenerator:
 		self, ema_short_window=None, ema_long_window=None, rsi_window=None,
 		macd_fast=None, macd_slow=None, macd_signal=None
 	) -> pd.DataFrame:
-		# Используем значения из config, если не переданы явно
-		ema_short_window = ema_short_window or EMA_SHORT_WINDOW
-		ema_long_window = ema_long_window or EMA_LONG_WINDOW
-		rsi_window = rsi_window or RSI_WINDOW
-		macd_fast = macd_fast or MACD_FAST
-		macd_slow = macd_slow or MACD_SLOW
-		macd_signal = macd_signal or MACD_SIGNAL
+		# ====================================================================
+		# ДИНАМИЧЕСКАЯ АДАПТАЦИЯ ПАРАМЕТРОВ НА ОСНОВЕ ВОЛАТИЛЬНОСТИ
+		# ====================================================================
+		
+		# Сначала вычисляем ATR для оценки волатильности
+		close = self.df["close"].astype(float)
+		high = self.df["high"].astype(float)
+		low = self.df["low"].astype(float)
+		
+		# Временный ATR для адаптации параметров
+		if len(self.df) >= ATR_WINDOW:
+			temp_atr = ta.volatility.average_true_range(high, low, close, window=ATR_WINDOW).iloc[-1]
+			current_price = close.iloc[-1]
+			volatility_percent = (temp_atr / current_price) * 100 if current_price > 0 else 1.5
+		else:
+			volatility_percent = 1.5  # Средняя волатильность по умолчанию
+		
+		# Адаптируем параметры на основе волатильности
+		# При высокой волатильности (>3%) → увеличиваем периоды (сглаживаем шум)
+		# При низкой волатильности (<1%) → уменьшаем периоды (быстрее реагируем)
+		
+		volatility_factor = 1.0  # Базовый множитель
+		if volatility_percent > 3.0:
+			volatility_factor = 1.3  # Увеличиваем периоды на 30%
+		elif volatility_percent > 2.0:
+			volatility_factor = 1.15  # Увеличиваем на 15%
+		elif volatility_percent < 0.8:
+			volatility_factor = 0.85  # Уменьшаем на 15%
+		elif volatility_percent < 1.2:
+			volatility_factor = 0.95  # Уменьшаем на 5%
+		
+		# Используем значения из config с адаптацией, если не переданы явно
+		if ema_short_window is None:
+			ema_short_window = max(5, int(EMA_SHORT_WINDOW * volatility_factor))
+		if ema_long_window is None:
+			ema_long_window = max(10, int(EMA_LONG_WINDOW * volatility_factor))
+		if rsi_window is None:
+			rsi_window = max(7, int(RSI_WINDOW * volatility_factor))
+		if macd_fast is None:
+			macd_fast = max(8, int(MACD_FAST * volatility_factor))
+		if macd_slow is None:
+			macd_slow = max(16, int(MACD_SLOW * volatility_factor))
+		if macd_signal is None:
+			macd_signal = max(5, int(MACD_SIGNAL * volatility_factor))
 		
 		close = self.df["close"].astype(float)
 		high = self.df["high"].astype(float)
@@ -134,7 +171,11 @@ class SignalGenerator:
 		volume = float(last["volume"])
 		volume_ma = float(last.get(f"Volume_MA_{VOLUME_MA_WINDOW}", volume))
 		
-		# Детекция рыночного режима
+		# ====================================================================
+		# ДЕТЕКЦИЯ РЕЖИМА: ADX + Линейная регрессия
+		# ====================================================================
+		
+		# 1. Базовая детекция через ADX
 		market_regime = "NEUTRAL"
 		if adx > ADX_TRENDING:
 			market_regime = "TRENDING"
@@ -142,11 +183,54 @@ class SignalGenerator:
 			market_regime = "RANGING"
 		else:
 			market_regime = "TRANSITIONING"
+		
+		# 2. Линейная регрессия для подтверждения тренда
+		trend_strength = 0  # R² от 0 до 1
+		trend_direction = 0  # -1 (down), 0 (neutral), +1 (up)
+		
+		if len(self.df) >= 20:
+			# Последние 20 цен закрытия
+			prices = self.df['close'].iloc[-20:].values
+			x = np.arange(len(prices))
+			
+			# Линейная регрессия: y = slope * x + intercept
+			slope, intercept = np.polyfit(x, prices, 1)
+			
+			# R² (коэффициент детерминации) - насколько хорошо линия описывает данные
+			y_pred = slope * x + intercept
+			ss_res = np.sum((prices - y_pred) ** 2)
+			ss_tot = np.sum((prices - np.mean(prices)) ** 2)
+			trend_strength = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+			trend_strength = max(0, min(1, trend_strength))  # Ограничиваем 0-1
+			
+			# Направление тренда (нормализуем к % изменения)
+			price_range = prices[-1] - prices[0]
+			percent_change = (price_range / prices[0]) * 100
+			
+			if abs(percent_change) > 1.0 and trend_strength > 0.5:  # Сильный тренд
+				trend_direction = 1 if slope > 0 else -1
+			elif abs(percent_change) > 0.5 and trend_strength > 0.3:  # Умеренный тренд
+				trend_direction = 1 if slope > 0 else -1
+			else:
+				trend_direction = 0
+		
+		# 3. Корректируем режим на основе линейной регрессии
+		if trend_strength > 0.6 and abs(trend_direction) == 1:
+			# Сильный линейный тренд обнаружен - переводим в TRENDING
+			if market_regime != "TRENDING":
+				market_regime = "TRENDING"
+		elif trend_strength < 0.3:
+			# Слабая линейность - скорее всего флэт
+			if market_regime == "TRENDING":
+				market_regime = "TRANSITIONING"
 
 		# Голосование индикаторов
 		bullish = 0
 		bearish = 0
 		reasons = []
+		
+		# Информация об адаптированных параметрах (если они менялись)
+		atr_percent = (atr / price) * 100 if atr > 0 and price > 0 else 0
 
 		# ====================================================================
 		## Калибровка индикаторов (оптимизировано)
@@ -217,8 +301,20 @@ class SignalGenerator:
 			bearish += 1
 			reasons.append(f"MACD_hist ({macd_hist:.4f}) < 0 — отрицательный моментум [+1]")
 
-		# ADX: Режим рынка
-		reasons.append(f"ADX ({adx:.2f}) — режим: {market_regime}")
+		# ADX и режим рынка с линейной регрессией
+		trend_info = f"↑" if trend_direction == 1 else "↓" if trend_direction == -1 else "→"
+		reasons.append(f"📊 Режим: {market_regime} | ADX: {adx:.2f}")
+		reasons.append(f"📈 Тренд ЛР: {trend_info} (R²={trend_strength:.2f})")
+		
+		# Бонус за подтверждение тренда линейной регрессией
+		if trend_direction == 1 and trend_strength > 0.5:
+			# Сильный восходящий тренд по ЛР
+			bullish += 1
+			reasons.append(f"✓ ЛР подтверждает восходящий тренд [+1]")
+		elif trend_direction == -1 and trend_strength > 0.5:
+			# Сильный нисходящий тренд по ЛР
+			bearish += 1
+			reasons.append(f"✓ ЛР подтверждает нисходящий тренд [+1]")
 			
 		# Stochastic: для экстремумов
 		if stoch_k < STOCH_OVERSOLD and stoch_d < STOCH_OVERSOLD and stoch_k > stoch_d:

@@ -110,8 +110,8 @@ PARTIAL_CLOSE_PERCENT = 0.50  # Закрываем 50% позиции на TP
 TRAILING_STOP_PERCENT = 0.02  # 2% trailing stop после частичного закрытия
 
 # Динамический стоп-лосс на основе ATR
-DYNAMIC_SL_ATR_MULTIPLIER = 2.0  # 2x ATR для расчета SL
-DYNAMIC_SL_MIN = 0.03  # Минимум 3%
+DYNAMIC_SL_ATR_MULTIPLIER = 2.5  # 2.5x ATR для расчета SL (увеличено для 15m)
+DYNAMIC_SL_MIN = 0.02  # Минимум 2% (снижено)
 DYNAMIC_SL_MAX = 0.08  # Максимум 8%
 
 # Размеры позиций по силе сигнала

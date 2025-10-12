@@ -2,13 +2,14 @@ import os
 import pandas as pd
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
-from paper_trader import get_position_size_percent
+from paper_trader import get_position_size_percent, get_dynamic_stop_loss_percent
 import aiohttp
 import asyncio
 import json
 from config import (
 	COMMISSION_RATE, MAX_POSITIONS, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT,
-	PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT, INITIAL_BALANCE
+	PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT, INITIAL_BALANCE,
+	DYNAMIC_SL_ATR_MULTIPLIER
 )
 
 # --- Бэктест стратегии ---
@@ -56,6 +57,9 @@ async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 2
 		position = 0.0
 		entry_price = None
 		entry_strength = 0
+		entry_atr = 0.0  # ATR при входе (для динамического SL/TP)
+		dynamic_sl_percent = STOP_LOSS_PERCENT  # Динамический SL
+		dynamic_tp_percent = TAKE_PROFIT_PERCENT  # Динамический TP
 		trades = []
 		total_commission = 0.0
 		stop_loss_triggers = 0
@@ -103,20 +107,21 @@ async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 2
 				else:
 					# Обычная логика до частичного закрытия
 					
-					# Стоп-лосс
-					if price_change <= -STOP_LOSS_PERCENT:
+					# Стоп-лосс (ДИНАМИЧЕСКИЙ на основе ATR)
+					if price_change <= -dynamic_sl_percent:
 						sell_value = position * price
 						commission = sell_value * COMMISSION_RATE
 						total_commission += commission
 						balance += sell_value - commission
-						trades.append(f"STOP-LOSS {position:.6f} @ {price} (потеря: {price_change*100:.2f}%, комиссия: ${commission:.4f})")
+						trades.append(f"STOP-LOSS {position:.6f} @ {price} (потеря: {price_change*100:.2f}%, SL: {dynamic_sl_percent*100:.1f}%, комиссия: ${commission:.4f})")
 						position = 0.0
 						entry_price = None
+						entry_atr = 0.0
 						stop_loss_triggers += 1
 						continue
 					
-					# Тейк-профит - частичное закрытие
-					if price_change >= TAKE_PROFIT_PERCENT:
+					# Тейк-профит - частичное закрытие (ДИНАМИЧЕСКИЙ на основе ATR)
+					if price_change >= dynamic_tp_percent:
 						close_amount = position * PARTIAL_CLOSE_PERCENT
 						keep_amount = position - close_amount
 						
@@ -139,14 +144,23 @@ async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 2
 				position_size_percent = get_position_size_percent(signal_strength, atr, price)
 				invest_amount = balance * position_size_percent
 				
+				# Рассчитываем ДИНАМИЧЕСКИЙ Stop-Loss на основе ATR
+				dynamic_sl_percent = get_dynamic_stop_loss_percent(atr, price)
+				
+				# Рассчитываем ДИНАМИЧЕСКИЙ Take-Profit
+				# Используем R:R = 2:1 но с минимумом 4% (чтобы не быть слишком консервативными)
+				dynamic_tp_percent = max(0.04, dynamic_sl_percent * 2.0)
+				dynamic_tp_percent = min(dynamic_tp_percent, 0.12)  # Максимум 12%
+				
 				commission = invest_amount * COMMISSION_RATE
 				total_commission += commission
 				position = (invest_amount - commission) / price
 				entry_price = price
 				entry_strength = signal_strength
+				entry_atr = atr
 				balance -= invest_amount
 				
-				trades.append(f"BUY {position:.6f} @ {price} (сила: {signal_strength}, размер: {position_size_percent*100:.0f}%, комиссия: ${commission:.4f})")
+				trades.append(f"BUY {position:.6f} @ {price} (сила: {signal_strength}, размер: {position_size_percent*100:.0f}%, SL: {dynamic_sl_percent*100:.1f}%, TP: {dynamic_tp_percent*100:.1f}%, комиссия: ${commission:.4f})")
 				
 			elif sig == "SELL" and position > 0 and not partial_closed:
 				# Закрываем позицию только если она не была частично закрыта
