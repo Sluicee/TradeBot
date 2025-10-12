@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # Создание необходимых директорий
-RUN mkdir -p logs signals backtests
+RUN mkdir -p logs signals backtests data
 
 # Копирование entrypoint скрипта
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh

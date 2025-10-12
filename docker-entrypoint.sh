@@ -4,7 +4,7 @@ set -e
 echo "🚀 Запуск TradeBot..."
 
 # Проверка и инициализация БД
-if [ ! -f "tradebot.db" ] || [ ! -s "tradebot.db" ]; then
+if [ ! -f "data/tradebot.db" ] || [ ! -s "data/tradebot.db" ]; then
 	echo "📊 База данных не найдена или пуста. Инициализация..."
 	python init_db.py init
 	

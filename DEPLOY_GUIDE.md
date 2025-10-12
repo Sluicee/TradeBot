@@ -149,7 +149,8 @@ TradeBot/
 ├── logs/                    # Логи работы бота
 ├── signals/                 # История сигналов
 ├── backtests/              # Результаты бэктестов
-└── tradebot.db             # База данных SQLite (все данные)
+└── data/
+    └── tradebot.db         # База данных SQLite (все данные)
 ```
 
 **База данных содержит:**
@@ -385,7 +386,7 @@ sudo ufw enable
 
 # Регулярные бэкапы .env и БД
 cp .env .env.backup
-cp tradebot.db tradebot.db.backup
+cp data/tradebot.db data/tradebot.db.backup
 ```
 
 ---
@@ -405,7 +406,7 @@ mkdir -p $BACKUP_DIR
 # Бэкап критичных файлов
 tar -czf "$BACKUP_DIR/tradebot_backup_$DATE.tar.gz" \
 	.env \
-	tradebot.db \
+	data/tradebot.db \
 	backtests/ \
 	--exclude='backtests/*.json'
 

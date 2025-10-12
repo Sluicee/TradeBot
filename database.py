@@ -253,11 +253,11 @@ class DatabaseManager:
 		
 		Args:
 			database_url: URL подключения к БД
-				SQLite: sqlite:///tradebot.db
+				SQLite: sqlite:///data/tradebot.db
 				PostgreSQL: postgresql://user:password@localhost/dbname
 		"""
 		if database_url is None:
-			database_url = os.getenv("DATABASE_URL", "sqlite:///tradebot.db")
+			database_url = os.getenv("DATABASE_URL", "sqlite:///data/tradebot.db")
 		
 		self.database_url = database_url
 		

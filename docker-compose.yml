@@ -12,7 +12,7 @@ services:
       - ./logs:/app/logs
       - ./signals:/app/signals
       - ./backtests:/app/backtests
-      - ./tradebot.db:/app/tradebot.db  # База данных SQLite
+      - ./data:/app/data  # Директория для базы данных
     # Healthcheck
     healthcheck:
       test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/app/logs') else 1)"]

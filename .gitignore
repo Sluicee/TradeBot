@@ -182,6 +182,7 @@ signals/
 trading_bot.log
 
 # Database
+data/
 tradebot.db
 tradebot_backup_*.db
 *.sqlite

@@ -26,8 +26,8 @@ else
 	echo "⚠️  .env не найден"
 fi
 
-if [ -f "tradebot.db" ]; then
-	CRITICAL_FILES+=("tradebot.db")
+if [ -f "data/tradebot.db" ]; then
+	CRITICAL_FILES+=("data/tradebot.db")
 fi
 
 # Legacy JSON files (если есть)

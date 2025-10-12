@@ -157,7 +157,7 @@ Docker:
    3. Скопировать ID
 
 💾 DATABASE_URL (опционально):
-   - SQLite (по умолчанию): sqlite:///tradebot.db
+   - SQLite (по умолчанию): sqlite:///data/tradebot.db
    - PostgreSQL: postgresql://user:password@host:5432/tradebot
    - Не указывайте для SQLite (используется по умолчанию)
 
