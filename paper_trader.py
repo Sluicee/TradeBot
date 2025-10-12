@@ -241,9 +241,18 @@ class Position:
 		exit_commission = current_value * COMMISSION_RATE
 		net_value = current_value - exit_commission
 		
+		# Используем total_invested для усредненных позиций
+		total_investment = self.total_invested if self.averaging_count > 0 else self.invest_amount
+		
+		# Если позиция частично закрыта, учитываем только оставшуюся часть инвестиции
+		if self.partial_closed:
+			remaining_invested = total_investment * (1 - PARTIAL_CLOSE_PERCENT)
+		else:
+			remaining_invested = total_investment
+		
 		# PnL = текущая стоимость - вложенная сумма + прибыль с частичного закрытия
-		pnl = net_value - (self.invest_amount - self.entry_commission) + self.partial_close_profit
-		pnl_percent = (pnl / self.invest_amount) * 100
+		pnl = net_value - remaining_invested + self.partial_close_profit
+		pnl_percent = (pnl / total_investment) * 100
 		
 		return {
 			"pnl": pnl,
@@ -467,8 +476,17 @@ class PaperTrader:
 		self.balance += net_value
 		
 		# Рассчитываем прибыль
-		profit = net_value - (position.invest_amount - position.entry_commission) + position.partial_close_profit
-		profit_percent = (profit / position.invest_amount) * 100
+		# Используем total_invested для усредненных позиций
+		total_investment = position.total_invested if position.averaging_count > 0 else position.invest_amount
+		
+		# Если позиция частично закрыта, учитываем только оставшуюся часть инвестиции
+		if position.partial_closed:
+			remaining_invested = total_investment * (1 - PARTIAL_CLOSE_PERCENT)
+		else:
+			remaining_invested = total_investment
+		
+		profit = net_value - remaining_invested + position.partial_close_profit
+		profit_percent = (profit / total_investment) * 100
 		
 		# Обновляем статистику
 		if profit > 0:
@@ -538,9 +556,11 @@ class PaperTrader:
 		self.balance += net_value
 		
 		# Рассчитываем прибыль с этой части
-		partial_invested = position.invest_amount * PARTIAL_CLOSE_PERCENT
+		# Используем total_invested для усредненных позиций
+		total_investment = position.total_invested if position.averaging_count > 0 else position.invest_amount
+		partial_invested = total_investment * PARTIAL_CLOSE_PERCENT
 		profit = net_value - partial_invested
-		profit_percent = ((price - position.entry_price) / position.entry_price) * 100
+		profit_percent = ((price - position.average_entry_price) / position.average_entry_price) * 100
 		
 		# Обновляем позицию
 		position.amount = keep_amount
