@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 import numpy as np
 from scipy import stats as scipy_stats
+from database import db
 
 # Импорты опциональные (могут не работать на всех системах)
 try:
@@ -25,9 +26,7 @@ st.set_page_config(
 )
 
 # Константы
-STATE_FILE = "paper_trading_state.json"
 SETTINGS_FILE = "dashboard_settings.json"
-BACKTESTS_DIR = "backtests"
 LOG_FILE = "trading_bot.log"
 PROCESS_NAME = "main.py"
 
@@ -37,14 +36,67 @@ PROCESS_NAME = "main.py"
 
 @st.cache_data(ttl=60)
 def load_paper_trader_state() -> Optional[Dict[str, Any]]:
-	"""Загружает состояние paper trader"""
-	if not os.path.exists(STATE_FILE):
-		return None
+	"""Загружает состояние paper trader из БД"""
 	try:
-		with open(STATE_FILE, "r", encoding="utf-8") as f:
-			return json.load(f)
+		# Загружаем основное состояние
+		db_state = db.get_paper_state()
+		if not db_state:
+			return None
+		
+		# Загружаем позиции
+		positions = {}
+		db_positions = db.get_all_positions()
+		for pos in db_positions:
+			positions[pos.symbol] = {
+				"symbol": pos.symbol,
+				"entry_price": pos.entry_price,
+				"amount": pos.amount,
+				"entry_time": pos.entry_time.isoformat() if pos.entry_time else None,
+				"signal_strength": pos.signal_strength,
+				"invest_amount": pos.invest_amount,
+				"entry_commission": pos.entry_commission,
+				"atr": pos.atr,
+				"stop_loss_price": pos.stop_loss_price,
+				"stop_loss_percent": pos.stop_loss_percent,
+				"take_profit_price": pos.take_profit_price,
+				"partial_closed": pos.partial_closed,
+				"max_price": pos.max_price,
+				"partial_close_profit": pos.partial_close_profit,
+				"original_amount": pos.original_amount,
+				"averaging_count": pos.averaging_count,
+				"average_entry_price": pos.average_entry_price,
+				"pyramid_mode": pos.pyramid_mode,
+				"total_invested": pos.total_invested,
+				"averaging_entries": db.get_averaging_entries(pos.id)
+			}
+		
+		# Загружаем историю сделок
+		trades_history = db.get_trades_history(limit=1000)
+		
+		# Формируем структуру как раньше
+		state = {
+			"initial_balance": db_state.initial_balance,
+			"balance": db_state.balance,
+			"positions": positions,
+			"trades_history": trades_history,
+			"stats": {
+				"total_trades": db_state.total_trades,
+				"winning_trades": db_state.winning_trades,
+				"losing_trades": db_state.losing_trades,
+				"total_commission": db_state.total_commission,
+				"stop_loss_triggers": db_state.stop_loss_triggers,
+				"take_profit_triggers": db_state.take_profit_triggers,
+				"trailing_stop_triggers": db_state.trailing_stop_triggers
+			},
+			"is_running": db_state.is_running,
+			"start_time": db_state.start_time.isoformat() if db_state.start_time else None,
+			"max_positions": 3  # TODO: получить из config
+		}
+		
+		return state
+		
 	except Exception as e:
-		st.error(f"Ошибка загрузки состояния: {e}")
+		st.error(f"Ошибка загрузки состояния из БД: {e}")
 		return None
 
 def check_bot_status() -> Dict[str, Any]:
@@ -52,26 +104,27 @@ def check_bot_status() -> Dict[str, Any]:
 	status = {
 		"is_running": False,
 		"last_update": None,
-		"state_file_exists": os.path.exists(STATE_FILE),
+		"state_file_exists": False,
 		"state_file_age": None,
 		"log_file_exists": os.path.exists(LOG_FILE),
 		"process_found": False,
 		"uptime": None
 	}
 	
-	# Проверка существования state файла и его возраста
-	if status["state_file_exists"]:
-		try:
-			mtime = os.path.getmtime(STATE_FILE)
-			status["last_update"] = datetime.fromtimestamp(mtime)
-			age_seconds = (datetime.now() - status["last_update"]).total_seconds()
+	# Проверка БД и последнего обновления
+	try:
+		db_state = db.get_paper_state()
+		if db_state and db_state.updated_at:
+			status["state_file_exists"] = True
+			status["last_update"] = db_state.updated_at
+			age_seconds = (datetime.now() - db_state.updated_at).total_seconds()
 			status["state_file_age"] = age_seconds
 			
-			# Считаем бот живым если state обновлялся в последние 5 минут
+			# Считаем бот живым если БД обновлялась в последние 5 минут
 			if age_seconds < 300:
 				status["is_running"] = True
-		except Exception as e:
-			pass
+	except Exception as e:
+		pass
 	
 	# Проверка процесса (опционально, может быть медленно на Windows)
 	if psutil:
@@ -117,18 +170,45 @@ def parse_log_line(line: str) -> Dict[str, str]:
 
 @st.cache_data(ttl=300)
 def load_backtest_results() -> Dict[str, Any]:
-	"""Загружает результаты всех бэктестов"""
+	"""Загружает результаты всех бэктестов из БД"""
 	results = {}
-	if not os.path.exists(BACKTESTS_DIR):
-		return results
 	
-	for filename in os.listdir(BACKTESTS_DIR):
-		if filename.endswith(".json"):
-			try:
-				with open(os.path.join(BACKTESTS_DIR, filename), "r", encoding="utf-8") as f:
-					results[filename] = json.load(f)
-			except Exception as e:
-				st.warning(f"Не удалось загрузить {filename}: {e}")
+	try:
+		# Загружаем бэктесты из БД
+		backtests = db.get_backtests(limit=50)
+		
+		for backtest_data in backtests:
+			# Создаём ключ для совместимости с UI
+			key = f"{backtest_data['symbol']}_{backtest_data['interval']}_{backtest_data['created_at'][:10]}.json"
+			
+			# Формируем данные в формате как раньше
+			results[key] = {
+				"symbol": backtest_data["symbol"],
+				"interval": backtest_data["interval"],
+				"start_date": backtest_data.get("start_date"),
+				"end_date": backtest_data.get("end_date"),
+				"initial_balance": backtest_data["initial_balance"],
+				"final_balance": backtest_data["final_balance"],
+				"total_return": backtest_data["total_return"],
+				"roi_percent": backtest_data["total_return_percent"],
+				"total_trades": backtest_data["total_trades"],
+				"winning_trades": backtest_data["winning_trades"],
+				"losing_trades": backtest_data["losing_trades"],
+				"win_rate": backtest_data["win_rate"],
+				"max_drawdown_percent": backtest_data["max_drawdown"],
+				"sharpe_ratio": backtest_data["sharpe_ratio"],
+				"profit_factor": backtest_data["profit_factor"],
+				"stats": backtest_data.get("stats", {}),
+				"trades": []  # Можно загрузить отдельно если нужно
+			}
+			
+			# Загружаем детали если нужны trades
+			full_backtest = db.get_backtest(backtest_data["id"])
+			if full_backtest:
+				results[key]["trades"] = full_backtest.get("trades", [])
+		
+	except Exception as e:
+		st.warning(f"Ошибка загрузки бэктестов из БД: {e}")
 	
 	return results
 
@@ -1013,21 +1093,32 @@ def settings_page():
 	with col1:
 		st.write("**Сброс Paper Trading**")
 		if st.button("🔄 Сбросить", type="primary"):
-			if os.path.exists(STATE_FILE):
-				confirm = st.checkbox("Подтвердите сброс (все данные будут удалены)")
-				if confirm:
-					try:
-						os.remove(STATE_FILE)
-						st.success("✅ Paper trading сброшен!")
-						st.cache_data.clear()
-					except Exception as e:
-						st.error(f"Ошибка: {e}")
+			confirm = st.checkbox("Подтвердите сброс (все данные будут удалены)")
+			if confirm:
+				try:
+					# Сброс БД
+					from database import PaperTradingState
+					with db.session_scope() as session:
+						# Удаляем все данные
+						session.query(PaperTradingState).delete()
+						session.commit()
+					
+					st.success("✅ Paper trading сброшен!")
+					st.cache_data.clear()
+				except Exception as e:
+					st.error(f"Ошибка: {e}")
 	
 	with col2:
 		st.write("**Информация**")
-		if os.path.exists(STATE_FILE):
-			file_size = os.path.getsize(STATE_FILE) / 1024  # KB
-			st.info(f"Размер файла состояния: {file_size:.2f} KB")
+		try:
+			# Статистика БД
+			state = db.get_paper_state()
+			if state:
+				st.info(f"Записей в БД: {state.total_trades} сделок")
+			else:
+				st.info("БД не инициализирована")
+		except Exception as e:
+			st.warning(f"Ошибка получения данных: {e}")
 
 # ====================================================================
 # СТРАНИЦА: ЛОГИ
@@ -1206,9 +1297,9 @@ def render_bot_status_widget():
 	col1, col2 = st.columns(2)
 	with col1:
 		if status["state_file_exists"]:
-			st.caption("📄 State ✓")
+			st.caption("💾 БД ✓")
 		else:
-			st.caption("📄 State ✗")
+			st.caption("💾 БД ✗")
 	with col2:
 		if status["log_file_exists"]:
 			st.caption("📋 Logs ✓")
