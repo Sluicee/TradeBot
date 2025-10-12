@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import ta
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from logger import logger
 from config import (
 	# Индикаторы
@@ -20,12 +20,35 @@ from config import (
 	MIN_FILTERS
 )
 
+try:
+	from statistical_models import (
+		BayesianDecisionLayer,
+		ZScoreAnalyzer,
+		MarkovRegimeSwitcher,
+		EnsembleDecisionMaker
+	)
+	STATISTICAL_MODELS_AVAILABLE = True
+except ImportError:
+	STATISTICAL_MODELS_AVAILABLE = False
+	logger.warning("Статистические модели не доступны")
+
 class SignalGenerator:
-	def __init__(self, df: pd.DataFrame):
+	def __init__(self, df: pd.DataFrame, use_statistical_models: bool = False):
 		self.df = df.copy()
 		if "close" not in self.df.columns:
 			raise ValueError("DataFrame must contain 'close' column")
 		self.df.sort_index(inplace=True)
+		
+		# Статистические модели (опционально)
+		self.use_statistical_models = use_statistical_models and STATISTICAL_MODELS_AVAILABLE
+		if self.use_statistical_models:
+			self.bayesian = BayesianDecisionLayer()
+			self.zscore = ZScoreAnalyzer(window=50, buy_threshold=-2.0, sell_threshold=2.0)
+			self.regime = MarkovRegimeSwitcher(window=50)
+			self.ensemble = EnsembleDecisionMaker(
+				self.bayesian, self.zscore, self.regime,
+				bayesian_weight=0.4, zscore_weight=0.3, regime_weight=0.3
+			)
 
 	def compute_indicators(
 		self, ema_short_window=None, ema_long_window=None, rsi_window=None,
@@ -495,7 +518,7 @@ class SignalGenerator:
 			signal_emoji = "⚠️"
 			reasons.append(f"⏸ HOLD: Бычьи {bullish} vs Медвежьи {bearish}, фильтров BUY:{buy_filters_passed} SELL:{sell_filters_passed}, режим: {market_regime}")
 
-		return {
+		base_result = {
 			"signal": signal,
 			"signal_emoji": signal_emoji,
 			"price": price,
@@ -517,3 +540,39 @@ class SignalGenerator:
 			"conflict_detected": conflict_detected,
 			"reasons": reasons,
 		}
+		
+		# ====================================================================
+		# СТАТИСТИЧЕСКИЕ МОДЕЛИ (если включены)
+		# ====================================================================
+		
+		if self.use_statistical_models and signal != "HOLD":
+			try:
+				ensemble_decision = self.ensemble.make_decision(
+					self.df,
+					base_result,
+					min_probability=0.55
+				)
+				
+				# Обновляем сигнал на основе ensemble решения
+				base_result["original_signal"] = signal
+				base_result["signal"] = ensemble_decision["final_signal"]
+				base_result["statistical_confidence"] = ensemble_decision["confidence"]
+				base_result["statistical_models"] = ensemble_decision["models"]
+				
+				# Добавляем новые reasons
+				base_result["reasons"].append("\n🤖 === СТАТИСТИЧЕСКИЕ МОДЕЛИ ===")
+				base_result["reasons"].extend(ensemble_decision["reasons"])
+				
+				# Обновляем emoji
+				if base_result["signal"] == "BUY":
+					base_result["signal_emoji"] = "🟢🤖"
+				elif base_result["signal"] == "SELL":
+					base_result["signal_emoji"] = "🔴🤖"
+				else:
+					base_result["signal_emoji"] = "⚠️🤖"
+				
+			except Exception as e:
+				logger.error(f"Ошибка в статистических моделях: {e}")
+				base_result["statistical_error"] = str(e)
+		
+		return base_result

@@ -39,7 +39,8 @@ class WalkForwardOptimizer:
 		is_period_hours: int = 168,  # 7 дней (1 неделя) - реалистично для Bybit API
 		oos_period_hours: int = 48,   # 2 дня - тестовый период
 		start_balance: float = None,
-		anchored: bool = False  # False = Rolling, True = Anchored
+		anchored: bool = False,  # False = Rolling, True = Anchored
+		use_statistical_models: bool = False  # Использовать статистические модели
 	):
 		self.symbol = symbol
 		self.interval = interval
@@ -47,6 +48,7 @@ class WalkForwardOptimizer:
 		self.oos_period_hours = oos_period_hours
 		self.start_balance = start_balance or INITIAL_BALANCE
 		self.anchored = anchored
+		self.use_statistical_models = use_statistical_models
 		
 		# Параметры для оптимизации (сокращенная сетка для скорости)
 		# 🚀 БЫСТРЫЙ режим: ~12 комбинаций, ~5 минут
@@ -83,14 +85,16 @@ class WalkForwardOptimizer:
 	
 	async def run(self) -> Dict[str, Any]:
 		"""Запускает полный Walk-Forward анализ"""
+		models_label = " [СТАТИСТИЧЕСКИЕ МОДЕЛИ]" if self.use_statistical_models else ""
 		print(f"\n{'='*100}")
-		print(f"WALK-FORWARD БЭКТЕСТИНГ: {self.symbol}")
+		print(f"WALK-FORWARD БЭКТЕСТИНГ: {self.symbol}{models_label}")
 		print(f"{'='*100}")
 		print(f"Параметры:")
 		print(f"  • Режим: {'Anchored' if self.anchored else 'Rolling'}")
 		print(f"  • IS период: {self.is_period_hours}ч ({self.is_period_hours/24:.0f} дней)")
 		print(f"  • OOS период: {self.oos_period_hours}ч ({self.oos_period_hours/24:.0f} дней)")
 		print(f"  • Начальный баланс: ${self.start_balance}")
+		print(f"  • Статистические модели: {'ДА' if self.use_statistical_models else 'НЕТ'}")
 		print(f"{'='*100}\n")
 		
 		# Загружаем полный датасет
@@ -328,7 +332,7 @@ class WalkForwardOptimizer:
 				})
 				continue
 			
-			gen = SignalGenerator(sub_df)
+			gen = SignalGenerator(sub_df, use_statistical_models=self.use_statistical_models)
 			gen.compute_indicators(
 				ema_short_window=params['ema_short'],
 				ema_long_window=params['ema_long'],
@@ -632,7 +636,8 @@ class WalkForwardOptimizer:
 		os.makedirs(output_dir, exist_ok=True)
 		
 		timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-		filename = f"walkforward_{self.symbol}_{self.interval}_{timestamp}.json"
+		models_suffix = "_statmodels" if self.use_statistical_models else ""
+		filename = f"walkforward_{self.symbol}_{self.interval}{models_suffix}_{timestamp}.json"
 		filepath = os.path.join(output_dir, filename)
 		
 		with open(filepath, "w", encoding="utf-8") as f:
@@ -650,7 +655,7 @@ async def main():
 	
 	if len(sys.argv) < 2:
 		print("Использование:")
-		print("  python backtest_walkforward.py <SYMBOL> [interval] [is_hours] [oos_hours] [balance] [--anchored]")
+		print("  python backtest_walkforward.py <SYMBOL> [interval] [is_hours] [oos_hours] [balance] [--anchored] [--statmodels]")
 		print("\nПримеры:")
 		print("  # Дефолтные параметры (7 дней IS / 2 дня OOS)")
 		print("  python backtest_walkforward.py BTCUSDT")
@@ -660,6 +665,9 @@ async def main():
 		print()
 		print("  # Anchored режим (IS растет)")
 		print("  python backtest_walkforward.py BTCUSDT 15m 168 48 100 --anchored")
+		print()
+		print("  # Со статистическими моделями")
+		print("  python backtest_walkforward.py BTCUSDT 15m 168 48 100 --statmodels")
 		print()
 		print("  # Для длительных периодов - используйте больший интервал")
 		print("  python backtest_walkforward.py BTCUSDT 1h 720 240 100  # 30 дней IS / 10 дней OOS")
@@ -677,6 +685,7 @@ async def main():
 	oos_hours = int(sys.argv[4]) if len(sys.argv) > 4 else 48  # 2 дня
 	balance = float(sys.argv[5]) if len(sys.argv) > 5 else INITIAL_BALANCE
 	anchored = "--anchored" in sys.argv
+	use_statistical_models = "--statmodels" in sys.argv
 	
 	optimizer = WalkForwardOptimizer(
 		symbol=symbol,
@@ -684,7 +693,8 @@ async def main():
 		is_period_hours=is_hours,
 		oos_period_hours=oos_hours,
 		start_balance=balance,
-		anchored=anchored
+		anchored=anchored,
+		use_statistical_models=use_statistical_models
 	)
 	
 	await optimizer.run()

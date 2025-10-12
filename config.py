@@ -130,6 +130,33 @@ VOLATILITY_ADJUSTMENT_MAX = 1.2  # Максимальное увеличение
 MAX_HOLDING_HOURS = 72  # Максимум 72 часа (3 дня)
 
 # ====================================================================
+# СТАТИСТИЧЕСКИЕ МОДЕЛИ
+# ====================================================================
+
+# Включить статистические модели (Bayesian, Z-score, Markov)
+USE_STATISTICAL_MODELS = False  # По умолчанию выключено (требует обучения)
+
+# Bayesian Decision Layer
+BAYESIAN_MIN_PROBABILITY = 0.55  # Минимальная вероятность успеха для входа (55%)
+BAYESIAN_MIN_SAMPLES = 10  # Минимальное количество сигналов для надёжной статистики
+
+# Z-Score Mean Reversion
+ZSCORE_WINDOW = 50  # Окно для расчёта среднего
+ZSCORE_BUY_THRESHOLD = -2.0  # Порог покупки (цена сильно ниже среднего)
+ZSCORE_SELL_THRESHOLD = 2.0  # Порог продажи (цена сильно выше среднего)
+
+# Markov Regime Switching
+MARKOV_WINDOW = 50  # Окно для анализа режима
+MARKOV_VOL_HIGH = 0.03  # Порог высокой волатильности (3%)
+MARKOV_VOL_LOW = 0.01  # Порог низкой волатильности (1%)
+MARKOV_TREND_THRESHOLD = 0.02  # Порог тренда (2%)
+
+# Ensemble Decision Maker (веса моделей)
+ENSEMBLE_BAYESIAN_WEIGHT = 0.4  # Вес Bayesian модели (40%)
+ENSEMBLE_ZSCORE_WEIGHT = 0.3  # Вес Z-score модели (30%)
+ENSEMBLE_REGIME_WEIGHT = 0.3  # Вес Regime модели (30%)
+
+# ====================================================================
 # API
 # ====================================================================
 

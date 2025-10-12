@@ -13,7 +13,13 @@ from config import (
 )
 
 # --- Бэктест стратегии ---
-async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 24, start_balance: float = None):
+async def run_backtest(
+	symbol: str, 
+	interval: str = "15m", 
+	period_hours: int = 24, 
+	start_balance: float = None,
+	use_statistical_models: bool = False
+):
 	if start_balance is None:
 		start_balance = INITIAL_BALANCE
 	candles_per_hour = int(60 / int(interval.replace('m',''))) if 'm' in interval else 1
@@ -27,7 +33,7 @@ async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 2
 			print(f"Нет данных для бэктеста {symbol}.")
 			return None
 
-		generator = SignalGenerator(df)
+		generator = SignalGenerator(df, use_statistical_models=use_statistical_models)
 		generator.compute_indicators()
 		signals = []
 		min_window = 14  # минимальное количество строк для индикаторов
@@ -42,14 +48,18 @@ async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 2
 					"reasons": ["Недостаточно данных для анализа"]
 				})
 				continue
-			gen = SignalGenerator(sub_df)
+			gen = SignalGenerator(sub_df, use_statistical_models=use_statistical_models)
 			gen.compute_indicators()
 			res = gen.generate_signal()
 			signals.append({
 				"time": sub_df.index[-1],
 				"price": res["price"],
 				"signal": res["signal"],
-				"reasons": res["reasons"]
+				"reasons": res["reasons"],
+				"bullish_votes": res.get("bullish_votes", 0),
+				"bearish_votes": res.get("bearish_votes", 0),
+				"ATR": res.get("ATR", 0),
+				"statistical_models": res.get("statistical_models", None)
 			})
 
 		# --- Бэктест: расчёт баланса за период с учетом комиссии ---
@@ -194,7 +204,9 @@ async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 2
 		profit = total_balance - start_balance
 		profit_percent = (profit / start_balance) * 100
 		
-		print(f"\n=== {symbol} ===")
+		models_label = "со СТАТИСТИЧЕСКИМИ МОДЕЛЯМИ" if use_statistical_models else "БАЗОВАЯ стратегия"
+		
+		print(f"\n=== {symbol} ({models_label}) ===")
 		print(f"Бэктест за {period_hours} часов")
 		print(f"Начальный баланс: ${start_balance:.2f}")
 		print(f"Итоговый баланс: ${total_balance:.2f}")
@@ -235,25 +247,27 @@ async def run_backtest(symbol: str, interval: str = "15m", period_hours: int = 2
 			"stop_loss_triggers": stop_loss_triggers,
 			"partial_tp_triggers": partial_close_triggers,
 			"trailing_stop_triggers": trailing_stop_triggers,
-			"win_rate": win_rate if 'win_rate' in locals() else 0
+			"win_rate": win_rate if 'win_rate' in locals() else 0,
+			"use_statistical_models": use_statistical_models
 		}
 
 
-async def run_backtest_multiple(symbols: list, interval: str = "15m", period_hours: int = 24, start_balance: float = None):
+async def run_backtest_multiple(symbols: list, interval: str = "15m", period_hours: int = 24, start_balance: float = None, use_statistical_models: bool = False):
 	"""Запускает бэктест для нескольких символов"""
 	if start_balance is None:
 		start_balance = INITIAL_BALANCE
 	results = []
 	
 	for symbol in symbols:
-		result = await run_backtest(symbol, interval, period_hours, start_balance)
+		result = await run_backtest(symbol, interval, period_hours, start_balance, use_statistical_models)
 		if result:
 			results.append(result)
 	
 	# Выводим сводную таблицу
 	if results:
+		models_label = "со СТАТИСТИЧЕСКИМИ МОДЕЛЯМИ" if use_statistical_models else "БАЗОВАЯ стратегия"
 		print("\n" + "="*110)
-		print("СВОДНАЯ ТАБЛИЦА РЕЗУЛЬТАТОВ")
+		print(f"СВОДНАЯ ТАБЛИЦА РЕЗУЛЬТАТОВ ({models_label})")
 		print("="*110)
 		print(f"{'Символ':<10} {'Баланс':<10} {'Прибыль':<10} {'%':<8} {'Комиссия':<10} {'Сделок':<8} {'SL':<5} {'PTP':<5} {'TSL':<5} {'WinRate':<10}")
 		print("-"*110)
