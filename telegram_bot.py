@@ -502,17 +502,17 @@ class TelegramBot:
 				if df.empty:
 					await msg.edit_text("⚠️ Не удалось получить данные")
 					return
+				
+				# Генерируем MTF сигнал напрямую (async) - ВНУТРИ async with!
+				generator = SignalGenerator(df)
+				generator.compute_indicators()
+				result = await generator.generate_signal_multi_timeframe(
+					data_provider=provider,
+					symbol=symbol,
+					strategy=STRATEGY_MODE
+				)
 			
-			# Генерируем MTF сигнал напрямую (async)
-			generator = SignalGenerator(df)
-			generator.compute_indicators()
-			result = await generator.generate_signal_multi_timeframe(
-				data_provider=provider,
-				symbol=symbol,
-				strategy=STRATEGY_MODE
-			)
-			
-			# Форматируем вывод
+			# Форматируем вывод (после async with, но данные уже получены)
 			text = self._format_mtf_analysis(result, symbol)
 			await msg.edit_text(text, parse_mode="HTML")
 		
