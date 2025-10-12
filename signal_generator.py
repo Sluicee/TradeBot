@@ -1005,17 +1005,20 @@ class SignalGenerator:
 			return await asyncio.gather(*tasks, return_exceptions=True)
 		
 		# Запускаем загрузку
+		logger.info(f"MTF: загрузка данных для {symbol} на таймфреймах {MTF_TIMEFRAMES}")
 		try:
 			# Если уже в async контексте, используем gather, иначе создаём event loop
 			try:
 				loop = asyncio.get_running_loop()
 				# Мы уже в async контексте - просто await
 				tf_data = await fetch_all_timeframes()
+				logger.info(f"MTF: данные загружены, получено {len(tf_data)} результатов")
 			except RuntimeError:
 				# Нет running loop - создаём новый
 				tf_data = asyncio.run(fetch_all_timeframes())
+				logger.info(f"MTF: данные загружены (new loop), получено {len(tf_data)} результатов")
 		except Exception as e:
-			logger.error(f"Ошибка загрузки MTF данных: {e}")
+			logger.error(f"Ошибка загрузки MTF данных: {e}", exc_info=True)
 			# Fallback на single TF
 			if strategy == "MEAN_REVERSION":
 				return self.generate_signal_mean_reversion()
@@ -1029,21 +1032,40 @@ class SignalGenerator:
 		# ====================================================================
 		
 		for i, tf in enumerate(MTF_TIMEFRAMES):
+			logger.debug(f"MTF: обработка {tf} (index={i})")
 			if isinstance(tf_data[i], Exception):
-				logger.warning(f"Ошибка данных для {tf}: {tf_data[i]}")
+				logger.warning(f"MTF: ошибка данных для {tf}: {tf_data[i]}")
 				timeframe_signals[tf] = {
 					"signal": "HOLD",
-					"error": str(tf_data[i]),
-					"weight": MTF_WEIGHTS.get(tf, 0)
+					"price": 0,
+					"RSI": 0,
+					"ADX": 0,
+					"MACD_hist": 0,
+					"market_regime": "NEUTRAL",
+					"bullish_votes": 0,
+					"bearish_votes": 0,
+					"weight": MTF_WEIGHTS.get(tf, 0),
+					"confidence": 0,
+					"error": str(tf_data[i])
 				}
 				continue
 			
 			df = tf_data[i]
+			logger.debug(f"MTF: DataFrame для {tf}: {len(df) if not df.empty else 0} строк")
 			if df.empty:
+				logger.warning(f"MTF: пустой DataFrame для {tf}")
 				timeframe_signals[tf] = {
 					"signal": "HOLD",
-					"error": "Empty dataframe",
-					"weight": MTF_WEIGHTS.get(tf, 0)
+					"price": 0,
+					"RSI": 0,
+					"ADX": 0,
+					"MACD_hist": 0,
+					"market_regime": "NEUTRAL",
+					"bullish_votes": 0,
+					"bearish_votes": 0,
+					"weight": MTF_WEIGHTS.get(tf, 0),
+					"confidence": 0,
+					"error": "Empty dataframe"
 				}
 				continue
 			
@@ -1061,11 +1083,18 @@ class SignalGenerator:
 					signal_result = sg.generate_signal()
 				
 				# Сохраняем результат
+				signal = signal_result.get("signal", "HOLD")
+				price = signal_result.get("price", 0)
+				rsi = signal_result.get("RSI", 0)
+				adx = signal_result.get("ADX", 0)
+				
+				logger.info(f"MTF: {tf} → {signal} (цена={price:.2f}, RSI={rsi:.1f}, ADX={adx:.1f})")
+				
 				timeframe_signals[tf] = {
-					"signal": signal_result.get("signal", "HOLD"),
-					"price": signal_result.get("price", 0),
-					"RSI": signal_result.get("RSI", 0),
-					"ADX": signal_result.get("ADX", 0),
+					"signal": signal,
+					"price": price,
+					"RSI": rsi,
+					"ADX": adx,
 					"MACD_hist": signal_result.get("MACD_hist", 0),
 					"market_regime": signal_result.get("market_regime", "NEUTRAL"),
 					"bullish_votes": signal_result.get("bullish_votes", 0),
@@ -1075,11 +1104,19 @@ class SignalGenerator:
 				}
 				
 			except Exception as e:
-				logger.error(f"Ошибка генерации сигнала для {tf}: {e}")
+				logger.error(f"Ошибка генерации сигнала для {tf}: {e}", exc_info=True)
 				timeframe_signals[tf] = {
 					"signal": "HOLD",
-					"error": str(e),
-					"weight": MTF_WEIGHTS.get(tf, 0)
+					"price": 0,
+					"RSI": 0,
+					"ADX": 0,
+					"MACD_hist": 0,
+					"market_regime": "NEUTRAL",
+					"bullish_votes": 0,
+					"bearish_votes": 0,
+					"weight": MTF_WEIGHTS.get(tf, 0),
+					"confidence": 0,
+					"error": str(e)
 				}
 		
 		# ====================================================================
