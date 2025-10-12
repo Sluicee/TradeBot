@@ -1189,15 +1189,13 @@ class TelegramBot:
 			# Используем значения из result, если доступны, иначе из DataFrame
 			rsi = float(result.get("RSI", last.get("RSI", 50)))
 			adx = float(result.get("ADX", last.get(f"ADX_{ADX_WINDOW}", 0)))
-			
-			# Эти индикаторы всегда берем из DataFrame
-			ema_s = float(last.get("EMA_short", 0))
-			ema_l = float(last.get("EMA_long", 0))
+			ema_s = float(result.get("EMA_short", last.get("EMA_short", 0)))
+			ema_l = float(result.get("EMA_long", last.get("EMA_long", 0)))
 			sma_20 = float(last.get("SMA_20", 0))
 			sma_50 = float(last.get("SMA_50", 0))
-			macd = float(last.get("MACD", 0))
-			macd_signal = float(last.get("MACD_signal", 0))
-			macd_hist = float(last.get("MACD_hist", 0))
+			macd = float(result.get("MACD", last.get("MACD", 0)))
+			macd_signal = float(result.get("MACD_signal", last.get("MACD_signal", 0)))
+			macd_hist = float(result.get("MACD_hist", last.get("MACD_hist", 0)))
 			
 			# Проверяем фильтры для BUY
 			buy_trend_ok = ema_s > ema_l and sma_20 > sma_50
