@@ -15,7 +15,9 @@ from config import (
 	# Averaging
 	ENABLE_AVERAGING, MAX_AVERAGING_ATTEMPTS, AVERAGING_PRICE_DROP_PERCENT,
 	AVERAGING_TIME_THRESHOLD_HOURS, MAX_TOTAL_RISK_MULTIPLIER,
-	ENABLE_PYRAMID_UP, PYRAMID_ADX_THRESHOLD, AVERAGING_SIZE_PERCENT
+	ENABLE_PYRAMID_UP, PYRAMID_ADX_THRESHOLD, AVERAGING_SIZE_PERCENT,
+	# Dynamic Positions
+	get_dynamic_max_positions
 )
 
 # Группы коррелированных активов (упрощенно)
@@ -366,15 +368,24 @@ class PaperTrader:
 		
 	def can_open_position(self, symbol: str) -> bool:
 		"""Проверяет, можно ли открыть позицию"""
+		# Рассчитываем динамический лимит позиций на основе общего баланса
+		total_invested = sum(pos.total_invested for pos in self.positions.values())
+		total_balance = self.balance + total_invested
+		dynamic_max_positions = get_dynamic_max_positions(total_balance)
+		
 		# Проверяем лимит позиций
-		if len(self.positions) >= MAX_POSITIONS:
+		if len(self.positions) >= dynamic_max_positions:
+			logger.debug(f"[PAPER] Достигнут лимит позиций: {len(self.positions)}/{dynamic_max_positions} (баланс: ${total_balance:.2f})")
 			return False
+		
 		# Проверяем, нет ли уже позиции по этому символу
 		if symbol in self.positions:
 			return False
+		
 		# Проверяем баланс
 		if self.balance <= 0:
 			return False
+		
 		return True
 		
 	def open_position(
@@ -795,6 +806,9 @@ class PaperTrader:
 		total_profit = total_balance - self.initial_balance
 		total_profit_percent = (total_profit / self.initial_balance) * 100
 		
+		# Рассчитываем динамический лимит позиций
+		dynamic_max_positions = get_dynamic_max_positions(total_balance)
+		
 		win_rate = 0.0
 		if self.stats["winning_trades"] + self.stats["losing_trades"] > 0:
 			win_rate = (self.stats["winning_trades"] / (self.stats["winning_trades"] + self.stats["losing_trades"])) * 100
@@ -807,6 +821,7 @@ class PaperTrader:
 			"total_profit": total_profit,
 			"total_profit_percent": total_profit_percent,
 			"positions_count": len(self.positions),
+			"max_positions": dynamic_max_positions,  # Динамический лимит позиций
 			"positions": positions_info,
 			"stats": {
 				**self.stats,

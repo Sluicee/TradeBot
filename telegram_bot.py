@@ -1005,7 +1005,7 @@ class TelegramBot:
 			f"  • Свободно: ${status['current_balance']:.2f}\n"
 			f"  • Всего: ${total_balance:.2f}\n"
 			f"  • Прибыль: {total_profit:+.2f} USD ({total_profit_percent:+.2f}%)\n\n"
-			f"📊 <b>Позиции ({len(status['positions'])}/3):</b>\n"
+			f"📊 <b>Позиции ({len(status['positions'])}/{status.get('max_positions', 3)}):</b>\n"
 		)
 		
 		if positions_text:
