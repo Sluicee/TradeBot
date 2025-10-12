@@ -27,8 +27,21 @@ st.set_page_config(
 
 # Константы
 SETTINGS_FILE = "dashboard_settings.json"
-LOG_FILE = "trading_bot.log"
+LOG_DIR = "logs"
 PROCESS_NAME = "main.py"
+
+def get_latest_log_file() -> Optional[str]:
+	"""Получает путь к последнему файлу логов"""
+	if not os.path.exists(LOG_DIR):
+		return None
+	
+	log_files = [f for f in os.listdir(LOG_DIR) if f.startswith("log_") and f.endswith(".txt")]
+	if not log_files:
+		return None
+	
+	# Сортируем по имени (которое содержит дату)
+	log_files.sort(reverse=True)
+	return os.path.join(LOG_DIR, log_files[0])
 
 # ====================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -101,12 +114,13 @@ def load_paper_trader_state() -> Optional[Dict[str, Any]]:
 
 def check_bot_status() -> Dict[str, Any]:
 	"""Проверяет состояние торгового бота"""
+	log_file = get_latest_log_file()
 	status = {
 		"is_running": False,
 		"last_update": None,
 		"state_file_exists": False,
 		"state_file_age": None,
-		"log_file_exists": os.path.exists(LOG_FILE),
+		"log_file_exists": log_file is not None and os.path.exists(log_file),
 		"process_found": False,
 		"uptime": None
 	}
@@ -151,11 +165,12 @@ def check_bot_status() -> Dict[str, Any]:
 
 def read_recent_logs(num_lines: int = 50) -> List[str]:
 	"""Читает последние N строк из лог-файла"""
-	if not os.path.exists(LOG_FILE):
+	log_file = get_latest_log_file()
+	if not log_file or not os.path.exists(log_file):
 		return ["Лог-файл не найден"]
 	
 	try:
-		with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+		with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
 			lines = f.readlines()
 			return lines[-num_lines:] if len(lines) > num_lines else lines
 	except Exception as e:
@@ -634,14 +649,16 @@ def history_page(state: Dict[str, Any]):
 	if filtered_trades:
 		trades_data = []
 		for trade in filtered_trades:
+			profit = trade.get('profit')
+			profit_pct = trade.get('profit_percent')
 			trades_data.append({
 				"Время": trade.get("time", "N/A")[:19],
 				"Тип": trade.get("type", "N/A"),
 				"Символ": trade.get("symbol", "N/A"),
 				"Цена": format_price(trade.get('price', 0)),
 				"Количество": f"{trade.get('amount', 0):.4f}",
-				"P&L": f"${trade.get('profit', 0):.2f}" if "profit" in trade else "-",
-				"P&L%": f"{trade.get('profit_percent', 0):.2f}%" if "profit_percent" in trade else "-",
+				"P&L": f"${profit:.2f}" if profit is not None else "-",
+				"P&L%": f"{profit_pct:.2f}%" if profit_pct is not None else "-",
 				"Баланс": f"${trade.get('balance_after', 0):.2f}"
 			})
 		
@@ -1162,6 +1179,13 @@ def logs_page():
 	"""Страница просмотра логов"""
 	st.title("📋 Логи системы")
 	
+	# Показываем текущий файл логов
+	log_file = get_latest_log_file()
+	if log_file:
+		st.caption(f"📄 Текущий файл: `{log_file}`")
+	else:
+		st.warning("Файлы логов не найдены")
+	
 	# Настройки отображения
 	col1, col2, col3 = st.columns([2, 2, 1])
 	
@@ -1190,7 +1214,10 @@ def logs_page():
 	
 	if not log_lines or log_lines == ["Лог-файл не найден"]:
 		st.warning("Лог-файл не найден или пуст")
-		st.info(f"Ожидается файл: `{LOG_FILE}`")
+		st.info(f"Ожидается файл в директории: `{LOG_DIR}/log_*.txt`")
+		log_file = get_latest_log_file()
+		if log_file:
+			st.info(f"Последний лог: `{log_file}`")
 		return
 	
 	# Парсинг и фильтрация
@@ -1280,12 +1307,16 @@ def logs_page():
 	# Кнопка очистки логов (опасно!)
 	st.divider()
 	with st.expander("⚠️ Опасная зона"):
-		st.warning("Очистка лог-файла необратима!")
-		if st.button("🗑️ Очистить лог-файл", type="secondary"):
+		st.warning("Очистка всех лог-файлов необратима!")
+		if st.button("🗑️ Очистить все логи", type="secondary"):
 			try:
-				with open(LOG_FILE, "w", encoding="utf-8") as f:
-					f.write(f"# Log cleared at {datetime.now().isoformat()}\n")
-				st.success("Лог-файл очищен")
+				if os.path.exists(LOG_DIR):
+					log_files = [f for f in os.listdir(LOG_DIR) if f.startswith("log_") and f.endswith(".txt")]
+					for log_file in log_files:
+						os.remove(os.path.join(LOG_DIR, log_file))
+					st.success(f"Удалено {len(log_files)} лог-файлов")
+				else:
+					st.warning("Директория логов не найдена")
 				st.rerun()
 			except Exception as e:
 				st.error(f"Ошибка очистки: {e}")
