@@ -463,13 +463,23 @@ class TelegramBot:
 				klines = await provider.fetch_klines(symbol=symbol, interval=interval, limit=500)
 				df = provider.klines_to_dataframe(klines)
 
-			if df.empty:
-				await msg.edit_text("Не удалось получить данные от ByBIT.")
-				return
+				if df.empty:
+					await msg.edit_text("Не удалось получить данные от ByBIT.")
+					return
 
-			generator = SignalGenerator(df)
-			generator.compute_indicators()
-			result = self._generate_signal_with_strategy(generator, symbol=symbol)
+				generator = SignalGenerator(df)
+				generator.compute_indicators()
+				
+				# Если MTF включен - используем MTF анализ напрямую
+				from config import USE_MULTI_TIMEFRAME, STRATEGY_MODE
+				if USE_MULTI_TIMEFRAME:
+					result = await generator.generate_signal_multi_timeframe(
+						data_provider=provider,
+						symbol=symbol,
+						strategy=STRATEGY_MODE
+					)
+				else:
+					result = self._generate_signal_with_strategy(generator, symbol=symbol)
 
 			text = self.format_analysis(result, symbol, interval)
 			await msg.edit_text(text, parse_mode="HTML")

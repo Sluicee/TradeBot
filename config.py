@@ -261,7 +261,7 @@ HYBRID_ADX_TF_THRESHOLD = 25  # ADX > 25 → Trend Following (тренд)
 HYBRID_TRANSITION_MODE = "HOLD"  # "HOLD" (не входить) или "LAST" (использовать последний режим)
 
 # Минимальное время в режиме (защита от частого переключения)
-HYBRID_MIN_TIME_IN_MODE = 4  # Минимум 4 часа в одном режиме
+HYBRID_MIN_TIME_IN_MODE = 0  # Минимум 4 часа в одном режиме
 
 # ====================================================================
 # MULTI-TIMEFRAME ANALYSIS
