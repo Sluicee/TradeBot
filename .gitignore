@@ -179,3 +179,4 @@ backtests/
 tracked_symbols.json
 paper_trading_state.json
 signals/
+trading_bot.log

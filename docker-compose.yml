@@ -14,10 +14,16 @@ services:
       - ./backtests:/app/backtests
       - ./paper_trading_state.json:/app/paper_trading_state.json
       - ./tracked_symbols.json:/app/tracked_symbols.json
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/app/logs') else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     # Логирование
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-
