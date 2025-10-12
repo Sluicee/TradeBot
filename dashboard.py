@@ -474,7 +474,7 @@ def overview_page(state: Dict[str, Any]):
 				height=400
 			)
 			
-			st.plotly_chart(fig, use_container_width=True)
+			st.plotly_chart(fig, width='stretch')
 	
 	st.divider()
 	
@@ -569,7 +569,7 @@ def positions_page(state: Dict[str, Any]):
 		})
 	
 	df_positions = pd.DataFrame(positions_data)
-	st.dataframe(df_positions, use_container_width=True, hide_index=True)
+	st.dataframe(df_positions, width='stretch', hide_index=True)
 	
 	# Детали каждой позиции (expandable)
 	st.divider()
@@ -663,7 +663,7 @@ def history_page(state: Dict[str, Any]):
 			})
 		
 		df_trades = pd.DataFrame(trades_data)
-		st.dataframe(df_trades, use_container_width=True, hide_index=True, height=400)
+		st.dataframe(df_trades, width='stretch', hide_index=True, height=400)
 		
 		# Распределение P&L
 		st.divider()
@@ -690,7 +690,7 @@ def history_page(state: Dict[str, Any]):
 				height=300
 			)
 			
-			st.plotly_chart(fig, use_container_width=True)
+			st.plotly_chart(fig, width='stretch')
 	else:
 		st.info("Нет сделок, соответствующих фильтрам.")
 	
@@ -836,7 +836,7 @@ def metrics_page(state: Dict[str, Any]):
 		
 		fig.update_layout(height=600, showlegend=True)
 		
-		st.plotly_chart(fig, use_container_width=True)
+		st.plotly_chart(fig, width='stretch')
 	
 	# Box plot P&L
 	st.divider()
@@ -855,7 +855,7 @@ def metrics_page(state: Dict[str, Any]):
 			height=400
 		)
 		
-		st.plotly_chart(fig, use_container_width=True)
+		st.plotly_chart(fig, width='stretch')
 
 # ====================================================================
 # СТРАНИЦА 5: БЭКТЕСТЫ
@@ -970,7 +970,7 @@ def backtests_page():
 						height=300
 					)
 					
-					st.plotly_chart(fig, use_container_width=True)
+					st.plotly_chart(fig, width='stretch')
 			else:
 				st.info("Нет данных о сделках в этом бэктесте")
 	
@@ -1014,7 +1014,7 @@ def backtests_page():
 				})
 		
 		df_comparison = pd.DataFrame(comparison_data)
-		st.dataframe(df_comparison, use_container_width=True, hide_index=True)
+		st.dataframe(df_comparison, width='stretch', hide_index=True)
 		
 		# Overlay equity curves
 		st.subheader("Overlay Equity Curves")
@@ -1057,7 +1057,7 @@ def backtests_page():
 			height=400
 		)
 		
-		st.plotly_chart(fig, use_container_width=True)
+		st.plotly_chart(fig, width='stretch')
 
 # ====================================================================
 # СТРАНИЦА 6: НАСТРОЙКИ
@@ -1281,7 +1281,7 @@ def logs_page():
 				return ''
 			
 			# Отображаем таблицу (без стилей для совместимости)
-			st.dataframe(df_logs, use_container_width=True, height=600)
+			st.dataframe(df_logs, width='stretch', height=600)
 		else:
 			st.info("Нет логов соответствующих фильтру")
 	
