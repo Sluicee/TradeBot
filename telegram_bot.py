@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import json
+from datetime import datetime
 from telegram import Update, __version__ as tg_version
 from telegram.ext import Application, CommandHandler, ContextTypes
 from config import (
@@ -17,6 +18,19 @@ from paper_trader import PaperTrader
 from logger import logger
 from database import db
 import math
+
+def format_price(price: float) -> str:
+	"""Адаптивное форматирование цены в зависимости от величины"""
+	if price >= 1000:
+		return f"${price:,.2f}"  # 1,234.56
+	elif price >= 1:
+		return f"${price:.4f}"  # 12.3456
+	elif price >= 0.0001:
+		# Для маленьких цен показываем значащие цифры
+		decimals = max(4, abs(int(math.log10(abs(price)))) + 3)
+		return f"${price:.{decimals}f}"
+	else:
+		return f"${price:.8f}"  # Совсем маленькие цены
 
 class TelegramBot:
 	def __init__(self, token: str, default_symbol: str = "BTCUSDT", default_interval: str = "1m"):
@@ -413,17 +427,17 @@ class TelegramBot:
 						profit_percent = action.get('profit_percent', 0)
 						
 						if trade_type == "STOP-LOSS":
-							msg = f"🛑 <b>STOP-LOSS</b> {symbol}\n  Цена: ${price:.2f}\n  Убыток: {profit:+.2f} USD ({profit_percent:+.2f}%)"
+							msg = f"🛑 <b>STOP-LOSS</b> {symbol}\n  Цена: {format_price(price)}\n  Убыток: ${profit:+.2f} ({profit_percent:+.2f}%)"
 						elif trade_type == "PARTIAL-TP":
-							msg = f"💎 <b>PARTIAL TP</b> {symbol}\n  Цена: ${price:.2f}\n  Прибыль: {profit:+.2f} USD ({profit_percent:+.2f}%)\n  Закрыто: 50%, активен trailing stop"
+							msg = f"💎 <b>PARTIAL TP</b> {symbol}\n  Цена: {format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)\n  Закрыто: 50%, активен trailing stop"
 						elif trade_type == "TRAILING-STOP":
-							msg = f"🔻 <b>TRAILING STOP</b> {symbol}\n  Цена: ${price:.2f}\n  Прибыль: {profit:+.2f} USD ({profit_percent:+.2f}%)"
+							msg = f"🔻 <b>TRAILING STOP</b> {symbol}\n  Цена: {format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)"
 						else:
-							msg = f"📊 <b>{trade_type}</b> {symbol} @ ${price:.2f}"
-						
+							msg = f"📊 <b>{trade_type}</b> {symbol} @ {format_price(price)}"
+							
 						all_messages.append(msg)
-						logger.info(f"[PAPER] {trade_type} {symbol} @ ${price:.2f}")
-					
+						logger.info(f"[PAPER] {trade_type} {symbol} @ {format_price(price)}")
+						
 					# Сохраняем состояние если были действия
 					if actions:
 						self.paper_trader.save_state()
@@ -512,7 +526,7 @@ class TelegramBot:
 								if trade_info:
 									msg = (
 										f"🟢 <b>КУПИЛ</b> {symbol}\n"
-										f"  Цена: ${price:.2f}\n"
+										f"  Цена: {format_price(price)}\n"
 										f"  Вложено: ${trade_info['invest_amount']:.2f}\n"
 										f"  Сила сигнала: {signal_strength}\n"
 										f"  Баланс: ${trade_info['balance_after']:.2f}"
@@ -529,8 +543,8 @@ class TelegramBot:
 									profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
 									msg = (
 										f"🔴 <b>ПРОДАЛ</b> {symbol}\n"
-										f"  Цена: ${price:.2f}\n"
-										f"  {profit_emoji} Прибыль: {trade_info['profit']:+.2f} USD ({trade_info['profit_percent']:+.2f}%)\n"
+										f"  Цена: {format_price(price)}\n"
+										f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
 										f"  Баланс: ${trade_info['balance_after']:.2f}"
 									)
 									all_messages.append(msg)
@@ -723,9 +737,9 @@ class TelegramBot:
 			
 			positions_text += (
 				f"  {emoji} <b>{symbol}</b>{partial_mark}\n"
-				f"    Вход: ${pos['entry_price']:.2f} → Сейчас: ${current_price:.2f}\n"
-				f"    PnL: {pnl_info['pnl']:+.2f} USD ({pnl_info['pnl_percent']:+.2f}%)\n"
-				f"    SL: ${pos['stop_loss']:.2f} | TP: ${pos['take_profit']:.2f}\n\n"
+				f"    Вход: {format_price(pos['entry_price'])} → Сейчас: {format_price(current_price)}\n"
+				f"    PnL: ${pnl_info['pnl']:+.2f} ({pnl_info['pnl_percent']:+.2f}%)\n"
+				f"    SL: {format_price(pos['stop_loss'])} | TP: {format_price(pos['take_profit'])}\n\n"
 			)
 		
 		total_balance = status['current_balance'] + sum(
@@ -821,7 +835,7 @@ class TelegramBot:
 		if not self._is_authorized(update):
 			await update.message.reply_text("🚫 Доступ запрещен")
 			return
-		
+			
 		limit = 10
 		if context.args and len(context.args) > 0:
 			try:
@@ -845,26 +859,28 @@ class TelegramBot:
 			
 			if trade_type == "BUY":
 				emoji = "🟢"
-				details = f"  Купил {trade['amount']:.6f} @ ${price:.2f}\n  Вложено: ${trade['invest_amount']:.2f}"
+				details = f"  Купил {trade['amount']:.6f} @ {format_price(price)}\n  Вложено: ${trade['invest_amount']:.2f}"
 			elif trade_type in ["SELL", "MANUAL-CLOSE"]:
 				emoji = "🔴"
 				profit_emoji = "📈" if trade['profit'] >= 0 else "📉"
-				details = f"  Продал {trade['amount']:.6f} @ ${price:.2f}\n  {profit_emoji} Прибыль: {trade['profit']:+.2f} USD ({trade['profit_percent']:+.2f}%)"
+				details = f"  Продал {trade['amount']:.6f} @ {format_price(price)}\n  {profit_emoji} Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
 			elif trade_type == "STOP-LOSS":
 				emoji = "🛑"
-				details = f"  Стоп-лосс {trade['amount']:.6f} @ ${price:.2f}\n  📉 Убыток: {trade['profit']:+.2f} USD ({trade['profit_percent']:+.2f}%)"
+				details = f"  Стоп-лосс {trade['amount']:.6f} @ {format_price(price)}\n  📉 Убыток: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
 			elif trade_type == "PARTIAL-TP":
 				emoji = "💎"
-				details = f"  Частичный тейк {trade['amount']:.6f} @ ${price:.2f}\n  📈 Прибыль: {trade['profit']:+.2f} USD ({trade['profit_percent']:+.2f}%)"
+				details = f"  Частичный тейк {trade['amount']:.6f} @ {format_price(price)}\n  📈 Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
 			elif trade_type == "TRAILING-STOP":
 				emoji = "🔻"
-				details = f"  Trailing stop {trade['amount']:.6f} @ ${price:.2f}\n  📊 Прибыль: {trade['profit']:+.2f} USD ({trade['profit_percent']:+.2f}%)"
+				details = f"  Trailing stop {trade['amount']:.6f} @ {format_price(price)}\n  📊 Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
 			else:
 				emoji = "⚪"
-				details = f"  {trade.get('amount', 0):.6f} @ ${price:.2f}"
+				details = f"  {trade.get('amount', 0):.6f} @ {format_price(price)}"
 			
 			time_str = trade.get('time', 'N/A')
-			if 'T' in time_str:
+			if isinstance(time_str, datetime):
+				time_str = time_str.strftime('%H:%M:%S')
+			elif isinstance(time_str, str) and 'T' in time_str:
 				time_str = time_str.split('T')[1].split('.')[0]
 			
 			text += f"{emoji} <b>{trade_type}</b> {symbol} [{time_str}]\n{details}\n\n"
@@ -1160,7 +1176,7 @@ class TelegramBot:
 				
 				text = (
 					f"<b>🔍 Debug: {symbol}</b> [{signal_emoji} {signal}]\n\n"
-					f"💰 Цена: ${price:.2f}\n\n"
+					f"💰 Цена: {format_price(price)}\n\n"
 					f"<b>📊 Голосование:</b>\n"
 					f"  Бычьи: {bullish} | Медвежьи: {bearish}\n"
 					f"  Разница: {vote_diff} (порог: 5)\n\n"
@@ -1262,7 +1278,7 @@ class TelegramBot:
 					text += (
 						f"{emoji} <b>{c['symbol']}</b> → {c['direction']}\n"
 						f"  Голосов: {c['votes']}/5 | ADX: {c['adx']:.1f}/25\n"
-						f"  RSI: {c['rsi']:.1f} | Цена: ${c['price']:.2f}\n\n"
+						f"  RSI: {c['rsi']:.1f} | Цена: {format_price(c['price'])}\n\n"
 					)
 				
 				text += "<i>Эти пары близки к генерации сигнала</i>"
@@ -1325,7 +1341,7 @@ class TelegramBot:
 					text = (
 						f"<b>🟢 ПРИНУДИТЕЛЬНАЯ ПОКУПКА</b>\n\n"
 						f"Символ: {symbol}\n"
-						f"Цена: ${price:.2f}\n"
+						f"Цена: {format_price(price)}\n"
 						f"Вложено: ${trade_info['invest_amount']:.2f}\n"
 						f"Баланс: ${trade_info['balance_after']:.2f}\n\n"
 						f"⚠️ Это тестовая сделка!\n"
@@ -1432,10 +1448,10 @@ class TelegramBot:
 				mode = "PYRAMID" if position.pyramid_mode else "AVERAGE"
 				
 				message += f"<b>{symbol}</b>\n"
-				message += f"• Вход: ${entry_price:.2f}\n"
+				message += f"• Вход: {format_price(entry_price)}\n"
 				
 				if averaging_count > 0:
-					message += f"• Средняя: ${avg_entry:.2f}\n"
+					message += f"• Средняя: {format_price(avg_entry)}\n"
 					message += f"• Докупания: {averaging_count}/{MAX_AVERAGING_ATTEMPTS} ({mode})\n"
 					message += f"• Инвестировано: ${position.total_invested:.2f}\n"
 					
