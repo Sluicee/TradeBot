@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import json
+import html
 from datetime import datetime
 from telegram import Update, __version__ as tg_version
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -1220,9 +1221,9 @@ class TelegramBot:
 					f"  RSI: {rsi:.1f} (35-70 для BUY) {'✅' if buy_rsi_ok else '❌'}\n"
 					f"  MACD: {macd:.4f} vs {macd_signal:.4f} {'✅' if macd > macd_signal else '❌'}\n"
 					f"  MACD hist: {macd_hist:.4f} {'✅' if macd_hist > 0 else '❌'}\n"
-					f"  ADX: {adx:.1f} (>25 для сигнала) {'✅' if strong_trend else '❌'}\n\n"
+					f"  ADX: {adx:.1f} (&gt;25 для сигнала) {'✅' if strong_trend else '❌'}\n\n"
 					f"<b>🎯 Фильтры BUY:</b>\n"
-					f"  {'✅' if vote_diff >= 5 else '❌'} Голосов >= 5: {vote_diff}/5\n"
+					f"  {'✅' if vote_diff >= 5 else '❌'} Голосов &gt;= 5: {vote_diff}/5\n"
 					f"  {'✅' if strong_trend else '❌'} Сильный тренд: ADX {adx:.1f}/25\n"
 					f"  {'✅' if buy_trend_ok else '❌'} Тренд вверх: EMA+SMA\n"
 					f"  {'✅' if buy_rsi_ok else '❌'} RSI в зоне: {rsi:.1f}\n"
@@ -1232,7 +1233,8 @@ class TelegramBot:
 				# Добавляем причины
 				text += "<b>📝 Причины:</b>\n"
 				for i, reason in enumerate(result["reasons"][-5:], 1):
-					text += f"{i}. {reason[:80]}...\n" if len(reason) > 80 else f"{i}. {reason}\n"
+					escaped_reason = html.escape(reason)
+					text += f"{i}. {escaped_reason[:80]}...\n" if len(escaped_reason) > 80 else f"{i}. {escaped_reason}\n"
 				
 				await msg.edit_text(text, parse_mode="HTML")
 				
