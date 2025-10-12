@@ -1001,10 +1001,10 @@ class TelegramBot:
 						if len(sub_df) < min_window:
 							signals.append({"signal": "HOLD", "price": sub_df["close"].iloc[-1]})
 							continue
-					gen = SignalGenerator(sub_df)
-					gen.compute_indicators()
-					res = self._generate_signal_with_strategy(gen)
-					signals.append(res)
+						gen = SignalGenerator(sub_df)
+						gen.compute_indicators()
+						res = self._generate_signal_with_strategy(gen)
+						signals.append(res)
 					
 					# Симулируем торговлю
 					from paper_trader import COMMISSION_RATE, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT, PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT, get_position_size_percent
@@ -1021,72 +1021,72 @@ class TelegramBot:
 					for s in signals:
 						price = s.get("price", 0)
 						sig = s.get("signal", "HOLD")
-						signal_strength = abs(s.get("bullish_votes", 0) - s.get("bearish_votes", 0))
-						atr = s.get("ATR", 0.0)
+					signal_strength = abs(s.get("bullish_votes", 0) - s.get("bearish_votes", 0))
+					atr = s.get("ATR", 0.0)
+					
+					# Проверка стоп-лоссов
+					if position > 0 and entry_price:
+						price_change = (price - entry_price) / entry_price
 						
-						# Проверка стоп-лоссов
-						if position > 0 and entry_price:
-							price_change = (price - entry_price) / entry_price
-							
-							if partial_closed:
-								if price > max_price:
-									max_price = price
-								trailing_drop = (max_price - price) / max_price
-								if trailing_drop >= TRAILING_STOP_PERCENT:
-									sell_value = position * price
-									commission = sell_value * COMMISSION_RATE
-									balance += sell_value - commission
-									trades += 1
-									if (price - entry_price) > 0:
-										wins += 1
-									else:
-										losses += 1
-									position = 0.0
-									entry_price = None
-									partial_closed = False
-									max_price = 0.0
-									continue
-							else:
-								if price_change <= -STOP_LOSS_PERCENT:
-									sell_value = position * price
-									commission = sell_value * COMMISSION_RATE
-									balance += sell_value - commission
-									trades += 1
-									losses += 1
-									position = 0.0
-									entry_price = None
-									continue
-								
-								if price_change >= TAKE_PROFIT_PERCENT:
-									close_amount = position * PARTIAL_CLOSE_PERCENT
-									keep_amount = position - close_amount
-									sell_value = close_amount * price
-									commission = sell_value * COMMISSION_RATE
-									balance += sell_value - commission
-									position = keep_amount
-									partial_closed = True
-									max_price = price
-									trades += 1
+						if partial_closed:
+							if price > max_price:
+								max_price = price
+							trailing_drop = (max_price - price) / max_price
+							if trailing_drop >= TRAILING_STOP_PERCENT:
+								sell_value = position * price
+								commission = sell_value * COMMISSION_RATE
+								balance += sell_value - commission
+								trades += 1
+								if (price - entry_price) > 0:
 									wins += 1
-									continue
-						
-						# Открытие/закрытие позиций
-						if sig == "BUY" and position == 0 and balance > 0:
-							position_size_percent = get_position_size_percent(signal_strength, atr, price)
-							invest_amount = balance * position_size_percent
-							commission = invest_amount * COMMISSION_RATE
-							position = (invest_amount - commission) / price
-							entry_price = price
-							balance -= invest_amount
-							trades += 1
-						elif sig == "SELL" and position > 0 and not partial_closed:
-							sell_value = position * price
-							commission = sell_value * COMMISSION_RATE
-							balance += sell_value - commission
-							if (price - entry_price) > 0:
-								wins += 1
-							else:
+								else:
+									losses += 1
+								position = 0.0
+								entry_price = None
+								partial_closed = False
+								max_price = 0.0
+								continue
+						else:
+							if price_change <= -STOP_LOSS_PERCENT:
+								sell_value = position * price
+								commission = sell_value * COMMISSION_RATE
+								balance += sell_value - commission
+								trades += 1
 								losses += 1
+								position = 0.0
+								entry_price = None
+								continue
+							
+							if price_change >= TAKE_PROFIT_PERCENT:
+								close_amount = position * PARTIAL_CLOSE_PERCENT
+								keep_amount = position - close_amount
+								sell_value = close_amount * price
+								commission = sell_value * COMMISSION_RATE
+								balance += sell_value - commission
+								position = keep_amount
+								partial_closed = True
+								max_price = price
+								trades += 1
+								wins += 1
+								continue
+					
+					# Открытие/закрытие позиций
+					if sig == "BUY" and position == 0 and balance > 0:
+						position_size_percent = get_position_size_percent(signal_strength, atr, price)
+						invest_amount = balance * position_size_percent
+						commission = invest_amount * COMMISSION_RATE
+						position = (invest_amount - commission) / price
+						entry_price = price
+						balance -= invest_amount
+						trades += 1
+					elif sig == "SELL" and position > 0 and not partial_closed:
+						sell_value = position * price
+						commission = sell_value * COMMISSION_RATE
+						balance += sell_value - commission
+						if (price - entry_price) > 0:
+							wins += 1
+						else:
+							losses += 1
 							position = 0.0
 							entry_price = None
 					
