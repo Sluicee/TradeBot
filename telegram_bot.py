@@ -1262,9 +1262,9 @@ class TelegramBot:
 		
 		try:
 			async with aiohttp.ClientSession() as session:
-			provider = DataProvider(session)
-			
-			for symbol in self.tracked_symbols:
+				provider = DataProvider(session)
+				
+				for symbol in self.tracked_symbols:
 					try:
 						klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=500)
 						df = provider.klines_to_dataframe(klines)
@@ -1307,25 +1307,25 @@ class TelegramBot:
 					
 					except Exception as e:
 						logger.error(f"Ошибка анализа {symbol}: {e}")
-			
-			if candidates:
-				# Сортируем по количеству голосов (больше = ближе к сигналу)
-				candidates.sort(key=lambda x: x['votes'], reverse=True)
 				
-				text = f"<b>🎯 Кандидаты на сигнал ({len(candidates)}):</b>\n\n"
-				
-				for c in candidates[:10]:  # Топ 10
-					emoji = "🟢" if c['direction'] == "BUY" else "🔴"
-					text += (
-						f"{emoji} <b>{c['symbol']}</b> → {c['direction']}\n"
-						f"  Голосов: {c['votes']}/5 | ADX: {c['adx']:.1f}/25\n"
-						f"  RSI: {c['rsi']:.1f} | Цена: {format_price(c['price'])}\n\n"
-					)
-				
-				text += "<i>Эти пары близки к генерации сигнала</i>"
-				await msg.edit_text(text, parse_mode="HTML")
-			else:
-				await msg.edit_text("⚠️ Нет кандидатов близких к сигналу.\n\nПопробуйте позже или добавьте больше пар.")
+				if candidates:
+					# Сортируем по количеству голосов (больше = ближе к сигналу)
+					candidates.sort(key=lambda x: x['votes'], reverse=True)
+					
+					text = f"<b>🎯 Кандидаты на сигнал ({len(candidates)}):</b>\n\n"
+					
+					for c in candidates[:10]:  # Топ 10
+						emoji = "🟢" if c['direction'] == "BUY" else "🔴"
+						text += (
+							f"{emoji} <b>{c['symbol']}</b> → {c['direction']}\n"
+							f"  Голосов: {c['votes']}/5 | ADX: {c['adx']:.1f}/25\n"
+							f"  RSI: {c['rsi']:.1f} | Цена: {format_price(c['price'])}\n\n"
+						)
+					
+					text += "<i>Эти пары близки к генерации сигнала</i>"
+					await msg.edit_text(text, parse_mode="HTML")
+				else:
+					await msg.edit_text("⚠️ Нет кандидатов близких к сигналу.\n\nПопробуйте позже или добавьте больше пар.")
 				
 		except Exception as e:
 			logger.error(f"Ошибка поиска кандидатов: {e}")
