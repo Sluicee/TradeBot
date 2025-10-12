@@ -30,6 +30,20 @@ SETTINGS_FILE = "dashboard_settings.json"
 LOG_DIR = "logs"
 PROCESS_NAME = "main.py"
 
+# Конфигурация Plotly для графиков
+PLOTLY_CONFIG = {
+	'displayModeBar': True,
+	'displaylogo': False,
+	'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d'],
+	'toImageButtonOptions': {
+		'format': 'png',
+		'filename': 'chart',
+		'height': 1080,
+		'width': 1920,
+		'scale': 2
+	}
+}
+
 def get_latest_log_file() -> Optional[str]:
 	"""Получает путь к последнему файлу логов"""
 	if not os.path.exists(LOG_DIR):
@@ -474,7 +488,7 @@ def overview_page(state: Dict[str, Any]):
 				height=400
 			)
 			
-			st.plotly_chart(fig, width='stretch')
+			st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 	
 	st.divider()
 	
@@ -690,7 +704,7 @@ def history_page(state: Dict[str, Any]):
 				height=300
 			)
 			
-			st.plotly_chart(fig, width='stretch')
+			st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 	else:
 		st.info("Нет сделок, соответствующих фильтрам.")
 	
@@ -836,7 +850,7 @@ def metrics_page(state: Dict[str, Any]):
 		
 		fig.update_layout(height=600, showlegend=True)
 		
-		st.plotly_chart(fig, width='stretch')
+		st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 	
 	# Box plot P&L
 	st.divider()
@@ -855,7 +869,7 @@ def metrics_page(state: Dict[str, Any]):
 			height=400
 		)
 		
-		st.plotly_chart(fig, width='stretch')
+		st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 
 # ====================================================================
 # СТРАНИЦА 5: БЭКТЕСТЫ
@@ -970,7 +984,7 @@ def backtests_page():
 						height=300
 					)
 					
-					st.plotly_chart(fig, width='stretch')
+					st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 			else:
 				st.info("Нет данных о сделках в этом бэктесте")
 	
@@ -1057,7 +1071,7 @@ def backtests_page():
 			height=400
 		)
 		
-		st.plotly_chart(fig, width='stretch')
+		st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 
 # ====================================================================
 # СТРАНИЦА 6: НАСТРОЙКИ
