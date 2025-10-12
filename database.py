@@ -274,7 +274,12 @@ class DatabaseManager:
 			self.engine = create_engine(database_url, echo=False, pool_pre_ping=True)
 		
 		# Session factory
-		self.SessionLocal = scoped_session(sessionmaker(bind=self.engine, autocommit=False, autoflush=False))
+		self.SessionLocal = scoped_session(sessionmaker(
+			bind=self.engine, 
+			autocommit=False, 
+			autoflush=False,
+			expire_on_commit=False  # Не отключать объекты после коммита
+		))
 		
 		logger.info(f"База данных инициализирована: {database_url}")
 	
