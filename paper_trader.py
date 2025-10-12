@@ -1,8 +1,7 @@
-import json
-import os
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from logger import logger
+from database import db
 from config import (
 	COMMISSION_RATE, MAX_POSITIONS, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT,
 	PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT,
@@ -18,8 +17,6 @@ from config import (
 	AVERAGING_TIME_THRESHOLD_HOURS, MAX_TOTAL_RISK_MULTIPLIER,
 	ENABLE_PYRAMID_UP, PYRAMID_ADX_THRESHOLD, AVERAGING_SIZE_PERCENT
 )
-
-STATE_FILE = "paper_trading_state.json"
 
 # Группы коррелированных активов (упрощенно)
 CORRELATION_GROUPS = {
@@ -438,6 +435,12 @@ class PaperTrader:
 		self.trades_history.append(trade_info)
 		self.stats["total_trades"] += 1
 		
+		# Сохраняем в БД
+		try:
+			db.add_trade(trade_info)
+		except Exception as e:
+			logger.error(f"Ошибка сохранения сделки в БД: {e}")
+		
 		logger.info(f"[PAPER] BUY {symbol} @ ${price:.2f} ({position_size_percent*100:.0f}%)")
 		
 		return trade_info
@@ -493,6 +496,12 @@ class PaperTrader:
 			"holding_time": self._calculate_holding_time(position.entry_time)
 		}
 		self.trades_history.append(trade_info)
+		
+		# Сохраняем в БД
+		try:
+			db.add_trade(trade_info)
+		except Exception as e:
+			logger.error(f"Ошибка сохранения сделки в БД: {e}")
 		
 		logger.info(f"[PAPER] {reason} {symbol} @ ${price:.2f} ({profit:+.2f} USD / {profit_percent:+.2f}%)")
 		
@@ -557,6 +566,12 @@ class PaperTrader:
 			"balance_after": self.balance
 		}
 		self.trades_history.append(trade_info)
+		
+		# Сохраняем в БД
+		try:
+			db.add_trade(trade_info)
+		except Exception as e:
+			logger.error(f"Ошибка сохранения сделки в БД: {e}")
 		
 		logger.info(f"[PAPER] PARTIAL-TP {symbol} @ ${price:.2f} ({profit:+.2f} USD / {profit_percent:+.2f}%)")
 		
@@ -676,6 +691,12 @@ class PaperTrader:
 			"balance_after": self.balance
 		}
 		self.trades_history.append(trade_info)
+		
+		# Сохраняем в БД
+		try:
+			db.add_trade(trade_info)
+		except Exception as e:
+			logger.error(f"Ошибка сохранения сделки в БД: {e}")
 		
 		logger.info(
 			f"[PAPER] AVERAGE-{mode} {symbol} @ ${price:.2f} "
@@ -864,58 +885,120 @@ class PaperTrader:
 		return kelly_multiplier
 			
 	def save_state(self):
-		"""Сохраняет состояние в файл"""
-		state = {
-			"initial_balance": self.initial_balance,
-			"balance": self.balance,
-			"positions": {symbol: pos.to_dict() for symbol, pos in self.positions.items()},
-			"trades_history": self.trades_history,
-			"stats": self.stats,
-			"is_running": self.is_running,
-			"start_time": self.start_time
-		}
-		
+		"""Сохраняет состояние в БД"""
 		try:
-			with open(STATE_FILE, "w", encoding="utf-8") as f:
-				json.dump(state, f, ensure_ascii=False, indent=2)
+			# Сохраняем основное состояние
+			start_time = datetime.fromisoformat(self.start_time) if isinstance(self.start_time, str) and self.start_time else datetime.now()
+			db.save_paper_state(
+				initial_balance=self.initial_balance,
+				balance=self.balance,
+				is_running=self.is_running,
+				start_time=start_time,
+				stats=self.stats
+			)
+			
+			# Сохраняем позиции
+			for symbol, pos in self.positions.items():
+				pos_data = pos.to_dict()
+				# Преобразуем entry_time в datetime
+				if isinstance(pos_data.get("entry_time"), str):
+					pos_data["entry_time"] = datetime.fromisoformat(pos_data["entry_time"])
+				
+				# Сохраняем позицию
+				averaging_entries = pos_data.pop("averaging_entries", [])
+				db_position = db.save_position(pos_data)
+				
+				# Сохраняем докупания (если есть новые)
+				# Проверяем количество докупаний в БД
+				existing_entries = db.get_averaging_entries(db_position.id)
+				if len(averaging_entries) > len(existing_entries):
+					# Добавляем только новые
+					for entry in averaging_entries[len(existing_entries):]:
+						entry_time = datetime.fromisoformat(entry["time"]) if isinstance(entry.get("time"), str) else datetime.now()
+						db.add_averaging_entry(
+							position_id=db_position.id,
+							price=entry.get("price", 0),
+							amount=entry.get("amount", 0),
+							invest_amount=entry.get("invest_amount", 0),
+							commission=entry.get("commission", 0),
+							mode=entry.get("mode", ""),
+							reason=entry.get("reason", ""),
+							time=entry_time
+						)
+			
+			# Удаляем закрытые позиции из БД
+			db_positions = db.get_all_positions()
+			for db_pos in db_positions:
+				if db_pos.symbol not in self.positions:
+					db.delete_position(db_pos.symbol)
+			
 		except Exception as e:
-			logger.error(f"Ошибка сохранения состояния: {e}")
+			logger.error(f"Ошибка сохранения состояния в БД: {e}")
+			raise
 			
 	def load_state(self) -> bool:
-		"""Загружает состояние из файла"""
-		if not os.path.exists(STATE_FILE):
-			return False
-			
+		"""Загружает состояние из БД"""
 		try:
-			with open(STATE_FILE, "r", encoding="utf-8") as f:
-				state = json.load(f)
-				
-			self.initial_balance = state.get("initial_balance", 100.0)
-			self.balance = state.get("balance", self.initial_balance)
-			self.trades_history = state.get("trades_history", [])
-			self.stats = state.get("stats", {
-				"total_trades": 0,
-				"winning_trades": 0,
-				"losing_trades": 0,
-				"total_commission": 0.0,
-				"stop_loss_triggers": 0,
-				"take_profit_triggers": 0,
-				"trailing_stop_triggers": 0
-			})
-			self.is_running = state.get("is_running", False)
-			self.start_time = state.get("start_time")
+			# Загружаем основное состояние
+			db_state = db.get_paper_state()
+			if not db_state:
+				logger.info("Paper Trading: состояние не найдено, используем начальные значения")
+				return False
 			
-			# Восстанавливаем позиции
-			positions_data = state.get("positions", {})
-			self.positions = {
-				symbol: Position.from_dict(pos_data)
-				for symbol, pos_data in positions_data.items()
+			self.initial_balance = db_state.initial_balance
+			self.balance = db_state.balance
+			self.is_running = db_state.is_running
+			self.start_time = db_state.start_time.isoformat() if db_state.start_time else None
+			
+			self.stats = {
+				"total_trades": db_state.total_trades,
+				"winning_trades": db_state.winning_trades,
+				"losing_trades": db_state.losing_trades,
+				"total_commission": db_state.total_commission,
+				"stop_loss_triggers": db_state.stop_loss_triggers,
+				"take_profit_triggers": db_state.take_profit_triggers,
+				"trailing_stop_triggers": db_state.trailing_stop_triggers
 			}
 			
-			logger.info(f"Paper Trading: ${self.balance:.2f}, {len(self.positions)} позиций, {len(self.trades_history)} сделок")
+			# Загружаем позиции
+			db_positions = db.get_all_positions()
+			self.positions = {}
+			
+			for db_pos in db_positions:
+				# Преобразуем DB модель в Position объект
+				pos_data = {
+					"symbol": db_pos.symbol,
+					"entry_price": db_pos.entry_price,
+					"amount": db_pos.amount,
+					"entry_time": db_pos.entry_time.isoformat() if db_pos.entry_time else datetime.now().isoformat(),
+					"signal_strength": db_pos.signal_strength,
+					"invest_amount": db_pos.invest_amount,
+					"commission": db_pos.entry_commission,
+					"atr": db_pos.atr,
+					"stop_loss_price": db_pos.stop_loss_price,
+					"stop_loss_percent": db_pos.stop_loss_percent,
+					"take_profit_price": db_pos.take_profit_price,
+					"partial_closed": db_pos.partial_closed,
+					"max_price": db_pos.max_price,
+					"partial_close_profit": db_pos.partial_close_profit,
+					"original_amount": db_pos.original_amount,
+					"averaging_count": db_pos.averaging_count,
+					"average_entry_price": db_pos.average_entry_price,
+					"pyramid_mode": db_pos.pyramid_mode,
+					"total_invested": db_pos.total_invested,
+					"averaging_entries": db.get_averaging_entries(db_pos.id)
+				}
+				
+				self.positions[db_pos.symbol] = Position.from_dict(pos_data)
+			
+			# Загружаем историю сделок (последние 1000)
+			db_trades = db.get_trades_history(limit=1000)
+			self.trades_history = db_trades
+			
+			logger.info(f"Paper Trading загружен из БД: ${self.balance:.2f}, {len(self.positions)} позиций, {len(self.trades_history)} сделок")
 			return True
 			
 		except Exception as e:
-			logger.error(f"Ошибка загрузки состояния: {e}")
-			return False
+			logger.error(f"Ошибка загрузки состояния из БД: {e}")
+			raise
 

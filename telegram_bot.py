@@ -15,6 +15,7 @@ from data_provider import DataProvider
 from signal_generator import SignalGenerator
 from paper_trader import PaperTrader
 from logger import logger
+from database import db
 import math
 
 class TelegramBot:
@@ -25,7 +26,6 @@ class TelegramBot:
 		self.default_symbol = default_symbol
 		self.default_interval = default_interval
 		self.tracked_symbols: set[str] = set()
-		self.json_file = "tracked_symbols.json"
 		
 		# Устанавливаем владельца из переменной окружения
 		if OWNER_CHAT_ID:
@@ -85,28 +85,31 @@ class TelegramBot:
 		self.application.add_handler(CommandHandler("averaging_status", self.averaging_status))
 
 	# -----------------------------
-	# Работа с JSON
+	# Работа с БД
 	# -----------------------------
 	def _load_tracked_symbols(self):
 		try:
-			with open(self.json_file, "r", encoding="utf-8") as f:
-				data = json.load(f)
-				self.tracked_symbols = set(s.upper() for s in data.get("symbols", []))
-				self.chat_id = data.get("chat_id")
-				settings = data.get("settings", {})
-				self.poll_interval = settings.get("poll_interval", POLL_INTERVAL)
-				self.volatility_window = settings.get("volatility_window", VOLATILITY_WINDOW)
-				self.volatility_threshold = settings.get("volatility_threshold", VOLATILITY_THRESHOLD)
-				logger.info("Загружено %d пар", len(self.tracked_symbols))
-		except FileNotFoundError:
-			logger.info("JSON-файл %s не найден, создаём новый", self.json_file)
-			self.tracked_symbols = set()
-			self.chat_id = None
-			self.poll_interval = POLL_INTERVAL
-			self.volatility_window = VOLATILITY_WINDOW
-			self.volatility_threshold = VOLATILITY_THRESHOLD
+			# Загружаем из БД
+			symbols = db.get_tracked_symbols()
+			self.tracked_symbols = set(symbols)
+			
+			# Загружаем настройки
+			settings = db.get_bot_settings()
+			if settings:
+				self.chat_id = settings.chat_id
+				self.poll_interval = settings.poll_interval
+				self.volatility_window = settings.volatility_window
+				self.volatility_threshold = settings.volatility_threshold
+			else:
+				self.chat_id = None
+				self.poll_interval = POLL_INTERVAL
+				self.volatility_window = VOLATILITY_WINDOW
+				self.volatility_threshold = VOLATILITY_THRESHOLD
+			
+			logger.info(f"Загружено {len(self.tracked_symbols)} пар из БД")
+			
 		except Exception as e:
-			logger.error("Ошибка загрузки %s: %s", self.json_file, e)
+			logger.error(f"Ошибка загрузки из БД: {e}")
 			self.tracked_symbols = set()
 			self.chat_id = None
 			self.poll_interval = POLL_INTERVAL
@@ -115,18 +118,32 @@ class TelegramBot:
 
 	def _save_tracked_symbols(self):
 		try:
-			with open(self.json_file, "w", encoding="utf-8") as f:
-				json.dump({
-					"chat_id": self.chat_id,
-					"symbols": sorted(self.tracked_symbols),
-					"settings": {
-						"poll_interval": self.poll_interval,
-						"volatility_window": self.volatility_window,
-						"volatility_threshold": self.volatility_threshold
-					}
-				}, f, indent=2)
+			# Сохраняем в БД
+			# Сначала получаем все символы из БД
+			db_symbols = set(db.get_tracked_symbols())
+			
+			# Удаляем символы, которых нет в self.tracked_symbols
+			for symbol in db_symbols:
+				if symbol not in self.tracked_symbols:
+					db.remove_tracked_symbol(symbol)
+			
+			# Добавляем новые символы
+			for symbol in self.tracked_symbols:
+				if symbol not in db_symbols:
+					db.add_tracked_symbol(symbol)
+			
+			# Сохраняем настройки
+			if self.chat_id:
+				db.save_bot_settings(
+					chat_id=self.chat_id,
+					poll_interval=self.poll_interval,
+					volatility_window=self.volatility_window,
+					volatility_threshold=self.volatility_threshold
+				)
+			
 		except Exception as e:
-			logger.error("Ошибка сохранения %s: %s", self.json_file, e)
+			logger.error(f"Ошибка сохранения в БД: {e}")
+			raise
 
 	# -------------------------
 	# Форматирование вывода
