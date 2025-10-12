@@ -287,7 +287,7 @@ class Position:
 			entry_time=data["entry_time"],
 			signal_strength=data["signal_strength"],
 			invest_amount=data["invest_amount"],
-			commission=data["entry_commission"],
+			commission=data.get("entry_commission", 0.0),  # Обратная совместимость
 			atr=data.get("atr", 0.0)  # Обратная совместимость
 		)
 		pos.stop_loss_price = data.get("stop_loss_price", pos.stop_loss_price)
