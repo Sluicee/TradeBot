@@ -10,6 +10,7 @@ from typing import Dict, List, Any, Optional
 import numpy as np
 from scipy import stats as scipy_stats
 from database import db
+from logger import logger
 
 # Импорты опциональные (могут не работать на всех системах)
 try:
@@ -61,6 +62,30 @@ def get_latest_log_file() -> Optional[str]:
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ====================================================================
 
+def get_current_prices() -> Dict[str, float]:
+	"""Получает текущие цены из последних сигналов в БД"""
+	try:
+		with db.session_scope() as session:
+			from database import Signal
+			from sqlalchemy import func
+			
+			# Получаем последнюю цену для каждого символа из сигналов
+			subquery = session.query(
+				Signal.symbol,
+				func.max(Signal.time).label('max_time')
+			).group_by(Signal.symbol).subquery()
+			
+			latest_signals = session.query(Signal).join(
+				subquery,
+				(Signal.symbol == subquery.c.symbol) & (Signal.time == subquery.c.max_time)
+			).all()
+			
+			prices = {signal.symbol: signal.price for signal in latest_signals}
+			return prices
+	except Exception as e:
+		logger.error(f"Ошибка получения цен из БД: {e}")
+		return {}
+
 @st.cache_data(ttl=60)
 def load_paper_trader_state() -> Optional[Dict[str, Any]]:
 	"""Загружает состояние paper trader из БД"""
@@ -70,13 +95,20 @@ def load_paper_trader_state() -> Optional[Dict[str, Any]]:
 		if not db_state:
 			return None
 		
+		# Получаем текущие цены из БД
+		current_prices = get_current_prices()
+		
 		# Загружаем позиции
 		positions = {}
 		db_positions = db.get_all_positions()
 		for pos in db_positions:
+			# Используем текущую цену из БД или entry_price если нет данных
+			current_price = current_prices.get(pos.symbol, pos.entry_price)
+			
 			positions[pos.symbol] = {
 				"symbol": pos.symbol,
 				"entry_price": pos.entry_price,
+				"current_price": current_price,  # Добавляем текущую цену
 				"amount": pos.amount,
 				"entry_time": pos.entry_time.isoformat() if pos.entry_time else None,
 				"signal_strength": pos.signal_strength,
@@ -105,6 +137,7 @@ def load_paper_trader_state() -> Optional[Dict[str, Any]]:
 			"initial_balance": db_state.initial_balance,
 			"balance": db_state.balance,
 			"positions": positions,
+			"current_prices": current_prices,  # Добавляем текущие цены
 			"trades_history": trades_history,
 			"stats": {
 				"total_trades": db_state.total_trades,
@@ -412,8 +445,8 @@ def overview_page(state: Dict[str, Any]):
 	# Суммируем стоимость открытых позиций
 	positions_value = 0
 	for symbol, pos in positions.items():
-		# Используем entry_price как текущую цену (TODO: можно получить реальную)
-		current_price = pos.get("entry_price", 0)
+		# Используем текущую цену из БД
+		current_price = pos.get("current_price", pos.get("entry_price", 0))
 		amount = pos.get("amount", 0)
 		positions_value += current_price * amount
 	
@@ -564,17 +597,20 @@ def positions_page(state: Dict[str, Any]):
 		averaging_count = pos.get("averaging_count", 0)
 		pyramid_mode = pos.get("pyramid_mode", False)
 		
-		# Считаем текущий P&L (нужна текущая цена, пока используем entry)
-		current_price = entry_price  # TODO: получить реальную цену
+		# Считаем текущий P&L с реальной ценой из БД
+		current_price = pos.get("current_price", entry_price)
 		pnl_pct = ((current_price - avg_entry) / avg_entry) * 100 if avg_entry > 0 else 0
+		pnl_usd = (current_price - avg_entry) * amount if avg_entry > 0 else 0
 		
 		mode = "PYRAMID" if pyramid_mode else "AVERAGE"
 		
 		positions_data.append({
 			"Символ": symbol,
 			"Вход": format_price(entry_price),
+			"Сейчас": format_price(current_price),
 			"Средняя": format_price(avg_entry) if averaging_count > 0 else "-",
 			"Количество": f"{amount:.4f}",
+			"P&L": f"${pnl_usd:+.2f}",
 			"P&L%": f"{pnl_pct:+.2f}%",
 			"SL": format_price(sl),
 			"TP": format_price(tp),
@@ -590,20 +626,29 @@ def positions_page(state: Dict[str, Any]):
 	st.subheader("Детали позиций")
 	
 	for symbol, pos in positions.items():
-		with st.expander(f"📊 {symbol}"):
+		current_price = pos.get("current_price", pos.get("entry_price", 0))
+		avg_entry = pos.get("average_entry_price", pos.get("entry_price", 0))
+		amount = pos.get("amount", 0)
+		pnl_pct = ((current_price - avg_entry) / avg_entry) * 100 if avg_entry > 0 else 0
+		pnl_usd = (current_price - avg_entry) * amount if avg_entry > 0 else 0
+		
+		with st.expander(f"📊 {symbol} • {format_price(current_price)} • {pnl_pct:+.2f}%"):
 			col1, col2, col3 = st.columns(3)
 			
 			with col1:
 				st.metric("Цена входа", format_price(pos.get('entry_price', 0)))
-				st.metric("Средняя цена", format_price(pos.get('average_entry_price', pos.get('entry_price', 0))))
+				st.metric("Текущая цена", format_price(current_price), f"{pnl_pct:+.2f}%")
+				st.metric("Средняя цена", format_price(avg_entry))
 			
 			with col2:
 				st.metric("Stop Loss", format_price(pos.get('stop_loss_price', 0)))
 				st.metric("Take Profit", format_price(pos.get('take_profit_price', 0)))
+				st.metric("P&L", f"${pnl_usd:+.2f}", f"{pnl_pct:+.2f}%")
 			
 			with col3:
 				st.metric("Докупания", pos.get("averaging_count", 0))
 				st.metric("Инвестировано", f"${pos.get('total_invested', pos.get('invest_amount', 0)):.2f}")
+				st.metric("Количество", f"{amount:.4f}")
 			
 			# История докупаний
 			averaging_entries = pos.get("averaging_entries", [])
@@ -1383,6 +1428,9 @@ def render_bot_status_widget():
 			st.caption("📋 Logs ✓")
 		else:
 			st.caption("📋 Logs ✗")
+	
+	# Информация о кэше
+	st.caption(f"🔄 Кэш: 60с TTL")
 
 def main():
 	"""Главная функция dashboard"""
@@ -1408,13 +1456,15 @@ def main():
 		# Автообновление
 		auto_refresh = st.checkbox("Автообновление (60с)", value=False)
 		
+		# Кнопка обновления
+		if st.button("🔄 Обновить сейчас"):
+			st.cache_data.clear()
+			st.rerun()
+		
+		# Автообновление через fragment
 		if auto_refresh:
 			import time
 			time.sleep(60)
-			st.rerun()
-		
-		if st.button("🔄 Обновить сейчас"):
-			st.cache_data.clear()
 			st.rerun()
 	
 	# Загрузка состояния
