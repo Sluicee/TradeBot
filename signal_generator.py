@@ -936,26 +936,26 @@ class SignalGenerator:
 			signal_result = self.generate_signal_mean_reversion()
 			signal_result["active_mode"] = "MEAN_REVERSION"
 			signal_result["strategy"] = "HYBRID"
+			# Добавляем reasons о режиме в начало
 			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
 		
 		elif current_mode == "TF":
 			signal_result = self.generate_signal()
 			signal_result["active_mode"] = "TREND_FOLLOWING"
 			signal_result["strategy"] = "HYBRID"
+			# Добавляем reasons о режиме в начало
 			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
 		
-		else:  # HOLD
-			signal_result = {
-				"signal": "HOLD",
-				"signal_emoji": "⚠️",
-				"price": price,
-				"ADX": adx,
-				"active_mode": "TRANSITION",
-				"reasons": reasons,
-				"strategy": "HYBRID",
-				"bullish_votes": 0,
-				"bearish_votes": 0
-			}
+		else:  # HOLD или TRANSITION
+			# Если переходная зона, всё равно генерируем полный сигнал для аналитики
+			# но переопределяем его на HOLD
+			signal_result = self.generate_signal()
+			signal_result["signal"] = "HOLD"  # Принудительно HOLD в переходной зоне
+			signal_result["signal_emoji"] = "⚠️"
+			signal_result["active_mode"] = "TRANSITION"
+			signal_result["strategy"] = "HYBRID"
+			# Добавляем reason о переходной зоне в начало
+			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
 		
 		return signal_result
 	
