@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
-from paper_trader import get_position_size_percent
+from paper_trader import get_position_size_percent, PaperTrader
 import aiohttp
 import asyncio
 import json
@@ -13,7 +13,8 @@ from typing import Dict, List, Tuple, Any
 from config import (
 	COMMISSION_RATE, INITIAL_BALANCE,
 	STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT,
-	PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT
+	PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT,
+	USE_KELLY_CRITERION
 )
 
 # ====================================================================
@@ -365,6 +366,9 @@ class WalkForwardOptimizer:
 		partial_closed = False
 		max_price = 0.0
 		
+		# Kelly Criterion: создаём PaperTrader для расчёта Kelly
+		kelly_tracker = PaperTrader(initial_balance=self.start_balance) if USE_KELLY_CRITERION else None
+		
 		for s in signals:
 			price = s["price"]
 			sig = s["signal"]
@@ -385,11 +389,21 @@ class WalkForwardOptimizer:
 						commission = sell_value * COMMISSION_RATE
 						total_commission += commission
 						balance += sell_value - commission
+						profit_pct = ((price - entry_price) / entry_price) * 100
 						trades.append({
 							'type': 'TRAILING-STOP',
 							'price': price,
-							'profit_pct': ((price - entry_price) / entry_price) * 100
+							'profit_pct': profit_pct
 						})
+						
+						# Kelly: добавляем сделку в историю
+						if kelly_tracker:
+							kelly_tracker.trades_history.append({
+								"type": "TRAILING-STOP",
+								"profit": sell_value - commission - (entry_price * position),
+								"profit_percent": profit_pct
+							})
+						
 						position = 0.0
 						entry_price = None
 						partial_closed = False
@@ -401,11 +415,21 @@ class WalkForwardOptimizer:
 						commission = sell_value * COMMISSION_RATE
 						total_commission += commission
 						balance += sell_value - commission
+						profit_pct = price_change * 100
 						trades.append({
 							'type': 'STOP-LOSS',
 							'price': price,
-							'profit_pct': price_change * 100
+							'profit_pct': profit_pct
 						})
+						
+						# Kelly: добавляем сделку в историю
+						if kelly_tracker:
+							kelly_tracker.trades_history.append({
+								"type": "STOP-LOSS",
+								"profit": sell_value - commission - (entry_price * position),
+								"profit_percent": profit_pct
+							})
+						
 						position = 0.0
 						entry_price = None
 						stop_loss_triggers += 1
@@ -434,7 +458,13 @@ class WalkForwardOptimizer:
 			
 			# Логика входа/выхода
 			if sig == "BUY" and position == 0 and balance > 0:
-				position_size_percent = get_position_size_percent(signal_strength, atr, price)
+				# Kelly Criterion: рассчитываем множитель
+				kelly_multiplier = 1.0
+				if kelly_tracker:
+					atr_percent = (atr / price) * 100 if atr > 0 and price > 0 else 1.5
+					kelly_multiplier = kelly_tracker.calculate_kelly_fraction(self.symbol, atr_percent)
+				
+				position_size_percent = get_position_size_percent(signal_strength, atr, price, kelly_multiplier)
 				invest_amount = balance * position_size_percent
 				
 				commission = invest_amount * COMMISSION_RATE
@@ -461,6 +491,15 @@ class WalkForwardOptimizer:
 					'price': price,
 					'profit_pct': profit_on_trade
 				})
+				
+				# Kelly: добавляем сделку в историю
+				if kelly_tracker:
+					kelly_tracker.trades_history.append({
+						"type": "SELL",
+						"profit": sell_value - commission - (entry_price * position),
+						"profit_percent": profit_on_trade
+					})
+				
 				position = 0.0
 				entry_price = None
 			
@@ -481,6 +520,15 @@ class WalkForwardOptimizer:
 				'price': final_price,
 				'profit_pct': profit_on_trade
 			})
+			
+			# Kelly: добавляем сделку в историю
+			if kelly_tracker:
+				kelly_tracker.trades_history.append({
+					"type": "FINAL-CLOSE",
+					"profit": sell_value - commission - (entry_price * position),
+					"profit_percent": profit_on_trade
+				})
+			
 			position = 0.0
 		
 		# Расчет метрик

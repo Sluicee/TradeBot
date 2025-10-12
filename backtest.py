@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
-from paper_trader import get_position_size_percent, get_dynamic_stop_loss_percent
+from paper_trader import get_position_size_percent, get_dynamic_stop_loss_percent, PaperTrader
 import aiohttp
 import asyncio
 import json
@@ -10,7 +10,7 @@ from datetime import datetime
 from config import (
 	COMMISSION_RATE, MAX_POSITIONS, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT,
 	PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT, INITIAL_BALANCE,
-	DYNAMIC_SL_ATR_MULTIPLIER
+	DYNAMIC_SL_ATR_MULTIPLIER, USE_KELLY_CRITERION
 )
 
 # --- Бэктест стратегии ---
@@ -79,6 +79,9 @@ async def run_backtest(
 		trailing_stop_triggers = 0
 		partial_closed = False  # Флаг частичного закрытия
 		max_price = 0.0  # Максимальная цена для trailing stop
+		
+		# Kelly Criterion: создаём PaperTrader для расчёта Kelly
+		kelly_tracker = PaperTrader(initial_balance=start_balance) if USE_KELLY_CRITERION else None
 
 		for s in signals:
 			price = s["price"]
@@ -108,7 +111,17 @@ async def run_backtest(
 						total_commission += commission
 						balance += sell_value - commission
 						profit_from_max = ((price - max_price) / max_price) * 100
+						profit = (price - entry_price) / entry_price * 100
 						trades.append(f"TRAILING-STOP {position:.6f} @ {price} (от макс: {profit_from_max:+.2f}%, комиссия: ${commission:.4f})")
+						
+						# Kelly: добавляем сделку в историю
+						if kelly_tracker:
+							kelly_tracker.trades_history.append({
+								"type": "TRAILING-STOP",
+								"profit": sell_value - commission - (entry_price * position),
+								"profit_percent": profit
+							})
+						
 						position = 0.0
 						entry_price = None
 						partial_closed = False
@@ -124,7 +137,17 @@ async def run_backtest(
 						commission = sell_value * COMMISSION_RATE
 						total_commission += commission
 						balance += sell_value - commission
+						profit = (price - entry_price) / entry_price * 100
 						trades.append(f"STOP-LOSS {position:.6f} @ {price} (потеря: {price_change*100:.2f}%, SL: {dynamic_sl_percent*100:.1f}%, комиссия: ${commission:.4f})")
+						
+						# Kelly: добавляем сделку в историю
+						if kelly_tracker:
+							kelly_tracker.trades_history.append({
+								"type": "STOP-LOSS",
+								"profit": sell_value - commission - (entry_price * position),
+								"profit_percent": profit
+							})
+						
 						position = 0.0
 						entry_price = None
 						entry_atr = 0.0
@@ -151,8 +174,14 @@ async def run_backtest(
 			
 			# Логика входа/выхода
 			if sig == "BUY" and position == 0 and balance > 0:
-				# Динамический размер позиции с учётом волатильности
-				position_size_percent = get_position_size_percent(signal_strength, atr, price)
+				# Kelly Criterion: рассчитываем множитель
+				kelly_multiplier = 1.0
+				if kelly_tracker:
+					atr_percent = (atr / price) * 100 if atr > 0 and price > 0 else 1.5
+					kelly_multiplier = kelly_tracker.calculate_kelly_fraction(symbol, atr_percent)
+				
+				# Динамический размер позиции с учётом волатильности и Kelly
+				position_size_percent = get_position_size_percent(signal_strength, atr, price, kelly_multiplier)
 				invest_amount = balance * position_size_percent
 				
 				# Рассчитываем ДИНАМИЧЕСКИЙ Stop-Loss на основе ATR
@@ -183,6 +212,15 @@ async def run_backtest(
 				
 				profit_on_trade = ((price - entry_price) / entry_price) * 100
 				trades.append(f"SELL {position:.6f} @ {price} (прибыль: {profit_on_trade:+.2f}%, комиссия: ${commission:.4f})")
+				
+				# Kelly: добавляем сделку в историю
+				if kelly_tracker:
+					kelly_tracker.trades_history.append({
+						"type": "SELL",
+						"profit": sell_value - commission - (entry_price * position),
+						"profit_percent": profit_on_trade
+					})
+				
 				position = 0.0
 				entry_price = None
 
@@ -196,6 +234,15 @@ async def run_backtest(
 			profit_on_trade = ((final_price - entry_price) / entry_price) * 100
 			close_type = "частичной" if partial_closed else "полной"
 			trades.append(f"Закрытие {close_type} позиции: SELL {position:.6f} @ {final_price} (прибыль: {profit_on_trade:+.2f}%, комиссия: ${commission:.4f})")
+			
+			# Kelly: добавляем сделку в историю
+			if kelly_tracker:
+				kelly_tracker.trades_history.append({
+					"type": "FINAL-CLOSE",
+					"profit": sell_value - commission - (entry_price * position),
+					"profit_percent": profit_on_trade
+				})
+			
 			position = 0.0
 			partial_closed = False
 
