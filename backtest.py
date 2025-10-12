@@ -6,6 +6,7 @@ from paper_trader import get_position_size_percent, get_dynamic_stop_loss_percen
 import aiohttp
 import asyncio
 import json
+from datetime import datetime
 from config import (
 	COMMISSION_RATE, MAX_POSITIONS, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT,
 	PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT, INITIAL_BALANCE,
@@ -229,7 +230,9 @@ async def run_backtest(
 		# --- Сохраняем результат ---
 		output_dir = "backtests"
 		os.makedirs(output_dir, exist_ok=True)
-		output_file = os.path.join(output_dir, f"backtest_{symbol}_{interval}.json")
+		# Добавляем timestamp к имени файла
+		timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+		output_file = os.path.join(output_dir, f"backtest_{symbol}_{interval}_{timestamp}.json")
 
 		with open(output_file, "w", encoding="utf-8") as f:
 			json.dump(signals, f, ensure_ascii=False, indent=2, default=str)

@@ -10,7 +10,13 @@ from config import (
 	SIGNAL_STRENGTH_STRONG, SIGNAL_STRENGTH_MEDIUM,
 	DYNAMIC_SL_ATR_MULTIPLIER, DYNAMIC_SL_MIN, DYNAMIC_SL_MAX,
 	VOLATILITY_HIGH_THRESHOLD, VOLATILITY_LOW_THRESHOLD, VOLATILITY_ADJUSTMENT_MAX,
-	MAX_HOLDING_HOURS
+	MAX_HOLDING_HOURS,
+	# Kelly Criterion
+	USE_KELLY_CRITERION, KELLY_FRACTION, MIN_TRADES_FOR_KELLY, KELLY_LOOKBACK_WINDOW,
+	# Averaging
+	ENABLE_AVERAGING, MAX_AVERAGING_ATTEMPTS, AVERAGING_PRICE_DROP_PERCENT,
+	AVERAGING_TIME_THRESHOLD_HOURS, MAX_TOTAL_RISK_MULTIPLIER,
+	ENABLE_PYRAMID_UP, PYRAMID_ADX_THRESHOLD, AVERAGING_SIZE_PERCENT
 )
 
 STATE_FILE = "paper_trading_state.json"
@@ -63,10 +69,15 @@ def check_correlation_risk(new_symbol: str, existing_positions: Dict[str, Any]) 
 	return True
 
 
-def get_position_size_percent(signal_strength: int, atr: float = 0, price: float = 0) -> float:
+def get_position_size_percent(
+	signal_strength: int,
+	atr: float = 0,
+	price: float = 0,
+	kelly_multiplier: float = 1.0
+) -> float:
 	"""
 	Возвращает процент от баланса для входа в позицию.
-	Учитывает силу сигнала И волатильность (ATR).
+	Учитывает силу сигнала, волатильность (ATR) и Kelly Criterion.
 	"""
 	# Базовый размер по силе сигнала
 	if signal_strength >= SIGNAL_STRENGTH_STRONG:
@@ -87,7 +98,10 @@ def get_position_size_percent(signal_strength: int, atr: float = 0, price: float
 		elif atr_percent < VOLATILITY_LOW_THRESHOLD:
 			base_size *= min(VOLATILITY_ADJUSTMENT_MAX, VOLATILITY_LOW_THRESHOLD / atr_percent)
 	
-	return min(base_size, POSITION_SIZE_STRONG)  # Максимум POSITION_SIZE_STRONG
+	# Применяем Kelly multiplier (0.5-1.5)
+	base_size *= kelly_multiplier
+	
+	return min(base_size, POSITION_SIZE_STRONG * 1.2)  # Максимум 120% от STRONG
 
 
 def get_dynamic_stop_loss_percent(atr: float, price: float) -> float:
@@ -139,6 +153,13 @@ class Position:
 		self.partial_close_profit = 0.0  # Прибыль с частичного закрытия
 		self.original_amount = amount  # Исходное количество
 		
+		# Averaging / Pyramiding
+		self.averaging_count = 0  # Количество докупаний
+		self.averaging_entries: List[Dict[str, Any]] = []  # История докупаний
+		self.average_entry_price = entry_price  # Средняя цена входа
+		self.pyramid_mode = False  # Пирамидинг или усреднение
+		self.total_invested = invest_amount  # Общая инвестиция с докупаниями
+		
 	def update_max_price(self, current_price: float):
 		"""Обновляет максимальную цену для trailing stop"""
 		if current_price > self.max_price:
@@ -177,6 +198,44 @@ class Position:
 			return holding_hours > max_hours
 		except:
 			return False
+	
+	def can_average_down(self, current_price: float, adx: float) -> tuple[bool, str]:
+		"""
+		Проверяет возможность докупания позиции.
+		Возвращает (можно_ли, режим).
+		"""
+		if not ENABLE_AVERAGING:
+			return False, "DISABLED"
+		
+		# Проверка лимита докупаний
+		if self.averaging_count >= MAX_AVERAGING_ATTEMPTS:
+			return False, "MAX_ATTEMPTS"
+		
+		# Определяем режим на основе ADX
+		if ENABLE_PYRAMID_UP and adx > PYRAMID_ADX_THRESHOLD:
+			# Пирамидинг вверх - докупаем при росте цены
+			mode = "PYRAMID_UP"
+			price_condition = current_price > self.average_entry_price * 1.02  # +2%
+		else:
+			# Усреднение вниз - докупаем при падении
+			mode = "AVERAGE_DOWN"
+			price_condition = current_price <= self.average_entry_price * (1 - AVERAGING_PRICE_DROP_PERCENT)
+		
+		if not price_condition:
+			return False, mode
+		
+		# Проверка временного условия для AVERAGE_DOWN
+		if mode == "AVERAGE_DOWN":
+			try:
+				entry_dt = datetime.fromisoformat(self.entry_time)
+				now_dt = datetime.now()
+				holding_hours = (now_dt - entry_dt).total_seconds() / 3600
+				if holding_hours < AVERAGING_TIME_THRESHOLD_HOURS:
+					return False, f"{mode}_TIME"
+			except:
+				pass
+		
+		return True, mode
 		
 	def get_pnl(self, current_price: float) -> Dict[str, float]:
 		"""Возвращает текущую прибыль/убыток"""
@@ -213,7 +272,12 @@ class Position:
 			"partial_closed": self.partial_closed,
 			"max_price": self.max_price,
 			"partial_close_profit": self.partial_close_profit,
-			"original_amount": self.original_amount
+			"original_amount": self.original_amount,
+			"averaging_count": self.averaging_count,
+			"averaging_entries": self.averaging_entries,
+			"average_entry_price": self.average_entry_price,
+			"pyramid_mode": self.pyramid_mode,
+			"total_invested": self.total_invested
 		}
 		
 	@staticmethod
@@ -236,6 +300,11 @@ class Position:
 		pos.max_price = data.get("max_price", pos.entry_price)
 		pos.partial_close_profit = data.get("partial_close_profit", 0.0)
 		pos.original_amount = data.get("original_amount", pos.amount)
+		pos.averaging_count = data.get("averaging_count", 0)
+		pos.averaging_entries = data.get("averaging_entries", [])
+		pos.average_entry_price = data.get("average_entry_price", pos.entry_price)
+		pos.pyramid_mode = data.get("pyramid_mode", False)
+		pos.total_invested = data.get("total_invested", pos.invest_amount)
 		return pos
 
 
@@ -317,9 +386,13 @@ class PaperTrader:
 		if not check_correlation_risk(symbol, self.positions):
 			logger.warning(f"[PAPER] {symbol} - корреляция с открытой позицией")
 			return None
+		
+		# Рассчитываем Kelly multiplier
+		atr_percent = (atr / price) * 100 if atr > 0 and price > 0 else 1.5
+		kelly_multiplier = self.calculate_kelly_fraction(symbol, atr_percent)
 			
-		# Рассчитываем размер позиции с учётом волатильности
-		position_size_percent = get_position_size_percent(signal_strength, atr, price)
+		# Рассчитываем размер позиции с учётом волатильности и Kelly
+		position_size_percent = get_position_size_percent(signal_strength, atr, price, kelly_multiplier)
 		invest_amount = self.balance * position_size_percent
 		
 		if invest_amount <= 0:
@@ -488,6 +561,128 @@ class PaperTrader:
 		logger.info(f"[PAPER] PARTIAL-TP {symbol} @ ${price:.2f} ({profit:+.2f} USD / {profit_percent:+.2f}%)")
 		
 		return trade_info
+	
+	def average_position(
+		self,
+		symbol: str,
+		price: float,
+		signal_strength: int,
+		adx: float,
+		atr: float,
+		reason: str
+	) -> Optional[Dict[str, Any]]:
+		"""
+		Докупает существующую позицию (averaging down/pyramid up).
+		"""
+		if not ENABLE_AVERAGING:
+			return None
+		
+		if symbol not in self.positions:
+			return None
+		
+		position = self.positions[symbol]
+		
+		# Проверка возможности докупания
+		can_average, mode = position.can_average_down(price, adx)
+		if not can_average:
+			logger.debug(f"[PAPER] {symbol} - докупание невозможно: {mode}")
+			return None
+		
+		# Определение размера докупания
+		if mode == "PYRAMID_UP":
+			# Пирамидинг вверх - размер зависит от силы сигнала
+			size_multiplier = (signal_strength / SIGNAL_STRENGTH_STRONG) if signal_strength > 0 else 0.3
+			size_percent = AVERAGING_SIZE_PERCENT * size_multiplier * 0.6  # ~30% от исходного
+			position.pyramid_mode = True
+		else:
+			# Усреднение вниз - фиксированный размер
+			size_percent = AVERAGING_SIZE_PERCENT  # 50% от исходного
+			position.pyramid_mode = False
+		
+		# Рассчитываем сумму докупания
+		original_invest = position.invest_amount  # Исходная инвестиция (без докупаний)
+		new_invest = original_invest * size_percent
+		
+		# Проверка общего риска
+		total_invested_after = position.total_invested + new_invest
+		if total_invested_after > position.invest_amount * MAX_TOTAL_RISK_MULTIPLIER:
+			logger.warning(
+				f"[PAPER] {symbol} - превышен лимит риска: "
+				f"{total_invested_after:.2f} > {position.invest_amount * MAX_TOTAL_RISK_MULTIPLIER:.2f}"
+			)
+			return None
+		
+		# Проверка баланса
+		if new_invest > self.balance:
+			logger.warning(f"[PAPER] {symbol} - недостаточно баланса для докупания")
+			return None
+		
+		# Комиссия на докупание
+		commission = new_invest * COMMISSION_RATE
+		self.stats["total_commission"] += commission
+		
+		# Покупаем дополнительные монеты
+		new_amount = (new_invest - commission) / price
+		
+		# Обновляем позицию
+		old_amount = position.amount
+		old_cost = position.average_entry_price * old_amount
+		new_cost = price * new_amount
+		
+		position.amount += new_amount
+		position.averaging_count += 1
+		position.total_invested += new_invest
+		
+		# Пересчёт средней цены
+		position.average_entry_price = (old_cost + new_cost) / (old_amount + new_amount)
+		
+		# Умное обновление SL/TP от новой средней цены
+		dynamic_sl = get_dynamic_stop_loss_percent(atr, position.average_entry_price)
+		new_stop_loss = position.average_entry_price * (1 - dynamic_sl)
+		
+		# Не сужаем SL при усреднении (берём max)
+		position.stop_loss_price = max(new_stop_loss, position.stop_loss_price)
+		position.stop_loss_percent = dynamic_sl
+		position.take_profit_price = position.average_entry_price * (1 + TAKE_PROFIT_PERCENT)
+		
+		# Сохраняем историю докупания
+		averaging_entry = {
+			"price": price,
+			"amount": new_amount,
+			"invest_amount": new_invest,
+			"commission": commission,
+			"mode": mode,
+			"reason": reason,
+			"time": datetime.now().isoformat()
+		}
+		position.averaging_entries.append(averaging_entry)
+		
+		# Обновляем баланс
+		self.balance -= new_invest
+		
+		# Добавляем в историю
+		trade_info = {
+			"type": f"AVERAGE-{mode}",
+			"symbol": symbol,
+			"price": price,
+			"amount": new_amount,
+			"invest_amount": new_invest,
+			"commission": commission,
+			"signal_strength": signal_strength,
+			"reason": reason,
+			"averaging_count": position.averaging_count,
+			"average_entry_price": position.average_entry_price,
+			"time": averaging_entry["time"],
+			"balance_after": self.balance
+		}
+		self.trades_history.append(trade_info)
+		
+		logger.info(
+			f"[PAPER] AVERAGE-{mode} {symbol} @ ${price:.2f} "
+			f"(#{position.averaging_count}, avg=${position.average_entry_price:.2f}, reason={reason})"
+		)
+		
+		return trade_info
 		
 	def check_positions(self, prices: Dict[str, float]) -> List[Dict[str, Any]]:
 		"""Проверяет все позиции на стоп-лоссы, тейк-профиты и время удержания"""
@@ -597,6 +792,76 @@ class PaperTrader:
 				return f"{minutes}м"
 		except:
 			return "N/A"
+	
+	def calculate_kelly_fraction(self, symbol: str, atr_percent: float) -> float:
+		"""
+		Рассчитывает Kelly fraction для оптимального размера позиции.
+		Использует скользящее окно последних сделок.
+		Нормализуется по волатильности актива.
+		"""
+		if not USE_KELLY_CRITERION:
+			return 1.0  # Нейтральный множитель
+		
+		# Берём только закрытые сделки (BUY и соответствующие closes)
+		closed_trades = [
+			t for t in self.trades_history 
+			if t.get("type") in ["SELL", "STOP-LOSS", "TRAILING-STOP", "TIME-EXIT"]
+			and t.get("profit") is not None
+		]
+		
+		# Недостаточно данных для расчёта Kelly
+		if len(closed_trades) < MIN_TRADES_FOR_KELLY:
+			logger.debug(f"[KELLY] Недостаточно сделок ({len(closed_trades)}/{MIN_TRADES_FOR_KELLY}), используем базовый размер")
+			return 1.0
+		
+		# Используем скользящее окно последних N сделок
+		recent_trades = closed_trades[-KELLY_LOOKBACK_WINDOW:]
+		
+		# Рассчитываем win rate и средние значения
+		winning_trades = [t for t in recent_trades if t.get("profit", 0) > 0]
+		losing_trades = [t for t in recent_trades if t.get("profit", 0) <= 0]
+		
+		total_trades = len(recent_trades)
+		win_count = len(winning_trades)
+		
+		if total_trades == 0:
+			return 1.0
+		
+		win_rate = win_count / total_trades
+		
+		# Средний выигрыш и проигрыш (в процентах)
+		if winning_trades:
+			avg_win = sum(t.get("profit_percent", 0) for t in winning_trades) / len(winning_trades)
+		else:
+			avg_win = 0.0
+		
+		if losing_trades:
+			avg_loss = abs(sum(t.get("profit_percent", 0) for t in losing_trades) / len(losing_trades))
+		else:
+			avg_loss = 1.0  # Избегаем деления на 0
+		
+		# Kelly formula: (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+		if avg_win <= 0 or avg_loss <= 0:
+			return 1.0
+		
+		kelly = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+		
+		# Применяем консервативную дробь Kelly (например, 25%)
+		kelly *= KELLY_FRACTION
+		
+		# Нормализация по волатильности: уменьшаем размер при высокой волатильности
+		volatility_adjustment = 1 / (1 + atr_percent / 2)
+		kelly *= volatility_adjustment
+		
+		# Ограничиваем диапазон 0.5-1.5 (не более 50% уменьшение и 50% увеличение)
+		kelly_multiplier = max(0.5, min(1.5, kelly))
+		
+		logger.debug(
+			f"[KELLY] {symbol}: WR={win_rate:.2%}, AvgW={avg_win:.2f}%, AvgL={avg_loss:.2f}%, "
+			f"Raw={kelly:.2f}, ATR={atr_percent:.2f}%, Final={kelly_multiplier:.2f}x"
+		)
+		
+		return kelly_multiplier
 			
 	def save_state(self):
 		"""Сохраняет состояние в файл"""
