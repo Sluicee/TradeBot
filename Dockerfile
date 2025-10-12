@@ -21,9 +21,13 @@ COPY . .
 # Создание необходимых директорий
 RUN mkdir -p logs signals backtests
 
+# Копирование entrypoint скрипта
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 # Переменные окружения
 ENV PYTHONUNBUFFERED=1
 
-# Запуск бота
-CMD ["python", "bot.py"]
+# Запуск через entrypoint
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 

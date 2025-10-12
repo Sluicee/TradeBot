@@ -100,6 +100,45 @@ OWNER_CHAT_ID=your_telegram_id_here
 # Опциональные параметры
 DEFAULT_SYMBOL=BTCUSDT
 DEFAULT_INTERVAL=15m
+
+# База данных (опционально)
+# SQLite (по умолчанию): sqlite:///tradebot.db
+# PostgreSQL: postgresql://user:password@localhost:5432/tradebot
+# DATABASE_URL=sqlite:///tradebot.db
+```
+
+### База данных
+
+Бот использует **SQLAlchemy ORM** с поддержкой:
+- **SQLite** (по умолчанию) - лёгкая встроенная БД
+- **PostgreSQL** (опционально) - для production с высокой нагрузкой
+
+**SQLite (по умолчанию):**
+- Не требует настройки
+- БД сохраняется в файл `tradebot.db`
+- Подходит для большинства случаев
+
+**PostgreSQL (опционально):**
+```bash
+# Установка PostgreSQL
+sudo apt install postgresql postgresql-contrib
+
+# Создание БД и пользователя
+sudo -u postgres psql
+CREATE DATABASE tradebot;
+CREATE USER tradebot_user WITH PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE tradebot TO tradebot_user;
+\q
+
+# В .env добавить:
+# DATABASE_URL=postgresql://tradebot_user:your_password@localhost:5432/tradebot
+```
+
+**Инициализация БД:**
+```bash
+# Автоматически при первом запуске Docker
+# Или вручную:
+python init_db.py
 ```
 
 ### Структура директорий
@@ -110,9 +149,15 @@ TradeBot/
 ├── logs/                    # Логи работы бота
 ├── signals/                 # История сигналов
 ├── backtests/              # Результаты бэктестов
-├── paper_trading_state.json # Состояние бумажной торговли
-└── tracked_symbols.json     # Отслеживаемые символы
+└── tradebot.db             # База данных SQLite (все данные)
 ```
+
+**База данных содержит:**
+- Состояние paper trading (баланс, статистика)
+- Открытые позиции
+- История сделок
+- Отслеживаемые символы
+- История сигналов
 
 ---
 
@@ -338,9 +383,9 @@ sudo apt update && sudo apt upgrade -y
 sudo ufw allow 22/tcp  # SSH
 sudo ufw enable
 
-# Регулярные бэкапы .env и состояния
+# Регулярные бэкапы .env и БД
 cp .env .env.backup
-cp paper_trading_state.json paper_trading_state.backup.json
+cp tradebot.db tradebot.db.backup
 ```
 
 ---
@@ -360,12 +405,13 @@ mkdir -p $BACKUP_DIR
 # Бэкап критичных файлов
 tar -czf "$BACKUP_DIR/tradebot_backup_$DATE.tar.gz" \
 	.env \
-	paper_trading_state.json \
-	tracked_symbols.json \
+	tradebot.db \
 	backtests/ \
 	--exclude='backtests/*.json'
 
 echo "Backup created: $BACKUP_DIR/tradebot_backup_$DATE.tar.gz"
+# Или используйте готовый скрипт:
+# ./backup.sh
 ```
 
 ### Восстановление

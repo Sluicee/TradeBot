@@ -9,10 +9,18 @@
 ✅ Исправлены зависимости:
    - Убран asyncio (встроенный модуль)
    - Добавлен python-dotenv
+   - Добавлен sqlalchemy для БД
+   - Добавлен psycopg2-binary для PostgreSQL
    
 ✅ Улучшен Docker:
    - Добавлен healthcheck
    - Настроена ротация логов (10MB x 3 файла)
+   - Добавлен volume для базы данных
+   
+✅ Миграция на базу данных:
+   - Замена JSON на SQLite/PostgreSQL
+   - Поддержка SQLAlchemy ORM
+   - Автоматическая инициализация БД
    
 ✅ Созданы скрипты управления:
    - deploy.sh (первоначальный деплой)
@@ -58,6 +66,10 @@
    cp env.example .env
    nano .env
    # Заполнить TELEGRAM_TOKEN и OWNER_CHAT_ID
+   # (Опционально) DATABASE_URL для PostgreSQL
+   
+   # Инициализировать базу данных
+   python init_db.py
    
    # Запустить
    docker compose up -d --build
@@ -122,6 +134,12 @@ Docker:
    • docker-compose.yml         - Docker конфигурация
    • Dockerfile                 - Docker образ
    • requirements.txt           - Python зависимости
+   
+💾 База данных:
+   • database.py                - ORM модели и менеджер БД
+   • init_db.py                 - Инициализация БД
+   • migrate_to_db.py           - Миграция из JSON
+   • DATABASE_README.md         - Документация БД
 
 ╔══════════════════════════════════════════════════════╗
 ║  ПОЛУЧЕНИЕ ТОКЕНОВ                                   ║
@@ -137,6 +155,11 @@ Docker:
    1. Открыть @userinfobot в Telegram
    2. Отправить любое сообщение
    3. Скопировать ID
+
+💾 DATABASE_URL (опционально):
+   - SQLite (по умолчанию): sqlite:///tradebot.db
+   - PostgreSQL: postgresql://user:password@host:5432/tradebot
+   - Не указывайте для SQLite (используется по умолчанию)
 
 ╔══════════════════════════════════════════════════════╗
 ║  TROUBLESHOOTING                                     ║

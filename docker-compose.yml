@@ -12,8 +12,7 @@ services:
       - ./logs:/app/logs
       - ./signals:/app/signals
       - ./backtests:/app/backtests
-      - ./paper_trading_state.json:/app/paper_trading_state.json
-      - ./tracked_symbols.json:/app/tracked_symbols.json
+      - ./tradebot.db:/app/tradebot.db  # База данных SQLite
     # Healthcheck
     healthcheck:
       test: ["CMD", "python", "-c", "import os; exit(0 if os.path.exists('/app/logs') else 1)"]
