@@ -109,7 +109,7 @@ Docker:
   docker compose logs -f            # Логи всех сервисов
   
 Dashboard:
-  http://localhost:8501             # Веб-интерфейс (если запущен)
+  http://localhost:8501             # Веб-интерфейс (реал-тайм данные из БД)
   
 Утилиты:
   ./update.sh                       # Обновление бота
