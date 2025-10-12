@@ -7,11 +7,90 @@ import aiohttp
 import asyncio
 import json
 from datetime import datetime
+from typing import Tuple, List, Dict
 from config import (
 	COMMISSION_RATE, MAX_POSITIONS, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT,
 	PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT, INITIAL_BALANCE,
-	DYNAMIC_SL_ATR_MULTIPLIER, USE_KELLY_CRITERION
+	DYNAMIC_SL_ATR_MULTIPLIER, USE_KELLY_CRITERION, ENABLE_AVERAGING,
+	MAX_AVERAGING_ATTEMPTS, AVERAGING_PRICE_DROP_PERCENT, AVERAGING_SIZE_PERCENT
 )
+
+# --- Симулятор умного докупания ---
+def simulate_averaging(
+	entry_price: float,
+	entry_amount: float,
+	entry_invest: float,
+	signals: List[Dict],
+	current_index: int,
+	balance: float,
+	enable_averaging: bool = True
+) -> Tuple[float, float, int, float, List[Dict]]:
+	"""
+	Гибридный симулятор докупаний для бэктестов.
+	Имитирует 1-2 докупания при падении цены на X%.
+	
+	Args:
+		entry_price: Цена первого входа
+		entry_amount: Количество монет при первом входе
+		entry_invest: Инвестированная сумма при первом входе
+		signals: Список всех сигналов
+		current_index: Индекс текущего сигнала
+		balance: Доступный баланс
+	
+	Returns:
+		(average_price, total_amount, averaging_count, total_invested, averaging_log)
+	"""
+	if not enable_averaging or MAX_AVERAGING_ATTEMPTS == 0:
+		return entry_price, entry_amount, 0, entry_invest, []
+	
+	avg_price = entry_price
+	total_amount = entry_amount
+	total_invested = entry_invest
+	averaging_count = 0
+	averaging_log = []
+	
+	# Проходим по свечам после входа
+	for i in range(current_index + 1, len(signals)):
+		if averaging_count >= MAX_AVERAGING_ATTEMPTS:
+			break
+		
+		current_price = signals[i]["price"]
+		
+		# Проверяем условие докупания: цена упала на X% от средней
+		price_drop = (avg_price - current_price) / avg_price
+		
+		if price_drop >= AVERAGING_PRICE_DROP_PERCENT:
+			# Рассчитываем размер докупания (50% от первоначального)
+			averaging_invest = entry_invest * AVERAGING_SIZE_PERCENT
+			
+			if averaging_invest < 1 or averaging_invest > balance:
+				continue
+			
+			commission = averaging_invest * COMMISSION_RATE
+			averaging_amount = (averaging_invest - commission) / current_price
+			
+			# Обновляем среднюю цену и количество
+			old_total_cost = avg_price * total_amount
+			new_invest_net = averaging_invest - commission
+			total_invested += averaging_invest
+			total_amount += averaging_amount
+			avg_price = (old_total_cost + new_invest_net) / total_amount
+			
+			averaging_count += 1
+			averaging_log.append({
+				"index": i,
+				"time": signals[i].get("time", "N/A"),
+				"price": current_price,
+				"amount": averaging_amount,
+				"invest": averaging_invest,
+				"drop_percent": price_drop * 100,
+				"new_avg_price": avg_price
+			})
+			
+			# Уменьшаем баланс после докупания
+			balance -= averaging_invest
+	
+	return avg_price, total_amount, averaging_count, total_invested, averaging_log
 
 # --- Бэктест стратегии ---
 async def run_backtest(
@@ -19,10 +98,17 @@ async def run_backtest(
 	interval: str = "15m", 
 	period_hours: int = 24, 
 	start_balance: float = None,
-	use_statistical_models: bool = False
+	use_statistical_models: bool = False,
+	enable_kelly: bool = None,
+	enable_averaging: bool = None
 ):
 	if start_balance is None:
 		start_balance = INITIAL_BALANCE
+	if enable_kelly is None:
+		enable_kelly = USE_KELLY_CRITERION
+	if enable_averaging is None:
+		enable_averaging = ENABLE_AVERAGING
+	
 	candles_per_hour = int(60 / int(interval.replace('m',''))) if 'm' in interval else 1
 	limit = period_hours * candles_per_hour
 
@@ -81,9 +167,9 @@ async def run_backtest(
 		max_price = 0.0  # Максимальная цена для trailing stop
 		
 		# Kelly Criterion: создаём PaperTrader для расчёта Kelly
-		kelly_tracker = PaperTrader(initial_balance=start_balance) if USE_KELLY_CRITERION else None
+		kelly_tracker = PaperTrader(initial_balance=start_balance) if enable_kelly else None
 
-		for s in signals:
+		for sig_index, s in enumerate(signals):
 			price = s["price"]
 			sig = s["signal"]
 			
@@ -194,13 +280,37 @@ async def run_backtest(
 				
 				commission = invest_amount * COMMISSION_RATE
 				total_commission += commission
-				position = (invest_amount - commission) / price
+				initial_amount = (invest_amount - commission) / price
 				entry_price = price
 				entry_strength = signal_strength
 				entry_atr = atr
 				balance -= invest_amount
 				
-				trades.append(f"BUY {position:.6f} @ {price} (сила: {signal_strength}, размер: {position_size_percent*100:.0f}%, SL: {dynamic_sl_percent*100:.1f}%, TP: {dynamic_tp_percent*100:.1f}%, комиссия: ${commission:.4f})")
+				# Симулируем докупания (если включено)
+				avg_entry, total_amount, avg_count, total_invested, avg_log = simulate_averaging(
+					entry_price=entry_price,
+					entry_amount=initial_amount,
+					entry_invest=invest_amount,
+					signals=signals,
+					current_index=sig_index,
+					balance=balance,
+					enable_averaging=enable_averaging
+				)
+				
+				# Применяем результаты averaging
+				position = total_amount
+				entry_price = avg_entry  # используем среднюю цену для SL/TP
+				
+				# Обновляем баланс и комиссии если были докупания
+				if avg_count > 0:
+					balance -= sum(log["invest"] for log in avg_log)
+					total_commission += sum(log["invest"] * COMMISSION_RATE for log in avg_log)
+				
+				trades.append(f"BUY {initial_amount:.6f} @ {price} (сила: {signal_strength}, размер: {position_size_percent*100:.0f}%, SL: {dynamic_sl_percent*100:.1f}%, TP: {dynamic_tp_percent*100:.1f}%, комиссия: ${commission:.4f})")
+				
+				# Логируем докупания
+				if avg_count > 0:
+					trades.append(f"  >> AVERAGING: {avg_count} dokupaний, srednyaya tsena: ${avg_entry:.2f}, total coins: {position:.6f}")
 				
 			elif sig == "SELL" and position > 0 and not partial_closed:
 				# Закрываем позицию только если она не была частично закрыта
