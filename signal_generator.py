@@ -875,6 +875,7 @@ class SignalGenerator:
 		if self.df.empty:
 			return {
 				"signal": "HOLD",
+				"signal_emoji": "⚠️",
 				"price": 0,
 				"ADX": 0,
 				"active_mode": "NONE",
@@ -892,6 +893,7 @@ class SignalGenerator:
 		if adx == 0 or price == 0:
 			return {
 				"signal": "HOLD",
+				"signal_emoji": "⚠️",
 				"price": price,
 				"ADX": adx,
 				"active_mode": "NONE",
@@ -936,6 +938,7 @@ class SignalGenerator:
 		else:  # HOLD
 			signal_result = {
 				"signal": "HOLD",
+				"signal_emoji": "⚠️",
 				"price": price,
 				"ADX": adx,
 				"active_mode": "TRANSITION",
