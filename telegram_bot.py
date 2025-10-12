@@ -1179,8 +1179,8 @@ class TelegramBot:
 				
 				signal = result["signal"]
 				price = result["price"]
-				bullish = result["bullish_votes"]
-				bearish = result["bearish_votes"]
+				bullish = result.get("bullish_votes", 0)
+				bearish = result.get("bearish_votes", 0)
 				
 				# Собираем информацию о фильтрах
 				last = df.iloc[-1]
@@ -1272,8 +1272,8 @@ class TelegramBot:
 						
 						signal = result["signal"]
 						price = result["price"]
-						bullish = result["bullish_votes"]
-						bearish = result["bearish_votes"]
+						bullish = result.get("bullish_votes", 0)
+						bearish = result.get("bearish_votes", 0)
 						
 						last = df.iloc[-1]
 						adx = float(last.get("ADX_14", 0))
