@@ -350,6 +350,76 @@ class SignalGenerator:
 				reasons.append(f"Объём нормальный ({volume_ratio:.1f}x)")
 		
 		# ====================================================================
+		# ПРОВЕРКА КОРРЕЛЯЦИИ ИНДИКАТОРОВ
+		# ====================================================================
+		
+		# Игнорируем сигналы, когда индикаторы сильно расходятся
+		indicator_conflicts = []
+		conflict_detected = False
+		
+		# 1. RSI vs MACD - проверка согласованности осцилляторов
+		rsi_bullish = rsi < RSI_OVERSOLD_NEAR  # RSI показывает бычий сигнал
+		rsi_bearish = rsi > RSI_OVERBOUGHT_NEAR  # RSI показывает медвежий сигнал
+		macd_bullish = macd > macd_signal and macd_hist > 0
+		macd_bearish = macd < macd_signal and macd_hist < 0
+		
+		if rsi_bullish and macd_bearish:
+			indicator_conflicts.append("⚠️ RSI бычий, но MACD медвежий")
+			conflict_detected = True
+		elif rsi_bearish and macd_bullish:
+			indicator_conflicts.append("⚠️ RSI медвежий, но MACD бычий")
+			conflict_detected = True
+		
+		# 2. EMA тренд vs MACD - тренд и моментум должны совпадать
+		ema_trend_up = ema_s > ema_l
+		ema_trend_down = ema_s < ema_l
+		
+		if ema_trend_up and macd_bearish:
+			indicator_conflicts.append("⚠️ EMA показывает восходящий тренд, но MACD медвежий")
+			conflict_detected = True
+		elif ema_trend_down and macd_bullish:
+			indicator_conflicts.append("⚠️ EMA показывает нисходящий тренд, но MACD бычий")
+			conflict_detected = True
+		
+		# 3. Stochastic vs RSI - осцилляторы должны быть согласованы
+		stoch_oversold = stoch_k < STOCH_OVERSOLD
+		stoch_overbought = stoch_k > STOCH_OVERBOUGHT
+		
+		if stoch_oversold and rsi > 60:  # Stoch перепродан, но RSI высокий
+			indicator_conflicts.append("⚠️ Stochastic перепродан, но RSI высокий")
+			conflict_detected = True
+		elif stoch_overbought and rsi < 40:  # Stoch перекуплен, но RSI низкий
+			indicator_conflicts.append("⚠️ Stochastic перекуплен, но RSI низкий")
+			conflict_detected = True
+		
+		# 4. Линейная регрессия vs индикаторы - тренд должен подтверждаться
+		if trend_strength > 0.5:  # Сильный тренд по ЛР
+			if trend_direction == 1 and macd_bearish and rsi_bearish:
+				indicator_conflicts.append("⚠️ ЛР показывает восходящий тренд, но MACD и RSI медвежьи")
+				conflict_detected = True
+			elif trend_direction == -1 and macd_bullish and rsi_bullish:
+				indicator_conflicts.append("⚠️ ЛР показывает нисходящий тренд, но MACD и RSI бычьи")
+				conflict_detected = True
+		
+		# 5. Противоположные экстремумы - критический конфликт
+		extreme_oversold = rsi < RSI_OVERSOLD and stoch_k < STOCH_OVERSOLD
+		extreme_overbought = rsi > RSI_OVERBOUGHT and stoch_k > STOCH_OVERBOUGHT
+		
+		if extreme_oversold and ema_trend_down and macd_bearish:
+			# Все показывают на продолжение падения, но осцилляторы в перепроданности
+			# Возможен разворот, но это конфликт для SHORT
+			pass  # Это нормальная ситуация для потенциального BUY
+		elif extreme_overbought and ema_trend_up and macd_bullish:
+			# Все показывают на продолжение роста, но осцилляторы в перекупленности
+			# Возможен разворот, но это конфликт для LONG
+			pass  # Это нормальная ситуация для потенциального SELL
+		
+		# Добавляем информацию о конфликтах в reasons
+		if indicator_conflicts:
+			for conflict in indicator_conflicts:
+				reasons.append(conflict)
+		
+		# ====================================================================
 		# Итоговое голосование с ГИБКИМИ фильтрами (3 из 5)
 		# ====================================================================
 		
@@ -405,9 +475,14 @@ class SignalGenerator:
 			buy_filters_passed += 1
 			sell_filters_passed += 1
 		
-		# Решение: нужно >= MIN_FILTERS из 5 + перевес голосов
+		# Решение: нужно >= MIN_FILTERS из 5 + перевес голосов + НЕТ конфликтов индикаторов
 		
-		if bullish - bearish >= VOTE_THRESHOLD and buy_filters_passed >= MIN_FILTERS:
+		if conflict_detected:
+			# Критический конфликт - индикаторы расходятся, игнорируем сигнал
+			signal = "HOLD"
+			signal_emoji = "⚠️"
+			reasons.append(f"🚫 HOLD: Обнаружен конфликт индикаторов! Голосов {bullish} vs {bearish}")
+		elif bullish - bearish >= VOTE_THRESHOLD and buy_filters_passed >= MIN_FILTERS:
 			signal = "BUY"
 			signal_emoji = "🟢"
 			reasons.append(f"✅ BUY: Голосов {bullish} vs {bearish}, фильтров {buy_filters_passed}/5, ADX={adx:.1f}")
@@ -438,5 +513,7 @@ class SignalGenerator:
 			"bearish_votes": bearish,
 			"buy_filters_passed": buy_filters_passed,
 			"sell_filters_passed": sell_filters_passed,
+			"indicator_conflicts": indicator_conflicts,
+			"conflict_detected": conflict_detected,
 			"reasons": reasons,
 		}
