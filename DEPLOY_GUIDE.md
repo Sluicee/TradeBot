@@ -167,7 +167,10 @@ TradeBot/
 ### Docker
 
 ```bash
-# Запуск
+# Запуск бота
+docker compose up -d tradebot
+
+# Запуск бота + dashboard
 docker compose up -d
 
 # Остановка
@@ -176,7 +179,13 @@ docker compose down
 # Перезапуск
 docker compose restart
 
-# Логи (реального времени)
+# Логи бота (реального времени)
+docker compose logs -f tradebot
+
+# Логи dashboard
+docker compose logs -f dashboard
+
+# Логи всех сервисов
 docker compose logs -f
 
 # Логи (последние 100 строк)
@@ -185,6 +194,11 @@ docker compose logs --tail=100
 # Обновление
 ./update.sh
 ```
+
+**Доступ к Dashboard:**
+- URL: http://localhost:8501
+- Автоматически запускается вместе с ботом
+- Для отключения: `docker compose up -d tradebot` (только бот)
 
 ### Systemd
 

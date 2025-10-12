@@ -26,3 +26,25 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  dashboard:
+    build: .
+    container_name: tradebot-dashboard
+    restart: unless-stopped
+    command: ["streamlit", "run", "dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    ports:
+      - "8501:8501"  # Доступ к dashboard через http://localhost:8501
+    volumes:
+      # Те же данные что и у основного бота
+      - ./logs:/app/logs
+      - ./signals:/app/signals
+      - ./backtests:/app/backtests
+      - ./data:/app/data
+    depends_on:
+      - tradebot
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

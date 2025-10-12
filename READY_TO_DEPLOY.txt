@@ -71,11 +71,14 @@
    # Инициализировать базу данных
    python init_db.py
    
-   # Запустить
+   # Запустить (бот + dashboard)
    docker compose up -d --build
    
+   # Или только бот (без dashboard)
+   docker compose up -d --build tradebot
+   
    # Проверить
-   docker compose logs -f
+   docker compose logs -f tradebot
 
 
 3️⃣ ПРОВЕРКА РАБОТЫ:
@@ -97,11 +100,16 @@
 ╚══════════════════════════════════════════════════════╝
 
 Docker:
-  docker compose up -d              # Запуск
+  docker compose up -d              # Запуск (бот + dashboard)
+  docker compose up -d tradebot     # Запуск только бота
   docker compose down               # Остановка
   docker compose restart            # Перезапуск
-  docker compose logs -f            # Логи в реальном времени
-  docker compose logs --tail=100    # Последние 100 строк
+  docker compose logs -f tradebot   # Логи бота
+  docker compose logs -f dashboard  # Логи dashboard
+  docker compose logs -f            # Логи всех сервисов
+  
+Dashboard:
+  http://localhost:8501             # Веб-интерфейс (если запущен)
   
 Утилиты:
   ./update.sh                       # Обновление бота
