@@ -9,7 +9,7 @@ from config import (
 	POLL_INTERVAL, POLL_INTERVAL_MIN, POLL_INTERVAL_MAX,
 	VOLATILITY_WINDOW, VOLATILITY_THRESHOLD,
 	VOLATILITY_HIGH_THRESHOLD, VOLATILITY_LOW_THRESHOLD, VOLATILITY_ALERT_COOLDOWN,
-	INITIAL_BALANCE
+	INITIAL_BALANCE, STRATEGY_MODE
 )
 from signal_logger import log_signal
 from data_provider import DataProvider
@@ -64,6 +64,11 @@ class TelegramBot:
 		# Paper Trading
 		self.paper_trader = PaperTrader()  # Использует INITIAL_BALANCE из config
 		self.paper_trader.load_state()
+		
+		# Гибридная стратегия - отслеживание режима
+		self.last_mode = None  # "MR" или "TF"
+		self.last_mode_time = 0  # часов в текущем режиме
+		self.last_mode_update = None  # datetime последнего обновления
 
 	def _is_authorized(self, update: Update) -> bool:
 		"""Проверяет, что пользователь является владельцем бота"""
@@ -71,6 +76,35 @@ class TelegramBot:
 			# Если владелец не установлен, разрешаем всем (небезопасный режим)
 			return True
 		return update.effective_chat.id == self.owner_chat_id
+	
+	def _generate_signal_with_strategy(self, generator: SignalGenerator) -> dict:
+		"""
+		Генерирует сигнал в зависимости от выбранной стратегии (STRATEGY_MODE)
+		"""
+		if STRATEGY_MODE == "MEAN_REVERSION":
+			return generator.generate_signal_mean_reversion()
+		elif STRATEGY_MODE == "HYBRID":
+			# Обновляем время в режиме
+			if self.last_mode_update:
+				time_diff = (datetime.now() - self.last_mode_update).total_seconds() / 3600
+				self.last_mode_time += time_diff
+			
+			result = generator.generate_signal_hybrid(
+				last_mode=self.last_mode,
+				last_mode_time=self.last_mode_time
+			)
+			
+			# Обновляем текущий режим
+			active_mode = result.get("active_mode")
+			if active_mode and active_mode in ["MEAN_REVERSION", "TREND_FOLLOWING"]:
+				if active_mode != self.last_mode:
+					self.last_mode = active_mode
+					self.last_mode_time = 0
+			
+			self.last_mode_update = datetime.now()
+			return result
+		else:  # TREND_FOLLOWING (default)
+			return generator.generate_signal()
 	
 	def _register_handlers(self):
 		self.application.add_handler(CommandHandler("start", self.start))
@@ -348,7 +382,7 @@ class TelegramBot:
 
 			generator = SignalGenerator(df)
 			generator.compute_indicators()
-			result = generator.generate_signal()
+			result = self._generate_signal_with_strategy(generator)
 
 			text = self.format_analysis(result, symbol, interval)
 			await msg.edit_text(text, parse_mode="HTML")
@@ -453,7 +487,7 @@ class TelegramBot:
 
 						generator = SignalGenerator(df)
 						generator.compute_indicators()
-						result = generator.generate_signal()
+						result = self._generate_signal_with_strategy(generator)
 						signal = result["signal"]
 						current_price = float(df['close'].iloc[-1])
 						
@@ -966,10 +1000,10 @@ class TelegramBot:
 						if len(sub_df) < min_window:
 							signals.append({"signal": "HOLD", "price": sub_df["close"].iloc[-1]})
 							continue
-						gen = SignalGenerator(sub_df)
-						gen.compute_indicators()
-						res = gen.generate_signal()
-						signals.append(res)
+					gen = SignalGenerator(sub_df)
+					gen.compute_indicators()
+					res = self._generate_signal_with_strategy(gen)
+					signals.append(res)
 					
 					# Симулируем торговлю
 					from paper_trader import COMMISSION_RATE, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT, PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT, get_position_size_percent
@@ -1141,7 +1175,7 @@ class TelegramBot:
 				
 				generator = SignalGenerator(df)
 				generator.compute_indicators()
-				result = generator.generate_signal()
+				result = self._generate_signal_with_strategy(generator)
 				
 				signal = result["signal"]
 				price = result["price"]
@@ -1234,7 +1268,7 @@ class TelegramBot:
 						
 						generator = SignalGenerator(df)
 						generator.compute_indicators()
-						result = generator.generate_signal()
+						result = self._generate_signal_with_strategy(generator)
 						
 						signal = result["signal"]
 						price = result["price"]
@@ -1324,32 +1358,32 @@ class TelegramBot:
 					await update.message.reply_text("⚠️ Нет данных для получения цены")
 					return
 				
-				# Генерируем сигнал чтобы получить ATR
-				generator = SignalGenerator(df)
-				generator.compute_indicators()
-				result = generator.generate_signal()
+			# Генерируем сигнал чтобы получить ATR
+			generator = SignalGenerator(df)
+			generator.compute_indicators()
+			result = self._generate_signal_with_strategy(generator)
+			
+			price = float(df['close'].iloc[-1])
+			signal_strength = 5  # Средняя сила для теста
+			atr = result.get("ATR", 0.0)
+			
+			trade_info = self.paper_trader.open_position(symbol, price, signal_strength, atr)
+			
+			if trade_info:
+				self.paper_trader.save_state()
 				
-				price = float(df['close'].iloc[-1])
-				signal_strength = 5  # Средняя сила для теста
-				atr = result.get("ATR", 0.0)
-				
-				trade_info = self.paper_trader.open_position(symbol, price, signal_strength, atr)
-				
-				if trade_info:
-					self.paper_trader.save_state()
-					
-					text = (
-						f"<b>🟢 ПРИНУДИТЕЛЬНАЯ ПОКУПКА</b>\n\n"
-						f"Символ: {symbol}\n"
-						f"Цена: {format_price(price)}\n"
-						f"Вложено: ${trade_info['invest_amount']:.2f}\n"
-						f"Баланс: ${trade_info['balance_after']:.2f}\n\n"
-						f"⚠️ Это тестовая сделка!\n"
-						f"Проверьте /paper_status"
-					)
-					await update.message.reply_text(text, parse_mode="HTML")
-				else:
-					await update.message.reply_text("❌ Не удалось открыть позицию")
+				text = (
+					f"<b>🟢 ПРИНУДИТЕЛЬНАЯ ПОКУПКА</b>\n\n"
+					f"Символ: {symbol}\n"
+					f"Цена: {format_price(price)}\n"
+					f"Вложено: ${trade_info['invest_amount']:.2f}\n"
+					f"Баланс: ${trade_info['balance_after']:.2f}\n\n"
+					f"⚠️ Это тестовая сделка!\n"
+					f"Проверьте /paper_status"
+				)
+				await update.message.reply_text(text, parse_mode="HTML")
+			else:
+				await update.message.reply_text("❌ Не удалось открыть позицию")
 					
 		except Exception as e:
 			logger.error(f"Ошибка force_buy для {symbol}: {e}")

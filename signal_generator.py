@@ -17,7 +17,21 @@ from config import (
 	RANGING_TREND_WEIGHT, RANGING_OSCILLATOR_WEIGHT,
 	TRANSITIONING_TREND_WEIGHT, TRANSITIONING_OSCILLATOR_WEIGHT,
 	VOTE_THRESHOLD_TRENDING, VOTE_THRESHOLD_RANGING, VOTE_THRESHOLD_TRANSITIONING,
-	MIN_FILTERS
+	MIN_FILTERS,
+	# Mean Reversion
+	MR_RSI_OVERSOLD, MR_RSI_EXIT, MR_ZSCORE_BUY_THRESHOLD, MR_ZSCORE_SELL_THRESHOLD,
+	MR_ZSCORE_STRONG_BUY, MR_ADX_MAX, MR_EMA_DIVERGENCE_MAX, MR_ZSCORE_WINDOW,
+	MR_POSITION_SIZE_STRONG, MR_POSITION_SIZE_MEDIUM, MR_POSITION_SIZE_WEAK,
+	# Фильтры "падающего ножа" v5
+	NO_BUY_IF_PRICE_BELOW_N_DAY_LOW_PERCENT, NO_BUY_IF_EMA200_SLOPE_NEG, EMA200_NEG_SLOPE_THRESHOLD,
+	USE_RED_CANDLES_FILTER, USE_VOLUME_FILTER, VOLUME_SPIKE_THRESHOLD,
+	# Динамический SL/TP v5
+	USE_DYNAMIC_SL_FOR_MR, MR_ATR_SL_MULTIPLIER, MR_ATR_SL_MIN, MR_ATR_SL_MAX,
+	ADAPTIVE_SL_ON_RISK, ADAPTIVE_SL_MULTIPLIER,
+	USE_DYNAMIC_TP_FOR_MR, MR_ATR_TP_MULTIPLIER, MR_ATR_TP_MIN, MR_ATR_TP_MAX,
+	# Гибридная стратегия
+	STRATEGY_HYBRID_MODE, HYBRID_ADX_MR_THRESHOLD, HYBRID_ADX_TF_THRESHOLD,
+	HYBRID_TRANSITION_MODE, HYBRID_MIN_TIME_IN_MODE
 )
 
 try:
@@ -576,3 +590,357 @@ class SignalGenerator:
 				base_result["statistical_error"] = str(e)
 		
 		return base_result
+	
+	def generate_signal_mean_reversion(self) -> Dict[str, Any]:
+		"""
+		🔄 MEAN REVERSION STRATEGY
+		
+		Логика: покупка на сильной перепроданности, быстрый выход на возврате к среднему.
+		Цель: короткие сделки 1-4% в боковом/падающем рынке.
+		
+		Условия входа (BUY):
+		1. RSI < MR_RSI_OVERSOLD (30)
+		2. Z-score < MR_ZSCORE_BUY_THRESHOLD (-2.5)
+		3. ADX < MR_ADX_MAX (25) - нет сильного тренда
+		4. EMA12 ≈ EMA26 (разница < 1%) - боковик
+		
+		Условия выхода (SELL):
+		1. RSI > MR_RSI_EXIT (45)
+		2. Z-score > MR_ZSCORE_SELL_THRESHOLD (0.5)
+		
+		Адаптивный размер позиции:
+		- RSI < 20 и Z < -2.5 → 70% (сильная перепроданность)
+		- RSI < 25 и Z < -2.0 → 50% (умеренная)
+		- Иначе → 30%
+		"""
+		if self.df.empty:
+			raise ValueError("DataFrame is empty")
+		
+		last = self.df.iloc[-1]
+		price = float(last["close"])
+		
+		# Индикаторы
+		ema_12 = float(last.get("EMA_12", 0))
+		ema_26 = float(last.get("EMA_26", 0))
+		rsi = float(last["RSI"])
+		adx = float(last.get(f"ADX_{ADX_WINDOW}", 0))
+		atr = float(last.get(f"ATR_{ATR_WINDOW}", 0))
+		stoch_k = float(last.get("Stoch_K", 0))
+		
+		# ====================================================================
+		# РАСЧЁТ Z-SCORE
+		# ====================================================================
+		
+		if len(self.df) >= MR_ZSCORE_WINDOW:
+			close_prices = self.df["close"].iloc[-MR_ZSCORE_WINDOW:].astype(float)
+			sma = close_prices.mean()
+			std = close_prices.std()
+			zscore = (price - sma) / std if std > 0 else 0
+		else:
+			zscore = 0
+		
+		# ====================================================================
+		# ПРОВЕРКА РЕЖИМА РЫНКА
+		# ====================================================================
+		
+		# 1. ADX - не должен быть высоким (исключаем трендовый рынок)
+		is_not_trending = adx < MR_ADX_MAX
+		
+		# 2. EMA дивергенция - EMA12 и EMA26 должны быть близки (флэт)
+		if ema_12 > 0 and ema_26 > 0:
+			ema_divergence = abs(ema_12 - ema_26) / ema_26
+			is_sideways = ema_divergence < MR_EMA_DIVERGENCE_MAX
+		else:
+			is_sideways = False
+		
+		# ====================================================================
+		# ФИЛЬТРЫ "ПАДАЮЩЕГО НОЖА" (КРИТИЧНО!)
+		# ====================================================================
+		
+		reasons = []  # Инициализируем список причин
+		falling_knife_detected = False
+		
+		# 1. Проверка: цена ниже минимума последних 24 часов на X%
+		if len(self.df) >= 24:
+			low_24h = self.df["low"].iloc[-24:].min()
+			price_vs_24h_low = (price - low_24h) / low_24h
+			
+			if price_vs_24h_low < -NO_BUY_IF_PRICE_BELOW_N_DAY_LOW_PERCENT:
+				falling_knife_detected = True
+				reasons.append(f"🚫 ПАДАЮЩИЙ НОЖ: цена ${price:.2f} ниже min(24h)=${low_24h:.2f} на {abs(price_vs_24h_low)*100:.1f}% (>{NO_BUY_IF_PRICE_BELOW_N_DAY_LOW_PERCENT*100}%)")
+		
+		# 2. Проверка: отрицательный наклон EMA200
+		if NO_BUY_IF_EMA200_SLOPE_NEG and len(self.df) >= 200 + 24:
+			ema_200 = float(last.get("EMA_200", 0))
+			if ema_200 > 0:
+				# Берём EMA200 24 свечи назад
+				ema_200_24h_ago = float(self.df["EMA_200"].iloc[-24])
+				if ema_200_24h_ago > 0:
+					ema200_slope = (ema_200 - ema_200_24h_ago) / ema_200_24h_ago
+					
+					if ema200_slope < EMA200_NEG_SLOPE_THRESHOLD:
+						falling_knife_detected = True
+						reasons.append(f"🚫 EMA200 ПАДАЕТ: slope={ema200_slope*100:.2f}% за 24h (< {EMA200_NEG_SLOPE_THRESHOLD*100:.1f}%)")
+		
+		# 3. Проверка: последовательность красных свечей (v5: ВКЛЮЧЕН ОБРАТНО)
+		if USE_RED_CANDLES_FILTER and len(self.df) >= 5:
+			# Берём последние 5 свечей
+			recent_candles = self.df.tail(5)
+			red_candles = 0
+			total_drop = 0.0
+			
+			for idx in range(len(recent_candles)):
+				candle = recent_candles.iloc[idx]
+				open_price = float(candle["open"])
+				close_price = float(candle["close"])
+				candle_change = (close_price - open_price) / open_price
+				
+				if candle_change < 0:  # Красная свеча
+					red_candles += 1
+					total_drop += abs(candle_change)
+			
+			# Если 4+ красных свечей подряд и общее падение > 3%
+			if red_candles >= 4 and total_drop > 0.03:
+				falling_knife_detected = True
+				reasons.append(f"🚫 СЕРИЯ КРАСНЫХ СВЕЧЕЙ: {red_candles}/5 свечей, падение {total_drop*100:.1f}% (>3%)")
+			
+			# Или если последние 3 свечи все красные и падение > 2%
+			last_3_candles = self.df.tail(3)
+			last_3_red = 0
+			last_3_drop = 0.0
+			for idx in range(len(last_3_candles)):
+				candle = last_3_candles.iloc[idx]
+				open_price = float(candle["open"])
+				close_price = float(candle["close"])
+				candle_change = (close_price - open_price) / open_price
+				if candle_change < 0:
+					last_3_red += 1
+					last_3_drop += abs(candle_change)
+			
+			if last_3_red == 3 and last_3_drop > 0.02:
+				falling_knife_detected = True
+				reasons.append(f"🚫 3 КРАСНЫЕ СВЕЧИ ПОДРЯД: падение {last_3_drop*100:.1f}% (>2%)")
+		
+		# 4. v5: Проверка всплеска объёма (НОВОЕ)
+		if USE_VOLUME_FILTER and "volume" in self.df.columns and len(self.df) >= 24:
+			current_volume = float(self.df["volume"].iloc[-1])
+			avg_volume_24h = float(self.df["volume"].iloc[-24:].mean())
+			
+			if avg_volume_24h > 0:
+				volume_ratio = current_volume / avg_volume_24h
+				if volume_ratio > VOLUME_SPIKE_THRESHOLD:
+					falling_knife_detected = True
+					reasons.append(f"🚫 ВСПЛЕСК ОБЪЁМА: {volume_ratio:.2f}x средний за 24h (> {VOLUME_SPIKE_THRESHOLD}x)")
+		
+		# ====================================================================
+		# ЛОГИКА СИГНАЛОВ
+		# ====================================================================
+		
+		signal = "HOLD"
+		signal_emoji = "⚠️"
+		position_size_percent = 0
+		confidence = 0
+		dynamic_sl = None  # Динамический SL на основе ATR
+		dynamic_tp = None  # Динамический TP на основе ATR (v4)
+		
+		# --- УСЛОВИЯ ПОКУПКИ ---
+		is_rsi_oversold = rsi < MR_RSI_OVERSOLD
+		is_zscore_low = zscore < MR_ZSCORE_BUY_THRESHOLD
+		is_strong_oversold = rsi < 20 and zscore < MR_ZSCORE_STRONG_BUY
+		
+		# v5: БЛОКИРУЕМ ВХОД ПРИ FALLING KNIFE (если адаптивный SL отключен)
+		if is_rsi_oversold and is_zscore_low and not falling_knife_detected:
+			# Вход разрешён - нет падающего ножа
+			# Дополнительная фильтрация: желательно боковик или слабый тренд
+			if is_not_trending or is_sideways:
+				signal = "BUY"
+				signal_emoji = "🟢"
+				
+				# Адаптивный размер позиции
+				if is_strong_oversold:
+					position_size_percent = MR_POSITION_SIZE_STRONG
+					reasons.append(f"✅ STRONG BUY: RSI={rsi:.1f} (<20), Z-score={zscore:.2f} (<-2.5) → позиция 70%")
+				elif rsi < 25 and zscore < -2.0:
+					position_size_percent = MR_POSITION_SIZE_MEDIUM
+					reasons.append(f"✅ MEDIUM BUY: RSI={rsi:.1f} (<25), Z-score={zscore:.2f} (<-2.0) → позиция 50%")
+				else:
+					position_size_percent = MR_POSITION_SIZE_WEAK
+					reasons.append(f"✅ WEAK BUY: RSI={rsi:.1f}, Z-score={zscore:.2f} → позиция 30%")
+				
+				confidence = min(1.0, (abs(zscore) / abs(MR_ZSCORE_BUY_THRESHOLD)) * 0.5 + ((MR_RSI_OVERSOLD - rsi) / MR_RSI_OVERSOLD) * 0.5)
+				
+				reasons.append(f"📊 RSI={rsi:.1f} < {MR_RSI_OVERSOLD} (перепродан)")
+				reasons.append(f"📉 Z-score={zscore:.2f} < {MR_ZSCORE_BUY_THRESHOLD} (сильно ниже среднего)")
+				reasons.append(f"🎯 ADX={adx:.1f} {'<' if is_not_trending else '≥'} {MR_ADX_MAX} ({'нет сильного тренда' if is_not_trending else 'тренд есть!'})")
+				
+				if is_sideways:
+					reasons.append(f"📈 EMA12≈EMA26 (дивергенция {ema_divergence*100:.2f}% < 1%) - боковик ✓")
+				
+				if stoch_k < STOCH_OVERSOLD:
+					reasons.append(f"📉 Stoch={stoch_k:.1f} < {STOCH_OVERSOLD} - дополнительное подтверждение перепроданности")
+				
+				# Рассчитываем динамический SL на основе ATR
+				if USE_DYNAMIC_SL_FOR_MR and atr > 0:
+					atr_percent = (atr / price) * 100
+					dynamic_sl = (atr / price) * MR_ATR_SL_MULTIPLIER
+					dynamic_sl = max(MR_ATR_SL_MIN, min(dynamic_sl, MR_ATR_SL_MAX))
+					
+					# v4: АДАПТИВНЫЙ SL при риске падающего ножа
+					if falling_knife_detected and ADAPTIVE_SL_ON_RISK:
+						dynamic_sl *= ADAPTIVE_SL_MULTIPLIER  # Увеличиваем на 50%
+						reasons.append(f"🛡️ Адаптивный SL: {dynamic_sl*100:.2f}% (риск падающего ножа, увеличен на {(ADAPTIVE_SL_MULTIPLIER-1)*100:.0f}%)")
+					else:
+						reasons.append(f"🛡️ Динамический SL: {dynamic_sl*100:.2f}% (ATR={atr_percent:.2f}% × {MR_ATR_SL_MULTIPLIER})")
+				
+				# v4: Рассчитываем динамический TP на основе ATR
+				if USE_DYNAMIC_TP_FOR_MR and atr > 0:
+					atr_percent = (atr / price) * 100
+					dynamic_tp = (atr / price) * MR_ATR_TP_MULTIPLIER
+					dynamic_tp = max(MR_ATR_TP_MIN, min(dynamic_tp, MR_ATR_TP_MAX))
+					reasons.append(f"🎯 Динамический TP: {dynamic_tp*100:.2f}% (ATR × {MR_ATR_TP_MULTIPLIER}, R:R={MR_ATR_TP_MULTIPLIER/MR_ATR_SL_MULTIPLIER:.1f})")
+			else:
+				signal = "HOLD"
+				reasons.append(f"⏸ HOLD: RSI и Z-score перепроданы, но ADX={adx:.1f} > {MR_ADX_MAX} (сильный тренд) → пропускаем")
+		
+		elif is_rsi_oversold and is_zscore_low and falling_knife_detected:
+			# v5: Падающий нож обнаружен
+			if ADAPTIVE_SL_ON_RISK:
+				# v4 режим: разрешаем вход с увеличенным SL
+				# (этот код не выполнится в v5, т.к. ADAPTIVE_SL_ON_RISK=False)
+				pass  # логика выше уже обработана
+			else:
+				# v5 режим: блокируем вход
+				signal = "HOLD"
+				# reasons уже содержит причины блокировки от фильтров
+		
+		# --- УСЛОВИЯ ПРОДАЖИ (выход из позиции) ---
+		is_rsi_normal = rsi > MR_RSI_EXIT
+		is_zscore_normalized = zscore > MR_ZSCORE_SELL_THRESHOLD
+		
+		if is_rsi_normal or is_zscore_normalized:
+			signal = "SELL"
+			signal_emoji = "🔴"
+			confidence = min(1.0, (rsi - MR_RSI_EXIT) / (70 - MR_RSI_EXIT) * 0.5 + (zscore / 2.0) * 0.5)
+			
+			reasons.append(f"✅ EXIT: Возврат к среднему")
+			if is_rsi_normal:
+				reasons.append(f"📊 RSI={rsi:.1f} > {MR_RSI_EXIT} (вернулся к норме)")
+			if is_zscore_normalized:
+				reasons.append(f"📈 Z-score={zscore:.2f} > {MR_ZSCORE_SELL_THRESHOLD} (цена вернулась к среднему)")
+		
+		# Если не BUY и не SELL - HOLD
+		if signal == "HOLD" and not reasons:
+			reasons.append(f"⏸ HOLD: RSI={rsi:.1f}, Z-score={zscore:.2f}")
+			reasons.append(f"📊 ADX={adx:.1f}, EMA дивергенция={(abs(ema_12-ema_26)/ema_26*100 if ema_26 > 0 else 0):.2f}%")
+			reasons.append("🔍 Ожидаем перепроданности (RSI<30, Z<-2.5)")
+		
+		return {
+			"signal": signal,
+			"signal_emoji": signal_emoji,
+			"price": price,
+			"RSI": rsi,
+			"zscore": zscore,
+			"ADX": adx,
+			"ATR": atr,
+			"EMA_12": ema_12,
+			"EMA_26": ema_26,
+			"ema_divergence": abs(ema_12 - ema_26) / ema_26 if ema_26 > 0 else 0,
+			"stoch_k": stoch_k,
+			"is_not_trending": is_not_trending,
+			"is_sideways": is_sideways,
+			"position_size_percent": position_size_percent,
+			"confidence": confidence,
+			"falling_knife_detected": falling_knife_detected,
+			"dynamic_sl": dynamic_sl,  # Динамический SL для бэктеста
+			"dynamic_tp": dynamic_tp,  # Динамический TP для бэктеста (v4)
+			"reasons": reasons,
+			"strategy": "MEAN_REVERSION"
+		}
+	
+	def generate_signal_hybrid(self, last_mode: str = None, last_mode_time: float = 0) -> Dict[str, Any]:
+		"""
+		🔀 ГИБРИДНАЯ СТРАТЕГИЯ (MR + TF с переключением по ADX)
+		
+		Логика:
+		- ADX < 20 → Mean Reversion (боковой рынок)
+		- ADX > 25 → Trend Following (трендовый рынок)
+		- 20 <= ADX <= 25 → переходная зона (HOLD или последний режим)
+		
+		Параметры:
+		- last_mode: последний активный режим ("MR" или "TF")
+		- last_mode_time: время в последнем режиме (часы)
+		
+		Возвращает сигнал с указанием активного режима.
+		"""
+		if self.df.empty:
+			return {
+				"signal": "HOLD",
+				"price": 0,
+				"ADX": 0,
+				"active_mode": "NONE",
+				"reasons": ["⚠️ DataFrame пустой"],
+				"strategy": "HYBRID"
+			}
+		
+		reasons = []
+		
+		# Получаем ADX и цену из последней строки DataFrame
+		last = self.df.iloc[-1]
+		price = float(last["close"])
+		adx = float(last.get(f"ADX_{ADX_WINDOW}", 0))
+		
+		if adx == 0 or price == 0:
+			return {
+				"signal": "HOLD",
+				"price": price,
+				"ADX": adx,
+				"active_mode": "NONE",
+				"reasons": ["⚠️ Недостаточно данных для расчёта индикаторов"],
+				"strategy": "HYBRID"
+			}
+		
+		# Определяем текущий режим на основе ADX
+		if adx < HYBRID_ADX_MR_THRESHOLD:
+			current_mode = "MR"
+			reasons.append(f"📊 ADX={adx:.1f} < {HYBRID_ADX_MR_THRESHOLD} → MEAN REVERSION режим")
+		elif adx > HYBRID_ADX_TF_THRESHOLD:
+			current_mode = "TF"
+			reasons.append(f"📊 ADX={adx:.1f} > {HYBRID_ADX_TF_THRESHOLD} → TREND FOLLOWING режим")
+		else:
+			# Переходная зона
+			if HYBRID_TRANSITION_MODE == "HOLD":
+				current_mode = "HOLD"
+				reasons.append(f"⏸ ADX={adx:.1f} в переходной зоне [{HYBRID_ADX_MR_THRESHOLD}, {HYBRID_ADX_TF_THRESHOLD}] → HOLD")
+			else:  # LAST
+				current_mode = last_mode if last_mode else "HOLD"
+				reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
+		
+		# Проверяем минимальное время в режиме (защита от частого переключения)
+		if last_mode and last_mode != current_mode and last_mode_time < HYBRID_MIN_TIME_IN_MODE:
+			current_mode = last_mode
+			reasons.append(f"⏱ Остаёмся в режиме {last_mode} (прошло {last_mode_time:.1f}h < {HYBRID_MIN_TIME_IN_MODE}h)")
+		
+		# Генерируем сигнал в зависимости от режима
+		if current_mode == "MR":
+			signal_result = self.generate_signal_mean_reversion()
+			signal_result["active_mode"] = "MEAN_REVERSION"
+			signal_result["strategy"] = "HYBRID"
+			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
+		
+		elif current_mode == "TF":
+			signal_result = self.generate_signal()
+			signal_result["active_mode"] = "TREND_FOLLOWING"
+			signal_result["strategy"] = "HYBRID"
+			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
+		
+		else:  # HOLD
+			signal_result = {
+				"signal": "HOLD",
+				"price": price,
+				"ADX": adx,
+				"active_mode": "TRANSITION",
+				"reasons": reasons,
+				"strategy": "HYBRID"
+			}
+		
+		return signal_result

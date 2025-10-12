@@ -180,6 +180,8 @@ tracked_symbols.json
 paper_trading_state.json
 signals/
 trading_bot.log
+*.png
+*.csv
 
 # Database
 data/

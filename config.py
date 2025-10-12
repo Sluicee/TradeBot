@@ -153,7 +153,8 @@ VOLATILITY_LOW_THRESHOLD = 1.0  # ATR < 1% - низкая волатильнос
 VOLATILITY_ADJUSTMENT_MAX = 1.2  # Максимальное увеличение размера
 
 # Время удержания позиции
-MAX_HOLDING_HOURS = 72  # Максимум 72 часа (3 дня)
+MAX_HOLDING_HOURS = 72  # Максимум 72 часа (3 дня) для Trend Following
+MR_MAX_HOLDING_HOURS_V4 = 16  # v4: 16 часов для Mean Reversion (было 12)
 
 # ====================================================================
 # СТАТИСТИЧЕСКИЕ МОДЕЛИ
@@ -181,6 +182,86 @@ MARKOV_TREND_THRESHOLD = 0.02  # Порог тренда (2%)
 ENSEMBLE_BAYESIAN_WEIGHT = 0.4  # Вес Bayesian модели (40%)
 ENSEMBLE_ZSCORE_WEIGHT = 0.3  # Вес Z-score модели (30%)
 ENSEMBLE_REGIME_WEIGHT = 0.3  # Вес Regime модели (30%)
+
+# ====================================================================
+# MEAN REVERSION STRATEGY
+# ====================================================================
+
+# Режим работы стратегии
+STRATEGY_MODE = "HYBRID"  # "TREND_FOLLOWING", "MEAN_REVERSION", или "HYBRID"
+
+# Параметры Mean Reversion v4 (ОПТИМИЗИРОВАННЫЕ ДЛЯ 10-15 СДЕЛОК)
+MR_RSI_OVERSOLD = 40  # Порог перепроданности (было 35 → 40 для большего числа сделок)
+MR_RSI_EXIT = 50  # Порог выхода (RSI вернулся к норме)
+MR_ZSCORE_BUY_THRESHOLD = -1.8  # Z-score порог покупки (было -2.0 → -1.8 для больше входов)
+MR_ZSCORE_SELL_THRESHOLD = 0.3  # Z-score порог выхода (возврат к среднему)
+MR_ZSCORE_STRONG_BUY = -2.3  # Сильная перепроданность для 70% позиции (было -2.5)
+MR_ADX_MAX = 35  # Максимальный ADX (было 30 → 35, разрешаем умеренный тренд)
+MR_EMA_DIVERGENCE_MAX = 0.02  # Максимальная дивергенция EMA (2%) - флэт
+
+# Размеры позиций для Mean Reversion v4
+MR_POSITION_SIZE_STRONG = 0.70  # 70% для сильной перепроданности (RSI<25, Z<-2.3)
+MR_POSITION_SIZE_MEDIUM = 0.50  # 50% для умеренной перепроданности (RSI<35, Z<-2.0)
+MR_POSITION_SIZE_WEAK = 0.35  # 35% для слабой перепроданности (было 30%, увеличено)
+
+# TP/SL для Mean Reversion (короткие тейки) - ОПТИМИЗИРОВАННЫЕ
+MR_TAKE_PROFIT_PERCENT = 0.025  # 2.5% быстрый тейк-профит (было 3%)
+MR_STOP_LOSS_PERCENT = 0.03  # 3% стоп-лосс (было 2%, расширили)
+MR_MAX_HOLDING_HOURS = 12  # Максимум 12 часов удержания (было 24)
+
+# Z-score параметры для MR
+MR_ZSCORE_WINDOW = 50  # Окно для расчёта среднего
+
+# Фильтры "падающего ножа" v5 (УСИЛЕННЫЕ - вернули красные свечи)
+NO_BUY_IF_PRICE_BELOW_N_DAY_LOW_PERCENT = 0.04  # v5: Не входить если цена < min(24h) * 0.96 (УСИЛИЛИ с 0.05)
+NO_BUY_IF_EMA200_SLOPE_NEG = True  # Блокировать если slope(EMA200, 24h) < -0.3%
+EMA200_NEG_SLOPE_THRESHOLD = -0.003  # -0.3% наклон EMA200
+USE_RED_CANDLES_FILTER = True  # v5: ВКЛЮЧЕН ОБРАТНО (защита от падающих ножей)
+
+# Фильтр объёма v5 (НОВОЕ)
+USE_VOLUME_FILTER = True  # v5: Блокировать входы при всплесках объёма
+VOLUME_SPIKE_THRESHOLD = 1.5  # Не входить если volume > 1.5x средний за 24h
+
+# Динамический SL на основе ATR v4
+USE_DYNAMIC_SL_FOR_MR = True  # Использовать ATR-based SL вместо фиксированного
+MR_ATR_SL_MULTIPLIER = 2.5  # Множитель ATR для SL (2.5x ATR)
+MR_ATR_SL_MIN = 0.025  # Минимальный SL 2.5%
+MR_ATR_SL_MAX = 0.05  # Максимальный SL 5%
+
+# Адаптивный SL v5 (ОТКЛЮЧЕН - не работал в v4)
+ADAPTIVE_SL_ON_RISK = False  # v5: ОТКЛЮЧЕН (не эффективен, лучше блокировать вход)
+ADAPTIVE_SL_MULTIPLIER = 1.5  # Увеличить SL на 50% при риске (не используется)
+
+# Динамический TP v4 (НОВОЕ)
+USE_DYNAMIC_TP_FOR_MR = True  # Использовать динамический TP на основе ATR
+MR_ATR_TP_MULTIPLIER = 3.5  # 3.5x ATR для TP (больше чем SL для R:R > 1)
+MR_ATR_TP_MIN = 0.02  # Минимум 2%
+MR_ATR_TP_MAX = 0.04  # Максимум 4%
+
+# Трейлинг стоп для MR v4 (улучшенный - двухуровневый)
+USE_TRAILING_STOP_MR = True  # Включить трейлинг стоп после прибыли
+MR_TRAILING_ACTIVATION = 0.008  # v4: Активировать раньше - после +0.8% (было 1%)
+MR_TRAILING_DISTANCE = 0.012  # v4: Ближе к цене - 1.2% от максимума (было 1.5%)
+
+# Агрессивный трейлинг v4 (после сильной прибыли)
+MR_TRAILING_AGGRESSIVE_ACTIVATION = 0.02  # После +2% прибыли
+MR_TRAILING_AGGRESSIVE_DISTANCE = 0.008  # Очень близко - 0.8% от максимума
+
+# ====================================================================
+# ГИБРИДНАЯ СТРАТЕГИЯ (MR + TF с переключением по ADX)
+# ====================================================================
+
+STRATEGY_HYBRID_MODE = "AUTO"  # "AUTO" (переключение по ADX), "MR_ONLY", "TF_ONLY"
+
+# Пороги ADX для переключения режимов
+HYBRID_ADX_MR_THRESHOLD = 20  # ADX < 20 → Mean Reversion (боковик)
+HYBRID_ADX_TF_THRESHOLD = 25  # ADX > 25 → Trend Following (тренд)
+# 20 <= ADX <= 25 → переходная зона (HOLD или используем последний режим)
+
+HYBRID_TRANSITION_MODE = "HOLD"  # "HOLD" (не входить) или "LAST" (использовать последний режим)
+
+# Минимальное время в режиме (защита от частого переключения)
+HYBRID_MIN_TIME_IN_MODE = 4  # Минимум 4 часа в одном режиме
 
 # ====================================================================
 # API
