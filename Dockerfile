@@ -6,6 +6,7 @@ WORKDIR /app
 # Установка системных зависимостей
 RUN apt-get update && apt-get install -y --no-install-recommends \
 	gcc \
+	tzdata \
 	&& rm -rf /var/lib/apt/lists/*
 
 # Копирование файлов зависимостей
