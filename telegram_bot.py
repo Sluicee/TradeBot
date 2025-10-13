@@ -751,51 +751,75 @@ class TelegramBot:
 					except Exception as e:
 						logger.error("Ошибка фонового анализа %s: %s", symbol, e)
 				
-				# ==========================================
-				# Paper Trading: Обработка сигналов
-				# ==========================================
-				if self.paper_trader.is_running:
-					for symbol, result in trading_signals.items():
-						signal = result["signal"]
-						price = current_prices.get(symbol)
-						
-						if price is None:
-							continue
-						
-						# Получаем силу сигнала и ATR
-						signal_strength = abs(result.get("bullish_votes", 0) - result.get("bearish_votes", 0))
-						atr = result.get("ATR", 0.0)
-						
-						# BUY сигнал - открываем позицию
-						if signal == "BUY" and symbol not in self.paper_trader.positions:
-							if self.paper_trader.can_open_position(symbol):
-								trade_info = self.paper_trader.open_position(symbol, price, signal_strength, atr)
-								if trade_info:
-									msg = (
-										f"🟢 <b>КУПИЛ</b> {symbol}\n"
-										f"  Цена: {format_price(price)}\n"
-										f"  Вложено: ${trade_info['invest_amount']:.2f}\n"
-										f"  Сила сигнала: {signal_strength}\n"
-										f"  Баланс: ${trade_info['balance_after']:.2f}"
-									)
-									all_messages.append(msg)
-									self.paper_trader.save_state()
-						
-						# SELL сигнал - закрываем позицию (если не частично закрыта)
-						elif signal == "SELL" and symbol in self.paper_trader.positions:
-							position = self.paper_trader.positions[symbol]
-							if not position.partial_closed:  # Только если не частично закрыта
-								trade_info = self.paper_trader.close_position(symbol, price, "SELL")
-								if trade_info:
-									profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
-									msg = (
-										f"🔴 <b>ПРОДАЛ</b> {symbol}\n"
-										f"  Цена: {format_price(price)}\n"
-										f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
-										f"  Баланс: ${trade_info['balance_after']:.2f}"
-									)
-									all_messages.append(msg)
-									self.paper_trader.save_state()
+			# ==========================================
+			# Paper Trading: Обработка сигналов
+			# ==========================================
+			if self.paper_trader.is_running:
+				for symbol, result in trading_signals.items():
+					signal = result["signal"]
+					price = current_prices.get(symbol)
+					
+					if price is None:
+						continue
+					
+					# Получаем силу сигнала и ATR
+					signal_strength = abs(result.get("bullish_votes", 0) - result.get("bearish_votes", 0))
+					atr = result.get("ATR", 0.0)
+					
+					# BUY сигнал - открываем позицию
+					if signal == "BUY" and symbol not in self.paper_trader.positions:
+						if self.paper_trader.can_open_position(symbol):
+							trade_info = self.paper_trader.open_position(symbol, price, signal_strength, atr)
+							if trade_info:
+								msg = (
+									f"🟢 <b>КУПИЛ</b> {symbol}\n"
+									f"  Цена: {format_price(price)}\n"
+									f"  Вложено: ${trade_info['invest_amount']:.2f}\n"
+									f"  Сила сигнала: {signal_strength}\n"
+									f"  Баланс: ${trade_info['balance_after']:.2f}"
+								)
+							all_messages.append(msg)
+							self.paper_trader.save_state()
+				
+					# BUY сигнал для открытой позиции - докупание
+					elif signal == "BUY" and symbol in self.paper_trader.positions:
+						adx = result.get("ADX", 0.0)
+						trade_info = self.paper_trader.average_position(
+							symbol=symbol,
+							price=price,
+							signal_strength=signal_strength,
+							adx=adx,
+							atr=atr,
+							reason="SIGNAL"
+						)
+						if trade_info:
+							mode = trade_info.get("type", "AVERAGE")
+							msg = (
+								f"🟡 <b>ДОКУПИЛ</b> {symbol} ({mode})\n"
+								f"  Цена: {format_price(price)}\n"
+								f"  Докуплено: ${trade_info['invest_amount']:.2f}\n"
+								f"  Попытка #{trade_info['averaging_count']}\n"
+								f"  Средняя цена: {format_price(trade_info['average_entry_price'])}\n"
+								f"  Баланс: ${trade_info['balance_after']:.2f}"
+							)
+							all_messages.append(msg)
+							self.paper_trader.save_state()
+				
+					# SELL сигнал - закрываем позицию (если не частично закрыта)
+					elif signal == "SELL" and symbol in self.paper_trader.positions:
+						position = self.paper_trader.positions[symbol]
+						if not position.partial_closed:  # Только если не частично закрыта
+							trade_info = self.paper_trader.close_position(symbol, price, "SELL")
+							if trade_info:
+								profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
+								msg = (
+									f"🔴 <b>ПРОДАЛ</b> {symbol}\n"
+									f"  Цена: {format_price(price)}\n"
+									f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
+									f"  Баланс: ${trade_info['balance_after']:.2f}"
+								)
+								all_messages.append(msg)
+								self.paper_trader.save_state()
 			
 			# Отправляем все накопленные сообщения одним батчем
 			if all_messages:

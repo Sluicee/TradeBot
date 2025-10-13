@@ -605,9 +605,9 @@ class PaperTrader:
 			logger.error(f"Ошибка сохранения сделки в БД: {e}")
 		
 		logger.info(f"[PAPER] PARTIAL-TP {symbol} @ ${price:.2f} ({profit:+.2f} USD / {profit_percent:+.2f}%)")
-		
-		return trade_info
 	
+		return trade_info
+
 	def average_position(
 		self,
 		symbol: str,
@@ -631,7 +631,12 @@ class PaperTrader:
 		# Проверка возможности докупания
 		can_average, mode = position.can_average_down(price, adx)
 		if not can_average:
-			logger.debug(f"[PAPER] {symbol} - докупание невозможно: {mode}")
+			logger.info(
+				f"[PAPER] {symbol} - докупание невозможно ({mode}): "
+				f"avg_count={position.averaging_count}/{MAX_AVERAGING_ATTEMPTS}, "
+				f"price={price:.2f}, avg_entry={position.average_entry_price:.2f}, "
+				f"adx={adx:.1f}, drop={(1 - price/position.average_entry_price)*100:.2f}%"
+			)
 			return None
 		
 		# Определение размера докупания
