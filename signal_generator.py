@@ -594,6 +594,68 @@ class SignalGenerator:
 		
 		return base_result
 	
+	def calculate_adaptive_position_size(
+		self,
+		bullish_votes: int,
+		bearish_votes: int,
+		adx: float,
+		regime: str
+	) -> float:
+		"""
+		🎯 АДАПТИВНЫЙ РАЗМЕР ПОЗИЦИИ v5.4
+		
+		Расчёт на основе:
+		1. Силы сигнала (votes delta)
+		2. Силы тренда/боковика (ADX)
+		3. Текущего режима (MR/TF)
+		
+		Returns: position_size от 0.2 до 0.7
+		"""
+		votes_delta = bullish_votes - bearish_votes
+		
+		# Базовый размер по силе сигнала
+		if votes_delta >= 7:
+			base_size = 0.7  # Очень уверенный сигнал
+		elif votes_delta >= 5:
+			base_size = 0.5  # Уверенный сигнал
+		elif votes_delta >= 3:
+			base_size = 0.35  # Средний сигнал
+		else:
+			base_size = 0.25  # Слабый сигнал
+		
+		# Корректировка по ADX и режиму
+		if regime == "TREND_FOLLOWING":
+			# В тренде: чем сильнее ADX, тем больше позиция
+			if adx > 35:
+				multiplier = 1.3  # Сильный тренд +30%
+			elif adx > 30:
+				multiplier = 1.2  # Средний тренд +20%
+			elif adx > 26:
+				multiplier = 1.1  # Слабый тренд +10%
+			else:
+				multiplier = 1.0  # Нейтрально
+		
+		elif regime == "MEAN_REVERSION":
+			# В боковике: чем слабее ADX, тем больше позиция
+			if adx < 15:
+				multiplier = 1.3  # Чёткий боковик +30%
+			elif adx < 18:
+				multiplier = 1.2  # Средний боковик +20%
+			elif adx < 20:
+				multiplier = 1.1  # Слабый боковик +10%
+			else:
+				multiplier = 1.0  # Нейтрально
+		else:
+			multiplier = 1.0
+		
+		# Применяем множитель
+		final_size = base_size * multiplier
+		
+		# Ограничиваем диапазон 0.2-0.7
+		final_size = max(0.2, min(0.7, final_size))
+		
+		return final_size
+	
 	def generate_signal_mean_reversion(self) -> Dict[str, Any]:
 		"""
 		🔄 MEAN REVERSION STRATEGY
@@ -938,6 +1000,18 @@ class SignalGenerator:
 			signal_result["strategy"] = "HYBRID"
 			# Добавляем reasons о режиме в начало
 			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
+			
+			# v5.4: Адаптивный размер позиции
+			if signal_result["signal"] == "BUY":
+				bullish_votes = signal_result.get("bullish_votes", 0)
+				bearish_votes = signal_result.get("bearish_votes", 0)
+				adaptive_size = self.calculate_adaptive_position_size(
+					bullish_votes, bearish_votes, adx, "MEAN_REVERSION"
+				)
+				signal_result["position_size_percent"] = adaptive_size
+				signal_result["reasons"].append(
+					f"📊 Adaptive Size: {adaptive_size*100:.0f}% (votes={bullish_votes-bearish_votes}, ADX={adx:.1f})"
+				)
 		
 		elif current_mode == "TF":
 			signal_result = self.generate_signal()
@@ -945,6 +1019,18 @@ class SignalGenerator:
 			signal_result["strategy"] = "HYBRID"
 			# Добавляем reasons о режиме в начало
 			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
+			
+			# v5.4: Адаптивный размер позиции
+			if signal_result["signal"] == "BUY":
+				bullish_votes = signal_result.get("bullish_votes", 0)
+				bearish_votes = signal_result.get("bearish_votes", 0)
+				adaptive_size = self.calculate_adaptive_position_size(
+					bullish_votes, bearish_votes, adx, "TREND_FOLLOWING"
+				)
+				signal_result["position_size_percent"] = adaptive_size
+				signal_result["reasons"].append(
+					f"📊 Adaptive Size: {adaptive_size*100:.0f}% (votes={bullish_votes-bearish_votes}, ADX={adx:.1f})"
+				)
 		
 		else:  # HOLD или TRANSITION
 			# Если переходная зона, всё равно генерируем полный сигнал для аналитики
