@@ -183,6 +183,7 @@ trading_bot.log
 *.png
 *.csv
 .cursor/
+tests/
 
 # Database
 data/
