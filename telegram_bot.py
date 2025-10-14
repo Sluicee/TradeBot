@@ -1875,14 +1875,15 @@ class TelegramBot:
 		message += f"• Avg delta: {sum(deltas)/len(deltas):+.1f}\n"
 		message += f"• Median: {sorted(deltas)[len(deltas)//2]:+d}\n\n"
 		
-		# Распределение
+		# Распределение (HYBRID v5.5 использует адаптивную логику, примерный порог ~5)
+		min_buy_threshold = 5
 		ranges = [
 			(float('-inf'), -5, "Сильно bearish (<-5)"),
 			(-5, -3, "Средне bearish (-5..-3)"),
 			(-3, 0, "Слабо bearish (-3..0)"),
 			(0, 3, "Слабо bullish (0..3)"),
-			(3, config.MIN_VOTES_FOR_BUY, f"Средне bullish (3..{config.MIN_VOTES_FOR_BUY-1})"),
-			(config.MIN_VOTES_FOR_BUY, float('inf'), f"🎯 BUY (>={config.MIN_VOTES_FOR_BUY})")
+			(3, min_buy_threshold, f"Средне bullish (3..{min_buy_threshold-1})"),
+			(min_buy_threshold, float('inf'), f"🎯 BUY (>={min_buy_threshold})")
 		]
 		
 		message += "<b>Распределение:</b>\n"
@@ -1895,13 +1896,13 @@ class TelegramBot:
 		# Рекомендации
 		max_delta = max(deltas)
 		avg_delta = sum(deltas)/len(deltas)
-		buy_ready = len([d for d in deltas if d >= config.MIN_VOTES_FOR_BUY])
+		buy_ready = len([d for d in deltas if d >= min_buy_threshold])
 		
 		message += "\n<b>💡 РЕКОМЕНДАЦИИ:</b>\n"
 		
-		if max_delta < config.MIN_VOTES_FOR_BUY:
-			message += f"⚠️ Max delta ({max_delta:+d}) < порог BUY ({config.MIN_VOTES_FOR_BUY})\n"
-			message += f"→ Снизить MIN_VOTES_FOR_BUY до {max(3, max_delta)}\n"
+		if max_delta < min_buy_threshold:
+			message += f"⚠️ Max delta ({max_delta:+d}) < примерный порог BUY (~{min_buy_threshold})\n"
+			message += f"→ Рынок слабый, дождаться более сильных сигналов\n"
 		
 		if avg_delta < 0:
 			message += f"⚠️ Avg delta отрицательный ({avg_delta:+.1f})\n"

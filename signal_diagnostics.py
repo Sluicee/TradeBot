@@ -98,7 +98,8 @@ class SignalDiagnostics:
 				self.last_buy_time = timestamp
 		
 		elif signal == "HOLD":
-			logger.debug(f"[SIGNAL_DIAG] ⏸️ HOLD - недостаточно голосов (delta={votes_delta}, нужно >={config.MIN_VOTES_FOR_BUY})")
+			# В HYBRID v5.5 используется адаптивный порог (не фиксированный MIN_VOTES_FOR_BUY)
+			logger.debug(f"[SIGNAL_DIAG] ⏸️ HOLD - недостаточно сильный сигнал (delta={votes_delta})")
 			if reasons:
 				logger.debug(f"[SIGNAL_DIAG] Причины: {', '.join(reasons[:2])}")
 		
@@ -215,13 +216,15 @@ class SignalDiagnostics:
 		logger.info(f"Median delta: {sorted(deltas)[len(deltas)//2]:+d}")
 		
 		# Распределение по диапазонам
+		# HYBRID v5.5 использует адаптивную логику, но примерный порог BUY ~5 голосов
+		min_buy_threshold = 5
 		ranges = [
 			(float('-inf'), -5, "Сильно bearish (<-5)"),
 			(-5, -3, "Средне bearish (-5 to -3)"),
 			(-3, 0, "Слабо bearish (-3 to 0)"),
 			(0, 3, "Слабо bullish (0 to 3)"),
-			(3, config.MIN_VOTES_FOR_BUY, f"Средне bullish (3 to {config.MIN_VOTES_FOR_BUY-1})"),
-			(config.MIN_VOTES_FOR_BUY, float('inf'), f"Сильно bullish (>={config.MIN_VOTES_FOR_BUY}) 🎯 BUY!")
+			(3, min_buy_threshold, f"Средне bullish (3 to {min_buy_threshold-1})"),
+			(min_buy_threshold, float('inf'), f"Сильно bullish (>={min_buy_threshold}) 🎯 BUY!")
 		]
 		
 		logger.info(f"\nРаспределение:")
@@ -235,20 +238,20 @@ class SignalDiagnostics:
 		avg_delta = sum(deltas)/len(deltas)
 		
 		logger.info(f"\n💡 РЕКОМЕНДАЦИИ:")
-		if max_delta < config.MIN_VOTES_FOR_BUY:
+		if max_delta < min_buy_threshold:
 			logger.warning(
-				f"  ⚠️ Максимальный delta ({max_delta:+d}) меньше порога BUY ({config.MIN_VOTES_FOR_BUY})"
+				f"  ⚠️ Максимальный delta ({max_delta:+d}) меньше примерного порога BUY (~{min_buy_threshold})"
 			)
-			logger.warning(f"  → Снизить MIN_VOTES_FOR_BUY до {max_delta} или ниже")
+			logger.warning(f"  → Рынок слабый, рассмотреть смягчение фильтров")
 		
 		if avg_delta < 0:
 			logger.warning(f"  ⚠️ Средний delta отрицательный ({avg_delta:+.1f})")
 			logger.warning(f"  → Рынок в медвежьей фазе, стратегия корректно не генерирует BUY")
 		
-		buy_ready = len([d for d in deltas if d >= config.MIN_VOTES_FOR_BUY])
+		buy_ready = len([d for d in deltas if d >= min_buy_threshold])
 		if buy_ready == 0:
-			logger.warning(f"  ⚠️ Ни один сигнал не достиг порога BUY!")
-			logger.warning(f"  → Проверить фильтры или смягчить условия")
+			logger.warning(f"  ⚠️ Ни один сигнал не достиг примерного порога BUY (~{min_buy_threshold})!")
+			logger.warning(f"  → Проверить фильтры или дождаться более сильного рынка")
 		else:
 			logger.info(f"  ✅ {buy_ready} сигналов готовы к BUY ({buy_ready/len(deltas)*100:.1f}%)")
 		
