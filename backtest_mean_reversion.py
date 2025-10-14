@@ -300,6 +300,40 @@ class MeanReversionBacktest:
 					self.max_price = 0.0
 					continue
 				
+				# v5: Таймаут (max holding time) - проверяем до TP
+				if hours_held > MR_MAX_HOLDING_HOURS:
+					sell_value = self.position * price
+					commission = sell_value * COMMISSION_RATE
+					total_commission += commission
+					self.balance += sell_value - commission
+					
+					self.trades.append({
+						"symbol": self.symbol,
+						"entry_time": self.entry_time,
+						"entry_price": self.entry_price,
+						"entry_zscore": self.entry_zscore,
+						"exit_time": current_time,
+						"exit_price": price,
+						"pnl_percent": pnl_percent * 100,
+						"pnl_usd": (sell_value - commission) - (self.entry_price * self.position),
+						"reason": "TIMEOUT",
+						"hours_held": hours_held
+					})
+					
+					self.zscore_pnl_data.append({
+						"zscore": self.entry_zscore,
+						"pnl": pnl_percent * 100
+					})
+					
+					if pnl_percent > 0:
+						wins += 1
+					else:
+						losses += 1
+					
+					self.position = 0.0
+					self.entry_price = None
+					continue
+				
 				# v4: Тейк-профит (динамический или фиксированный)
 				current_tp = self.entry_tp if self.entry_tp else MR_TAKE_PROFIT_PERCENT
 				if pnl_percent >= current_tp or signal == "SELL":
@@ -328,40 +362,6 @@ class MeanReversionBacktest:
 						"pnl": pnl_percent * 100
 					})
 					
-					if pnl_percent > 0:
-						wins += 1
-					else:
-						losses += 1
-					
-					self.position = 0.0
-					self.entry_price = None
-					continue
-			
-			# v4: Таймаут (max holding time)
-			if hours_held > MR_MAX_HOLDING_HOURS:
-				sell_value = self.position * price
-				commission = sell_value * COMMISSION_RATE
-				total_commission += commission
-				self.balance += sell_value - commission
-				
-				self.trades.append({
-					"symbol": self.symbol,
-					"entry_time": self.entry_time,
-					"entry_price": self.entry_price,
-					"entry_zscore": self.entry_zscore,
-					"exit_time": current_time,
-					"exit_price": price,
-					"pnl_percent": pnl_percent * 100,
-					"pnl_usd": (sell_value - commission) - (self.entry_price * self.position),
-					"reason": "TIMEOUT",
-					"hours_held": hours_held
-				})
-				
-				self.zscore_pnl_data.append({
-					"zscore": self.entry_zscore,
-					"pnl": pnl_percent * 100
-				})
-				
 				if pnl_percent > 0:
 					wins += 1
 				else:

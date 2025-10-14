@@ -285,15 +285,15 @@ class HybridBacktest:
 							self.entry_mode = None
 							self.trailing_active = False
 							self.trailing_aggressive_active = False
-							self.max_price = 0.0
-							continue
+						self.max_price = 0.0
+						continue
 				
 				# Используем динамический SL если доступен (для MR)
 				if self.entry_mode == "MEAN_REVERSION":
-				current_sl = self.entry_sl if self.entry_sl else MR_STOP_LOSS_PERCENT
-				current_tp = self.entry_tp if self.entry_tp else MR_TAKE_PROFIT_PERCENT
-				max_holding = MR_MAX_HOLDING_HOURS
-			else:  # TF
+					current_sl = self.entry_sl if self.entry_sl else MR_STOP_LOSS_PERCENT
+					current_tp = self.entry_tp if self.entry_tp else MR_TAKE_PROFIT_PERCENT
+					max_holding = MR_MAX_HOLDING_HOURS
+				else:  # TF
 					current_sl = 0.05  # 5% SL для TF
 					current_tp = 0.05  # 5% TP для TF
 					max_holding = MAX_HOLDING_HOURS
