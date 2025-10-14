@@ -816,17 +816,6 @@ class TelegramBot:
 								all_messages.append(msg)
 							self.paper_trader.save_state()
 					
-					# HOLD/SELL - просто логируем для диагностики
-					else:
-						if symbol not in self.paper_trader.positions:
-							diagnostics.log_signal_generation(
-								symbol=symbol,
-								signal_result=result,
-								price=price,
-								can_buy=False,
-								block_reason=f"Сигнал {signal}, не BUY"
-							)
-				
 					# BUY сигнал для открытой позиции - докупание
 					elif signal == "BUY" and symbol in self.paper_trader.positions:
 						adx = result.get("ADX", 0.0)
@@ -866,6 +855,17 @@ class TelegramBot:
 								)
 								all_messages.append(msg)
 								self.paper_trader.save_state()
+					
+					# HOLD/SELL - логируем для диагностики (если нет позиции)
+					else:
+						if symbol not in self.paper_trader.positions:
+							diagnostics.log_signal_generation(
+								symbol=symbol,
+								signal_result=result,
+								price=price,
+								can_buy=False,
+								block_reason=f"Сигнал {signal}, не BUY"
+							)
 			
 			# Отправляем все накопленные сообщения одним батчем
 			if all_messages:
