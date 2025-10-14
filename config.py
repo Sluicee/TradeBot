@@ -170,6 +170,12 @@ VOLATILITY_ADJUSTMENT_MAX = 1.2  # Максимальное увеличение
 MAX_HOLDING_HOURS = 72  # Максимум 72 часа (3 дня) для Trend Following
 # MR_MAX_HOLDING_HOURS задан ниже в секции Mean Reversion (строка 222)
 
+# Partial Take Profit (v5.1 улучшение)
+USE_PARTIAL_TP = True  # Включить частичное закрытие позиции
+PARTIAL_TP_PERCENT = 0.5  # Закрывать 50% позиции
+PARTIAL_TP_TRIGGER = 0.02  # На +2% прибыли
+PARTIAL_TP_REMAINING_TP = 0.04  # TP для оставшихся 50%: +4%
+
 # ====================================================================
 # СТАТИСТИЧЕСКИЕ МОДЕЛИ
 # ====================================================================
@@ -222,20 +228,20 @@ MR_POSITION_SIZE_WEAK = 0.35  # 35% для слабой перепроданно
 # TP/SL для Mean Reversion v5 (улучшенный R:R)
 MR_TAKE_PROFIT_PERCENT = 0.035  # 3.5% тейк-профит (улучшен R:R)
 MR_STOP_LOSS_PERCENT = 0.028  # 2.8% стоп-лосс (оптимизирован)
-MR_MAX_HOLDING_HOURS = 24  # Максимум 24 часа удержания (больше времени на 1h)
+MR_MAX_HOLDING_HOURS = 24  # Максимум 24 часа удержания (было 48h, уменьшено для быстрого выхода)
 
 # Z-score параметры для MR
 MR_ZSCORE_WINDOW = 50  # Окно для расчёта среднего
 
-# Фильтры "падающего ножа" v5.2 (КРИТИЧНО ИЗМЕНЕНО!)
-NO_BUY_IF_PRICE_BELOW_N_DAY_LOW_PERCENT = 0.07  # v5: Не входить если цена < min(24h) * 0.95
+# Фильтры "падающего ножа" v5.3 (СМЯГЧЕНЫ для больше трейдов)
+NO_BUY_IF_PRICE_BELOW_N_DAY_LOW_PERCENT = 0.10  # v5.3: Не входить только если цена < min(24h) * 0.90 (было 0.07)
 NO_BUY_IF_EMA200_SLOPE_NEG = False  # v5.2: ОТКЛЮЧЕН! (блокировал 100% сигналов)
-EMA200_NEG_SLOPE_THRESHOLD = -0.003  # -0.3% наклон EMA200 (не используется)
+EMA200_NEG_SLOPE_THRESHOLD = -0.005  # -0.5% наклон EMA200 (смягчено, не используется)
 USE_RED_CANDLES_FILTER = False  # v5: ОТКЛЮЧЕН (позволяет ловить ранние bounces)
 
-# Фильтр объёма v5
+# Фильтр объёма v5.3 (смягчён)
 USE_VOLUME_FILTER = True  # v5: Блокировать входы при всплесках объёма
-VOLUME_SPIKE_THRESHOLD = 2.2  # Не входить если volume > 1.8x средний за 24h (смягчили)
+VOLUME_SPIKE_THRESHOLD = 3.0  # v5.3: Не входить если volume > 3.0x средний за 24h (было 2.2, смягчили)
 
 # Динамический SL на основе ATR v5
 USE_DYNAMIC_SL_FOR_MR = True  # Использовать ATR-based SL вместо фиксированного
@@ -278,7 +284,7 @@ HYBRID_ADX_TF_EXIT = 22  # ADX < 22 → Выход из TF в MR (гистере
 HYBRID_TRANSITION_MODE = "LAST"  # "HOLD" (не входить) или "LAST" (использовать последний режим)
 
 # Минимальное время в режиме (защита от частого переключения)
-HYBRID_MIN_TIME_IN_MODE = 2  # 2 часа минимум в одном режиме (в часах!)
+HYBRID_MIN_TIME_IN_MODE = 1  # v5.3: 1 час минимум (было 2h, уменьшено для быстрой реакции)
 
 # ====================================================================
 # MULTI-TIMEFRAME ANALYSIS

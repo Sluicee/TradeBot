@@ -25,7 +25,9 @@ from config import (
 	# Trend Following параметры
 	MAX_HOLDING_HOURS,
 	# Гибридные параметры
-	HYBRID_ADX_MR_THRESHOLD, HYBRID_ADX_TF_THRESHOLD, HYBRID_MIN_TIME_IN_MODE
+	HYBRID_ADX_MR_THRESHOLD, HYBRID_ADX_TF_THRESHOLD, HYBRID_MIN_TIME_IN_MODE,
+	# Partial TP v5.3
+	USE_PARTIAL_TP, PARTIAL_TP_PERCENT, PARTIAL_TP_TRIGGER, PARTIAL_TP_REMAINING_TP
 )
 
 class HybridBacktest:
@@ -46,6 +48,8 @@ class HybridBacktest:
 		self.max_price = 0.0
 		self.trailing_active = False
 		self.trailing_aggressive_active = False
+		self.partial_tp_taken = False  # v5.3: Флаг partial TP
+		self.breakeven_sl_active = False  # v5.3: Флаг break-even SL
 		self.trades = []
 		self.equity_curve = []
 		self.mode_switches = []  # История переключений режимов
@@ -208,6 +212,64 @@ class HybridBacktest:
 				if price > self.max_price:
 					self.max_price = price
 				
+				# v5.3: PARTIAL TAKE PROFIT (приоритет над trailing stop)
+				if USE_PARTIAL_TP and not self.partial_tp_taken and pnl_percent >= PARTIAL_TP_TRIGGER:
+					# Закрыть 50% позиции на +2%
+					partial_position = self.position * PARTIAL_TP_PERCENT
+					sell_value = partial_position * price
+					commission = sell_value * COMMISSION_RATE
+					total_commission += commission
+					self.balance += sell_value - commission
+					
+					self.trades.append({
+						"symbol": self.symbol,
+						"entry_time": self.entry_time,
+						"entry_price": self.entry_price,
+						"entry_mode": self.entry_mode,
+						"exit_time": current_time,
+						"exit_price": price,
+						"pnl_percent": pnl_percent * 100,
+						"pnl_usd": (sell_value - commission) - (self.entry_price * partial_position),
+						"reason": "PARTIAL_TP",
+						"hours_held": hours_held
+					})
+					
+					wins += 1
+					self.position -= partial_position
+					self.partial_tp_taken = True
+					self.breakeven_sl_active = True  # Активируем break-even SL
+					# НЕ continue - оставляем позицию открытой
+				
+				# v5.3: BREAK-EVEN STOP LOSS (после partial TP)
+				if self.breakeven_sl_active and price <= self.entry_price:
+					sell_value = self.position * price
+					commission = sell_value * COMMISSION_RATE
+					total_commission += commission
+					self.balance += sell_value - commission
+					
+					pnl_for_remaining = (price - self.entry_price) / self.entry_price
+					
+					self.trades.append({
+						"symbol": self.symbol,
+						"entry_time": self.entry_time,
+						"entry_price": self.entry_price,
+						"entry_mode": self.entry_mode,
+						"exit_time": current_time,
+						"exit_price": price,
+						"pnl_percent": pnl_for_remaining * 100,
+						"pnl_usd": (sell_value - commission) - (self.entry_price * self.position),
+						"reason": "BREAKEVEN_SL",
+						"hours_held": hours_held
+					})
+					
+					# Не считаем loss, т.к. это breakeven
+					self.position = 0.0
+					self.entry_price = None
+					self.entry_mode = None
+					self.partial_tp_taken = False
+					self.breakeven_sl_active = False
+					continue
+				
 				# Трейлинг стоп (только для MR)
 				if self.entry_mode == "MEAN_REVERSION" and USE_TRAILING_STOP_MR:
 					# Агрессивный трейлинг (после +2%)
@@ -291,11 +353,19 @@ class HybridBacktest:
 				# Используем динамический SL если доступен (для MR)
 				if self.entry_mode == "MEAN_REVERSION":
 					current_sl = self.entry_sl if self.entry_sl else MR_STOP_LOSS_PERCENT
-					current_tp = self.entry_tp if self.entry_tp else MR_TAKE_PROFIT_PERCENT
+					# v5.3: Если partial TP взят, используем повышенный TP для остатка
+					if self.partial_tp_taken:
+						current_tp = PARTIAL_TP_REMAINING_TP
+					else:
+						current_tp = self.entry_tp if self.entry_tp else MR_TAKE_PROFIT_PERCENT
 					max_holding = MR_MAX_HOLDING_HOURS
 				else:  # TF
 					current_sl = 0.05  # 5% SL для TF
-					current_tp = 0.05  # 5% TP для TF
+					# v5.3: Если partial TP взят, используем повышенный TP для остатка
+					if self.partial_tp_taken:
+						current_tp = PARTIAL_TP_REMAINING_TP
+					else:
+						current_tp = 0.05  # 5% TP для TF
 					max_holding = MAX_HOLDING_HOURS
 				
 				# Стоп-лосс
@@ -326,6 +396,8 @@ class HybridBacktest:
 					self.entry_tp = None
 					self.trailing_active = False
 					self.trailing_aggressive_active = False
+					self.partial_tp_taken = False
+					self.breakeven_sl_active = False
 					self.max_price = 0.0
 					continue
 				
@@ -361,6 +433,8 @@ class HybridBacktest:
 					self.entry_tp = None
 					self.trailing_active = False
 					self.trailing_aggressive_active = False
+					self.partial_tp_taken = False
+					self.breakeven_sl_active = False
 					self.max_price = 0.0
 					continue
 				
@@ -396,6 +470,8 @@ class HybridBacktest:
 					self.entry_mode = None
 					self.entry_sl = None
 					self.entry_tp = None
+					self.partial_tp_taken = False
+					self.breakeven_sl_active = False
 					continue
 			
 			# ВХОД (BUY)
