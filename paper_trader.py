@@ -43,6 +43,7 @@ def check_correlation_risk(new_symbol: str, existing_positions: Dict[str, Any]) 
 	Возвращает True если можно открывать позицию, False если риск высокий.
 	"""
 	if not existing_positions:
+		logger.debug(f"[CORRELATION] {new_symbol}: нет открытых позиций, разрешаем")
 		return True
 	
 	# Находим группу нового символа
@@ -54,7 +55,10 @@ def check_correlation_risk(new_symbol: str, existing_positions: Dict[str, Any]) 
 	
 	# Если символ не в известных группах, разрешаем (неизвестная корреляция)
 	if new_group is None:
+		logger.debug(f"[CORRELATION] {new_symbol}: не найдена в группах корреляции, разрешаем")
 		return True
+	
+	logger.debug(f"[CORRELATION] {new_symbol}: группа '{new_group}'")
 	
 	# Проверяем открытые позиции
 	for pos_symbol in existing_positions.keys():
@@ -63,8 +67,10 @@ def check_correlation_risk(new_symbol: str, existing_positions: Dict[str, Any]) 
 				# Нашли группу существующей позиции
 				if group_name == new_group:
 					# Уже есть позиция из той же группы - запрещаем
+					logger.warning(f"[CORRELATION] ❌ {new_symbol}: конфликт с {pos_symbol} (группа '{new_group}')")
 					return False
 	
+	logger.debug(f"[CORRELATION] ✅ {new_symbol}: корреляция безопасна")
 	return True
 
 
@@ -81,26 +87,48 @@ def get_position_size_percent(
 	# Базовый размер по силе сигнала
 	if signal_strength >= SIGNAL_STRENGTH_STRONG:
 		base_size = POSITION_SIZE_STRONG
+		strength_level = "STRONG"
 	elif signal_strength >= SIGNAL_STRENGTH_MEDIUM:
 		base_size = POSITION_SIZE_MEDIUM
+		strength_level = "MEDIUM"
 	else:
 		base_size = POSITION_SIZE_WEAK
+		strength_level = "WEAK"
+	
+	logger.debug(f"[POSITION_SIZE] Сила сигнала: {signal_strength} ({strength_level}) → базовый размер: {base_size*100:.1f}%")
 	
 	# Корректировка на волатильность (если есть ATR)
 	if atr > 0 and price > 0:
 		atr_percent = (atr / price) * 100
+		volatility_adjustment = 1.0
+		
 		# Если волатильность высокая (>VOLATILITY_HIGH_THRESHOLD%), уменьшаем размер позиции
 		if atr_percent > VOLATILITY_HIGH_THRESHOLD:
 			volatility_factor = VOLATILITY_HIGH_THRESHOLD / atr_percent  # Обратная пропорция
+			volatility_adjustment = volatility_factor
 			base_size *= volatility_factor
+			logger.debug(f"[POSITION_SIZE] 📉 Высокая волатильность ATR={atr_percent:.2f}% → снижаем на {(1-volatility_factor)*100:.1f}%")
 		# Если волатильность низкая (<VOLATILITY_LOW_THRESHOLD%), можно чуть увеличить
 		elif atr_percent < VOLATILITY_LOW_THRESHOLD:
-			base_size *= min(VOLATILITY_ADJUSTMENT_MAX, VOLATILITY_LOW_THRESHOLD / atr_percent)
+			volatility_adjustment = min(VOLATILITY_ADJUSTMENT_MAX, VOLATILITY_LOW_THRESHOLD / atr_percent)
+			base_size *= volatility_adjustment
+			logger.debug(f"[POSITION_SIZE] 📈 Низкая волатильность ATR={atr_percent:.2f}% → увеличиваем на {(volatility_adjustment-1)*100:.1f}%")
+		else:
+			logger.debug(f"[POSITION_SIZE] ✅ Нормальная волатильность ATR={atr_percent:.2f}%")
 	
 	# Применяем Kelly multiplier (0.5-1.5)
+	if kelly_multiplier != 1.0:
+		logger.debug(f"[POSITION_SIZE] Kelly multiplier: {kelly_multiplier:.2f}x")
 	base_size *= kelly_multiplier
 	
-	return min(base_size, POSITION_SIZE_STRONG * 1.2)  # Максимум 120% от STRONG
+	final_size = min(base_size, POSITION_SIZE_STRONG * 1.2)  # Максимум 120% от STRONG
+	
+	if final_size != base_size:
+		logger.debug(f"[POSITION_SIZE] ⚠️ Ограничен максимумом: {base_size*100:.1f}% → {final_size*100:.1f}%")
+	
+	logger.info(f"[POSITION_SIZE] 🎯 Итоговый размер позиции: {final_size*100:.1f}%")
+	
+	return final_size
 
 
 def get_dynamic_stop_loss_percent(atr: float, price: float) -> float:
@@ -373,19 +401,25 @@ class PaperTrader:
 		total_balance = self.balance + total_invested
 		dynamic_max_positions = get_dynamic_max_positions(total_balance)
 		
+		logger.debug(f"[CAN_OPEN] {symbol}: баланс=${self.balance:.2f}, инвестировано=${total_invested:.2f}, total=${total_balance:.2f}")
+		logger.debug(f"[CAN_OPEN] {symbol}: позиций={len(self.positions)}/{dynamic_max_positions}")
+		
 		# Проверяем лимит позиций
 		if len(self.positions) >= dynamic_max_positions:
-			logger.debug(f"[PAPER] Достигнут лимит позиций: {len(self.positions)}/{dynamic_max_positions} (баланс: ${total_balance:.2f})")
+			logger.warning(f"[CAN_OPEN] ❌ {symbol}: достигнут лимит позиций {len(self.positions)}/{dynamic_max_positions}")
 			return False
 		
 		# Проверяем, нет ли уже позиции по этому символу
 		if symbol in self.positions:
+			logger.debug(f"[CAN_OPEN] ❌ {symbol}: позиция уже открыта")
 			return False
 		
 		# Проверяем баланс
 		if self.balance <= 0:
+			logger.warning(f"[CAN_OPEN] ❌ {symbol}: недостаточно баланса (${self.balance:.2f})")
 			return False
 		
+		logger.debug(f"[CAN_OPEN] ✅ {symbol}: можно открывать позицию")
 		return True
 		
 	def open_position(
@@ -396,31 +430,42 @@ class PaperTrader:
 		atr: float = 0.0
 	) -> Optional[Dict[str, Any]]:
 		"""Открывает позицию"""
+		logger.info(f"\n{'='*60}")
+		logger.info(f"[OPEN_POSITION] 📊 Попытка открыть позицию {symbol}")
+		logger.info(f"[OPEN_POSITION] Цена: ${price:.4f}, Сила сигнала: {signal_strength}, ATR: {atr:.4f}")
+		
 		if not self.can_open_position(symbol):
+			logger.warning(f"[OPEN_POSITION] ❌ {symbol}: не пройдены базовые проверки")
 			return None
 		
 		# Проверка корреляции - не открываем коррелированные позиции
 		if not check_correlation_risk(symbol, self.positions):
-			logger.warning(f"[PAPER] {symbol} - корреляция с открытой позицией")
+			logger.warning(f"[OPEN_POSITION] ❌ {symbol}: конфликт корреляции с открытыми позициями")
 			return None
 		
 		# Рассчитываем Kelly multiplier
 		atr_percent = (atr / price) * 100 if atr > 0 and price > 0 else 1.5
+		logger.debug(f"[OPEN_POSITION] ATR: {atr_percent:.2f}% от цены")
 		kelly_multiplier = self.calculate_kelly_fraction(symbol, atr_percent)
 			
 		# Рассчитываем размер позиции с учётом волатильности и Kelly
 		position_size_percent = get_position_size_percent(signal_strength, atr, price, kelly_multiplier)
 		invest_amount = self.balance * position_size_percent
 		
+		logger.info(f"[OPEN_POSITION] 💰 Инвестиция: ${invest_amount:.2f} ({position_size_percent*100:.1f}% от баланса ${self.balance:.2f})")
+		
 		if invest_amount <= 0:
+			logger.error(f"[OPEN_POSITION] ❌ {symbol}: invest_amount <= 0")
 			return None
 			
 		# Комиссия на вход
 		commission = invest_amount * COMMISSION_RATE
 		self.stats["total_commission"] += commission
+		logger.debug(f"[OPEN_POSITION] 💸 Комиссия: ${commission:.2f} ({COMMISSION_RATE*100:.2f}%)")
 		
 		# Покупаем монеты
 		amount = (invest_amount - commission) / price
+		logger.info(f"[OPEN_POSITION] 🪙 Количество: {amount:.6f} {symbol.replace('USDT','')}")
 		
 		# Создаем позицию с ATR для динамического SL
 		position = Position(
@@ -434,8 +479,13 @@ class PaperTrader:
 			atr=atr
 		)
 		
+		logger.info(f"[OPEN_POSITION] 🎯 SL: ${position.stop_loss_price:.4f} ({position.stop_loss_percent*100:.2f}%)")
+		logger.info(f"[OPEN_POSITION] 🎯 TP: ${position.take_profit_price:.4f} ({TAKE_PROFIT_PERCENT*100:.2f}%)")
+		
 		# Обновляем баланс
+		old_balance = self.balance
 		self.balance -= invest_amount
+		logger.info(f"[OPEN_POSITION] 💵 Баланс: ${old_balance:.2f} → ${self.balance:.2f}")
 		
 		# Сохраняем позицию
 		self.positions[symbol] = position
@@ -458,10 +508,13 @@ class PaperTrader:
 		# Сохраняем в БД
 		try:
 			db.add_trade(trade_info)
+			logger.debug(f"[OPEN_POSITION] 💾 Сделка сохранена в БД")
 		except Exception as e:
-			logger.error(f"Ошибка сохранения сделки в БД: {e}")
+			logger.error(f"[OPEN_POSITION] ❌ Ошибка сохранения сделки в БД: {e}")
 		
-		logger.info(f"[PAPER] BUY {symbol} @ ${price:.2f} ({position_size_percent*100:.0f}%)")
+		logger.info(f"[OPEN_POSITION] ✅ Позиция открыта успешно!")
+		logger.info(f"[OPEN_POSITION] 📈 Открытых позиций: {len(self.positions)}")
+		logger.info(f"{'='*60}\n")
 		
 		return trade_info
 		
@@ -472,10 +525,17 @@ class PaperTrader:
 		reason: str = "SELL"
 	) -> Optional[Dict[str, Any]]:
 		"""Закрывает позицию полностью"""
+		logger.info(f"\n{'='*60}")
+		logger.info(f"[CLOSE_POSITION] 🔴 Закрытие позиции {symbol}")
+		logger.info(f"[CLOSE_POSITION] Причина: {reason}, Цена: ${price:.4f}")
+		
 		if symbol not in self.positions:
+			logger.warning(f"[CLOSE_POSITION] ❌ Позиция {symbol} не найдена")
 			return None
 			
 		position = self.positions[symbol]
+		
+		logger.info(f"[CLOSE_POSITION] 📊 Вход: ${position.entry_price:.4f}, Количество: {position.amount:.6f}")
 		
 		# Продаем все монеты
 		sell_value = position.amount * price
@@ -483,7 +543,10 @@ class PaperTrader:
 		self.stats["total_commission"] += commission
 		net_value = sell_value - commission
 		
+		logger.debug(f"[CLOSE_POSITION] 💰 Стоимость продажи: ${sell_value:.2f}, Комиссия: ${commission:.2f}, Чистая: ${net_value:.2f}")
+		
 		# Обновляем баланс
+		old_balance = self.balance
 		self.balance += net_value
 		
 		# Рассчитываем прибыль
@@ -493,23 +556,37 @@ class PaperTrader:
 		# Если позиция частично закрыта, учитываем только оставшуюся часть инвестиции
 		if position.partial_closed:
 			remaining_invested = total_investment * (1 - PARTIAL_CLOSE_PERCENT)
+			logger.debug(f"[CLOSE_POSITION] ⚠️ Частично закрытая позиция: осталось ${remaining_invested:.2f}")
 		else:
 			remaining_invested = total_investment
 		
 		profit = net_value - remaining_invested + position.partial_close_profit
 		profit_percent = (profit / total_investment) * 100
 		
+		if profit > 0:
+			logger.info(f"[CLOSE_POSITION] 💚 ПРИБЫЛЬ: ${profit:+.2f} ({profit_percent:+.2f}%)")
+		else:
+			logger.info(f"[CLOSE_POSITION] 💔 УБЫТОК: ${profit:+.2f} ({profit_percent:+.2f}%)")
+		
 		# Обновляем статистику
 		if profit > 0:
 			self.stats["winning_trades"] += 1
+			logger.debug(f"[CLOSE_POSITION] ✅ Прибыльных сделок: {self.stats['winning_trades']}")
 		else:
 			self.stats["losing_trades"] += 1
+			logger.debug(f"[CLOSE_POSITION] ❌ Убыточных сделок: {self.stats['losing_trades']}")
 			
 		if reason == "STOP-LOSS":
 			self.stats["stop_loss_triggers"] += 1
+			logger.warning(f"[CLOSE_POSITION] 🛑 Срабатывание SL (всего: {self.stats['stop_loss_triggers']})")
 		elif reason == "TRAILING-STOP":
 			self.stats["trailing_stop_triggers"] += 1
+			logger.info(f"[CLOSE_POSITION] 📉 Trailing Stop (всего: {self.stats['trailing_stop_triggers']})")
 			
+		holding_time = self._calculate_holding_time(position.entry_time)
+		logger.info(f"[CLOSE_POSITION] ⏱️ Время удержания: {holding_time}")
+		logger.info(f"[CLOSE_POSITION] 💵 Баланс: ${old_balance:.2f} → ${self.balance:.2f}")
+		
 		# Добавляем в историю
 		trade_info = {
 			"type": reason,
@@ -522,20 +599,27 @@ class PaperTrader:
 			"profit_percent": profit_percent,
 			"time": datetime.now().isoformat(),
 			"balance_after": self.balance,
-			"holding_time": self._calculate_holding_time(position.entry_time)
+			"holding_time": holding_time
 		}
 		self.trades_history.append(trade_info)
 		
 		# Сохраняем в БД
 		try:
 			db.add_trade(trade_info)
+			logger.debug(f"[CLOSE_POSITION] 💾 Сделка сохранена в БД")
 		except Exception as e:
-			logger.error(f"Ошибка сохранения сделки в БД: {e}")
+			logger.error(f"[CLOSE_POSITION] ❌ Ошибка сохранения сделки в БД: {e}")
 		
-		logger.info(f"[PAPER] {reason} {symbol} @ ${price:.2f} ({profit:+.2f} USD / {profit_percent:+.2f}%)")
+		# Win Rate
+		total_closed = self.stats["winning_trades"] + self.stats["losing_trades"]
+		win_rate = (self.stats["winning_trades"] / total_closed * 100) if total_closed > 0 else 0
+		logger.info(f"[CLOSE_POSITION] 📊 Win Rate: {win_rate:.1f}% ({self.stats['winning_trades']}/{total_closed})")
 		
 		# Удаляем позицию
 		del self.positions[symbol]
+		
+		logger.info(f"[CLOSE_POSITION] ✅ Позиция закрыта, осталось позиций: {len(self.positions)}")
+		logger.info(f"{'='*60}\n")
 		
 		return trade_info
 		
@@ -745,17 +829,33 @@ class PaperTrader:
 		"""Проверяет все позиции на стоп-лоссы, тейк-профиты и время удержания"""
 		actions = []
 		
+		if not self.positions:
+			return actions
+		
+		logger.debug(f"[CHECK_POSITIONS] 🔍 Проверка {len(self.positions)} позиций")
+		
 		for symbol, position in list(self.positions.items()):
 			if symbol not in prices:
+				logger.warning(f"[CHECK_POSITIONS] ⚠️ {symbol}: цена не найдена")
 				continue
 				
 			current_price = prices[symbol]
 			
+			# Рассчитываем текущий P&L
+			pnl_info = position.get_pnl(current_price)
+			price_change = ((current_price - position.entry_price) / position.entry_price) * 100
+			
+			logger.debug(f"[CHECK_POSITIONS] {symbol}: ${current_price:.4f} | Entry: ${position.entry_price:.4f} ({price_change:+.2f}%) | P&L: {pnl_info['pnl_percent']:+.2f}%")
+			
 			# Обновляем максимальную цену
+			old_max = position.max_price
 			position.update_max_price(current_price)
+			if current_price > old_max:
+				logger.debug(f"[CHECK_POSITIONS] {symbol}: 🔼 Новый максимум: ${current_price:.4f}")
 			
 			# 1. Проверяем время удержания
 			if position.check_time_exit():
+				logger.warning(f"[CHECK_POSITIONS] {symbol}: ⏰ Превышено время удержания")
 				trade_info = self.close_position(symbol, current_price, "TIME-EXIT")
 				if trade_info:
 					actions.append(trade_info)
@@ -763,6 +863,8 @@ class PaperTrader:
 			
 			# 2. Проверяем trailing stop (если позиция частично закрыта)
 			if position.check_trailing_stop(current_price):
+				trailing_drop = ((position.max_price - current_price) / position.max_price) * 100
+				logger.info(f"[CHECK_POSITIONS] {symbol}: 📉 Trailing Stop сработал (падение {trailing_drop:.2f}% от максимума ${position.max_price:.4f})")
 				trade_info = self.close_position(symbol, current_price, "TRAILING-STOP")
 				if trade_info:
 					actions.append(trade_info)
@@ -770,6 +872,8 @@ class PaperTrader:
 				
 			# 3. Проверяем стоп-лосс
 			if position.check_stop_loss(current_price):
+				distance_to_sl = ((position.stop_loss_price - current_price) / position.stop_loss_price) * 100
+				logger.warning(f"[CHECK_POSITIONS] {symbol}: 🛑 Stop-Loss сработал! ${current_price:.4f} <= ${position.stop_loss_price:.4f}")
 				trade_info = self.close_position(symbol, current_price, "STOP-LOSS")
 				if trade_info:
 					actions.append(trade_info)
@@ -777,17 +881,28 @@ class PaperTrader:
 				
 			# 4. Проверяем тейк-профит (частичное закрытие)
 			if position.check_take_profit(current_price):
+				logger.info(f"[CHECK_POSITIONS] {symbol}: 🎯 Take-Profit достигнут! ${current_price:.4f} >= ${position.take_profit_price:.4f}")
 				trade_info = self.partial_close_position(symbol, current_price)
 				if trade_info:
 					actions.append(trade_info)
 				continue
+			
+			# Логируем расстояния до SL/TP
+			distance_to_sl = ((current_price - position.stop_loss_price) / position.stop_loss_price) * 100
+			distance_to_tp = ((position.take_profit_price - current_price) / current_price) * 100
+			logger.debug(f"[CHECK_POSITIONS] {symbol}: Дистанции - SL: {distance_to_sl:+.2f}%, TP: {distance_to_tp:+.2f}%")
 				
+		if actions:
+			logger.info(f"[CHECK_POSITIONS] ✅ Выполнено {len(actions)} действий")
+		
 		return actions
 		
 	def get_status(self) -> Dict[str, Any]:
 		"""Возвращает текущий статус"""
 		total_invested = sum(pos.invest_amount for pos in self.positions.values())
 		total_pnl = 0.0
+		
+		logger.debug(f"[STATUS] 📊 Генерация статуса портфеля")
 		
 		positions_info = []
 		for symbol, pos in self.positions.items():
@@ -807,6 +922,8 @@ class PaperTrader:
 				"pnl_percent": pnl_info["pnl_percent"]
 			})
 			
+			logger.debug(f"[STATUS] {symbol}: P&L {pnl_info['pnl_percent']:+.2f}%, Invested: ${pos.invest_amount:.2f}")
+			
 		total_balance = self.balance + total_invested + total_pnl
 		total_profit = total_balance - self.initial_balance
 		total_profit_percent = (total_profit / self.initial_balance) * 100
@@ -817,6 +934,11 @@ class PaperTrader:
 		win_rate = 0.0
 		if self.stats["winning_trades"] + self.stats["losing_trades"] > 0:
 			win_rate = (self.stats["winning_trades"] / (self.stats["winning_trades"] + self.stats["losing_trades"])) * 100
+		
+		logger.info(f"[STATUS] 💰 Баланс: ${self.balance:.2f} | Инвестировано: ${total_invested:.2f} | Total: ${total_balance:.2f}")
+		logger.info(f"[STATUS] 📈 Прибыль: ${total_profit:+.2f} ({total_profit_percent:+.2f}%)")
+		logger.info(f"[STATUS] 📊 Позиции: {len(self.positions)}/{dynamic_max_positions} | Win Rate: {win_rate:.1f}%")
+		logger.info(f"[STATUS] 🎯 Сделок: {self.stats['total_trades']} | Прибыльных: {self.stats['winning_trades']} | Убыточных: {self.stats['losing_trades']}")
 			
 		return {
 			"is_running": self.is_running,
