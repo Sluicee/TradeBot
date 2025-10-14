@@ -173,8 +173,8 @@ MAX_HOLDING_HOURS = 72  # Максимум 72 часа (3 дня) для Trend F
 # Partial Take Profit (v5.1 улучшение)
 USE_PARTIAL_TP = True  # Включить частичное закрытие позиции
 PARTIAL_TP_PERCENT = 0.5  # Закрывать 50% позиции
-PARTIAL_TP_TRIGGER = 0.02  # На +2% прибыли
-PARTIAL_TP_REMAINING_TP = 0.04  # TP для оставшихся 50%: +4%
+PARTIAL_TP_TRIGGER = 0.015  # На +2% прибыли
+PARTIAL_TP_REMAINING_TP = 0.03  # TP для оставшихся 50%: +4%
 
 # ====================================================================
 # СТАТИСТИЧЕСКИЕ МОДЕЛИ
@@ -275,16 +275,16 @@ MR_TRAILING_AGGRESSIVE_DISTANCE = 0.008  # 0.8% от максимума
 STRATEGY_HYBRID_MODE = "AUTO"  # "AUTO" (переключение по ADX), "MR_ONLY", "TF_ONLY"
 
 # Пороги ADX для переключения режимов (v5.2: оптимальный гистерезис)
-HYBRID_ADX_MR_THRESHOLD = 22  # ADX < 22 → Mean Reversion (боковик)
+HYBRID_ADX_MR_THRESHOLD = 20  # ADX < 22 → Mean Reversion (боковик)
 HYBRID_ADX_MR_EXIT = 26  # ADX > 26 → Выход из MR в TF (гистерезис)
-HYBRID_ADX_TF_THRESHOLD = 26  # ADX > 26 → Trend Following (тренд)
+HYBRID_ADX_TF_THRESHOLD = 24  # ADX > 26 → Trend Following (тренд)
 HYBRID_ADX_TF_EXIT = 22  # ADX < 22 → Выход из TF в MR (гистерезис)
 # 22 <= ADX <= 26 → переходная зона 4 пункта (оптимально)
 
 HYBRID_TRANSITION_MODE = "LAST"  # "HOLD" (не входить) или "LAST" (использовать последний режим)
 
 # Минимальное время в режиме (защита от частого переключения)
-HYBRID_MIN_TIME_IN_MODE = 1  # v5.3: 1 час минимум (было 2h, уменьшено для быстрой реакции)
+HYBRID_MIN_TIME_IN_MODE = 0.5  # v5.3: 1 час минимум (было 2h, уменьшено для быстрой реакции)
 
 # ====================================================================
 # MULTI-TIMEFRAME ANALYSIS
