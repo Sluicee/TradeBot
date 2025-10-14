@@ -427,12 +427,21 @@ class PaperTrader:
 		symbol: str,
 		price: float,
 		signal_strength: int,
-		atr: float = 0.0
+		atr: float = 0.0,
+		position_size_percent: float = None,
+		reasons: List[str] = None,
+		active_mode: str = "UNKNOWN",
+		bullish_votes: int = 0,
+		bearish_votes: int = 0
 	) -> Optional[Dict[str, Any]]:
 		"""Открывает позицию"""
 		logger.info(f"\n{'='*60}")
 		logger.info(f"[OPEN_POSITION] 📊 Попытка открыть позицию {symbol}")
-		logger.info(f"[OPEN_POSITION] Цена: ${price:.4f}, Сила сигнала: {signal_strength}, ATR: {atr:.4f}")
+		logger.info(f"[OPEN_POSITION] Режим: {active_mode} | Цена: ${price:.4f}")
+		logger.info(f"[OPEN_POSITION] Голоса: +{bullish_votes}/-{bearish_votes} (delta={bullish_votes-bearish_votes})")
+		logger.info(f"[OPEN_POSITION] Сила сигнала: {signal_strength}, ATR: {atr:.4f}")
+		if reasons:
+			logger.info(f"[OPEN_POSITION] 📋 Причины: {reasons[:3]}")
 		
 		if not self.can_open_position(symbol):
 			logger.warning(f"[OPEN_POSITION] ❌ {symbol}: не пройдены базовые проверки")
@@ -448,8 +457,13 @@ class PaperTrader:
 		logger.debug(f"[OPEN_POSITION] ATR: {atr_percent:.2f}% от цены")
 		kelly_multiplier = self.calculate_kelly_fraction(symbol, atr_percent)
 			
-		# Рассчитываем размер позиции с учётом волатильности и Kelly
-		position_size_percent = get_position_size_percent(signal_strength, atr, price, kelly_multiplier)
+		# Используем переданный position_size_percent (из v5.5 adaptive sizing) или рассчитываем
+		if position_size_percent is None:
+			position_size_percent = get_position_size_percent(signal_strength, atr, price, kelly_multiplier)
+			logger.info(f"[OPEN_POSITION] 📊 Position size (legacy): {position_size_percent*100:.1f}%")
+		else:
+			logger.info(f"[OPEN_POSITION] 🎯 Position size (adaptive v5.5): {position_size_percent*100:.1f}%")
+		
 		invest_amount = self.balance * position_size_percent
 		
 		logger.info(f"[OPEN_POSITION] 💰 Инвестиция: ${invest_amount:.2f} ({position_size_percent*100:.1f}% от баланса ${self.balance:.2f})")
@@ -500,7 +514,14 @@ class PaperTrader:
 			"commission": commission,
 			"signal_strength": signal_strength,
 			"time": position.entry_time,
-			"balance_after": self.balance
+			"balance_after": self.balance,
+			# v5.5 метаданные
+			"active_mode": active_mode,
+			"bullish_votes": bullish_votes,
+			"bearish_votes": bearish_votes,
+			"votes_delta": bullish_votes - bearish_votes,
+			"position_size_percent": position_size_percent,
+			"reasons": reasons[:3] if reasons else []
 		}
 		self.trades_history.append(trade_info)
 		self.stats["total_trades"] += 1

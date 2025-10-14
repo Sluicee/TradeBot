@@ -162,6 +162,10 @@ class TelegramBot:
 		# Kelly Criterion и Averaging
 		self.application.add_handler(CommandHandler("kelly_info", self.kelly_info))
 		self.application.add_handler(CommandHandler("averaging_status", self.averaging_status))
+		
+		# Диагностика сигналов (v5.5)
+		self.application.add_handler(CommandHandler("signal_stats", self.signal_stats))
+		self.application.add_handler(CommandHandler("signal_analysis", self.signal_analysis))
 
 	# -----------------------------
 	# Работа с БД
@@ -369,7 +373,9 @@ class TelegramBot:
 			"• /paper_reset — сбросить баланс и историю\n\n"
 			"<b>Аналитика:</b>\n"
 			"• /kelly_info — информация о Kelly Criterion\n"
-			"• /averaging_status — статус докупаний\n\n"
+			"• /averaging_status — статус докупаний\n"
+			"• /signal_stats — статистика сигналов v5.5 🆕\n"
+			"• /signal_analysis — детальный анализ голосов 🆕\n\n"
 			"<b>Настройки:</b>\n"
 			"• /settings — настройки интервала опроса и волатильности\n\n"
 			"<i>Если SYMBOL и INTERVAL не указаны, используются значения по умолчанию.</i>"
@@ -755,6 +761,8 @@ class TelegramBot:
 			# Paper Trading: Обработка сигналов
 			# ==========================================
 			if self.paper_trader.is_running:
+				from signal_diagnostics import diagnostics
+				
 				for symbol, result in trading_signals.items():
 					signal = result["signal"]
 					price = current_prices.get(symbol)
@@ -762,24 +770,62 @@ class TelegramBot:
 					if price is None:
 						continue
 					
-					# Получаем силу сигнала и ATR
+					# Получаем метаданные сигнала (v5.5 HYBRID)
 					signal_strength = abs(result.get("bullish_votes", 0) - result.get("bearish_votes", 0))
 					atr = result.get("ATR", 0.0)
+					bullish_votes = result.get("bullish_votes", 0)
+					bearish_votes = result.get("bearish_votes", 0)
+					active_mode = result.get("active_mode", "UNKNOWN")
+					reasons = result.get("reasons", [])
+					position_size_percent = result.get("position_size_percent", None)
 					
 					# BUY сигнал - открываем позицию
 					if signal == "BUY" and symbol not in self.paper_trader.positions:
-						if self.paper_trader.can_open_position(symbol):
-							trade_info = self.paper_trader.open_position(symbol, price, signal_strength, atr)
+						can_buy = self.paper_trader.can_open_position(symbol)
+						block_reason = None if can_buy else "Лимит позиций или баланс"
+						
+						# Диагностика сигнала
+						diagnostics.log_signal_generation(
+							symbol=symbol,
+							signal_result=result,
+							price=price,
+							can_buy=can_buy,
+							block_reason=block_reason
+						)
+						
+						if can_buy:
+							trade_info = self.paper_trader.open_position(
+								symbol=symbol,
+								price=price,
+								signal_strength=signal_strength,
+								atr=atr,
+								position_size_percent=position_size_percent,
+								reasons=reasons,
+								active_mode=active_mode,
+								bullish_votes=bullish_votes,
+								bearish_votes=bearish_votes
+							)
 							if trade_info:
 								msg = (
-									f"🟢 <b>КУПИЛ</b> {symbol}\n"
+									f"🟢 <b>КУПИЛ</b> {symbol} ({active_mode})\n"
 									f"  Цена: {format_price(price)}\n"
-									f"  Вложено: ${trade_info['invest_amount']:.2f}\n"
-									f"  Сила сигнала: {signal_strength}\n"
+									f"  Вложено: ${trade_info['invest_amount']:.2f} ({position_size_percent*100:.0f}%)\n"
+									f"  Голоса: +{bullish_votes}/-{bearish_votes} (Δ{bullish_votes-bearish_votes:+d})\n"
 									f"  Баланс: ${trade_info['balance_after']:.2f}"
 								)
-							all_messages.append(msg)
+								all_messages.append(msg)
 							self.paper_trader.save_state()
+					
+					# HOLD/SELL - просто логируем для диагностики
+					else:
+						if symbol not in self.paper_trader.positions:
+							diagnostics.log_signal_generation(
+								symbol=symbol,
+								signal_result=result,
+								price=price,
+								can_buy=False,
+								block_reason=f"Сигнал {signal}, не BUY"
+							)
 				
 					# BUY сигнал для открытой позиции - докупание
 					elif signal == "BUY" and symbol in self.paper_trader.positions:
@@ -1754,6 +1800,118 @@ class TelegramBot:
 			
 			message += f"• Pyramid Up: {len(pyramid_trades)}\n"
 			message += f"• Average Down: {len(average_trades)}\n"
+		
+		await update.message.reply_text(message, parse_mode="HTML")
+	
+	# -------------------------
+	# Диагностика сигналов (v5.5)
+	# -------------------------
+	async def signal_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+		"""📊 Статистика сигналов"""
+		if not self._is_authorized(update):
+			await update.message.reply_text("❌ У вас нет доступа к этому боту.")
+			return
+		
+		from signal_diagnostics import diagnostics
+		
+		total = diagnostics.buy_signals_count + diagnostics.hold_signals_count + diagnostics.sell_signals_count
+		
+		if total == 0:
+			await update.message.reply_text("⚠️ Нет данных по сигналам. Бот ещё не запущен или не было проверок.")
+			return
+		
+		message = "📊 <b>СТАТИСТИКА СИГНАЛОВ v5.5</b>\n\n"
+		message += f"<b>Всего сигналов:</b> {total}\n"
+		message += f"• BUY:  {diagnostics.buy_signals_count} ({diagnostics.buy_signals_count/total*100:.1f}%)\n"
+		message += f"• HOLD: {diagnostics.hold_signals_count} ({diagnostics.hold_signals_count/total*100:.1f}%)\n"
+		message += f"• SELL: {diagnostics.sell_signals_count} ({diagnostics.sell_signals_count/total*100:.1f}%)\n\n"
+		
+		if diagnostics.last_buy_time:
+			message += f"<b>Последний BUY:</b> {diagnostics.last_buy_time}\n\n"
+		else:
+			message += "⚠️ <b>Ни одного BUY сигнала!</b>\n\n"
+		
+		if diagnostics.blocked_reasons:
+			message += "<b>🚫 Причины блокировки BUY:</b>\n"
+			for reason, count in sorted(diagnostics.blocked_reasons.items(), key=lambda x: x[1], reverse=True)[:5]:
+				message += f"• {reason}: {count}x\n"
+			message += "\n"
+		
+		# Последние 5 сигналов
+		if len(diagnostics.signal_history) > 0:
+			recent = diagnostics.signal_history[-5:]
+			message += "<b>📋 Последние 5 сигналов:</b>\n"
+			for sig in recent:
+				symbol = sig["symbol"]
+				signal = sig["signal"]
+				delta = sig["votes_delta"]
+				mode = sig["mode"]
+				emoji = "✅" if sig["can_buy"] else "❌"
+				message += f"{emoji} {symbol}: {signal} (Δ{delta:+d}, {mode})\n"
+		
+		message += "\n💡 <i>Используйте /signal_analysis для детального анализа</i>"
+		
+		await update.message.reply_text(message, parse_mode="HTML")
+	
+	async def signal_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+		"""🔍 Детальный анализ сигналов"""
+		if not self._is_authorized(update):
+			await update.message.reply_text("❌ У вас нет доступа к этому боту.")
+			return
+		
+		from signal_diagnostics import diagnostics
+		import config
+		
+		if not diagnostics.signal_history:
+			await update.message.reply_text("⚠️ Нет данных для анализа. Подождите несколько циклов проверки.")
+			return
+		
+		deltas = [s["votes_delta"] for s in diagnostics.signal_history]
+		
+		message = "🔍 <b>АНАЛИЗ РАСПРЕДЕЛЕНИЯ ГОЛОСОВ</b>\n\n"
+		message += f"<b>Статистика:</b>\n"
+		message += f"• Min delta: {min(deltas):+d}\n"
+		message += f"• Max delta: {max(deltas):+d}\n"
+		message += f"• Avg delta: {sum(deltas)/len(deltas):+.1f}\n"
+		message += f"• Median: {sorted(deltas)[len(deltas)//2]:+d}\n\n"
+		
+		# Распределение
+		ranges = [
+			(float('-inf'), -5, "Сильно bearish (<-5)"),
+			(-5, -3, "Средне bearish (-5..-3)"),
+			(-3, 0, "Слабо bearish (-3..0)"),
+			(0, 3, "Слабо bullish (0..3)"),
+			(3, config.MIN_VOTES_FOR_BUY, f"Средне bullish (3..{config.MIN_VOTES_FOR_BUY-1})"),
+			(config.MIN_VOTES_FOR_BUY, float('inf'), f"🎯 BUY (>={config.MIN_VOTES_FOR_BUY})")
+		]
+		
+		message += "<b>Распределение:</b>\n"
+		for low, high, label in ranges:
+			count = len([d for d in deltas if low <= d < high])
+			pct = count / len(deltas) * 100
+			if count > 0:
+				message += f"• {label}: {count} ({pct:.1f}%)\n"
+		
+		# Рекомендации
+		max_delta = max(deltas)
+		avg_delta = sum(deltas)/len(deltas)
+		buy_ready = len([d for d in deltas if d >= config.MIN_VOTES_FOR_BUY])
+		
+		message += "\n<b>💡 РЕКОМЕНДАЦИИ:</b>\n"
+		
+		if max_delta < config.MIN_VOTES_FOR_BUY:
+			message += f"⚠️ Max delta ({max_delta:+d}) < порог BUY ({config.MIN_VOTES_FOR_BUY})\n"
+			message += f"→ Снизить MIN_VOTES_FOR_BUY до {max(3, max_delta)}\n"
+		
+		if avg_delta < 0:
+			message += f"⚠️ Avg delta отрицательный ({avg_delta:+.1f})\n"
+			message += "→ Рынок медвежий, стратегия работает корректно\n"
+		
+		if buy_ready == 0:
+			message += "⚠️ Ни один сигнал не достиг порога BUY!\n"
+			message += "→ Проверить фильтры или смягчить условия\n"
+		else:
+			message += f"✅ {buy_ready} сигналов готовы к BUY ({buy_ready/len(deltas)*100:.1f}%)\n"
 		
 		await update.message.reply_text(message, parse_mode="HTML")
 
