@@ -389,69 +389,43 @@ class SignalGenerator:
 				reasons.append(f"Объём нормальный ({volume_ratio:.1f}x)")
 		
 		# ====================================================================
-		# ПРОВЕРКА КОРРЕЛЯЦИИ ИНДИКАТОРОВ
+		# УПРОЩЁННАЯ ПРОВЕРКА КРИТИЧЕСКИХ КОНФЛИКТОВ (v5.5)
 		# ====================================================================
 		
-		# Игнорируем сигналы, когда индикаторы сильно расходятся
+		# Теперь проверяем только КРИТИЧЕСКИЕ конфликты, которые действительно важны
+		# Убираем мелкие конфликты, которые блокировали хорошие сигналы
 		indicator_conflicts = []
 		conflict_detected = False
 		
-		# 1. RSI vs MACD - проверка согласованности осцилляторов
-		rsi_bullish = rsi < RSI_OVERSOLD_NEAR  # RSI показывает бычий сигнал
-		rsi_bearish = rsi > RSI_OVERBOUGHT_NEAR  # RSI показывает медвежий сигнал
-		macd_bullish = macd > macd_signal and macd_hist > 0
-		macd_bearish = macd < macd_signal and macd_hist < 0
+		# КРИТИЧЕСКИЙ КОНФЛИКТ #1: Экстремальное расхождение осцилляторов
+		# Блокируем только если RSI и Stoch показывают ПРОТИВОПОЛОЖНЫЕ экстремумы
+		rsi_extreme_oversold = rsi < 25  # Очень перепродан
+		rsi_extreme_overbought = rsi > 75  # Очень перекуплен
+		stoch_extreme_oversold = stoch_k < 15  # Очень перепродан
+		stoch_extreme_overbought = stoch_k > 85  # Очень перекуплен
 		
-		if rsi_bullish and macd_bearish:
-			indicator_conflicts.append("⚠️ RSI бычий, но MACD медвежий")
+		if rsi_extreme_oversold and stoch_extreme_overbought:
+			indicator_conflicts.append("⚠️ КРИТИЧНО: RSI перепродан, но Stochastic перекуплен")
 			conflict_detected = True
-		elif rsi_bearish and macd_bullish:
-			indicator_conflicts.append("⚠️ RSI медвежий, но MACD бычий")
-			conflict_detected = True
-		
-		# 2. EMA тренд vs MACD - тренд и моментум должны совпадать
-		ema_trend_up = ema_s > ema_l
-		ema_trend_down = ema_s < ema_l
-		
-		if ema_trend_up and macd_bearish:
-			indicator_conflicts.append("⚠️ EMA показывает восходящий тренд, но MACD медвежий")
-			conflict_detected = True
-		elif ema_trend_down and macd_bullish:
-			indicator_conflicts.append("⚠️ EMA показывает нисходящий тренд, но MACD бычий")
+		elif rsi_extreme_overbought and stoch_extreme_oversold:
+			indicator_conflicts.append("⚠️ КРИТИЧНО: RSI перекуплен, но Stochastic перепродан")
 			conflict_detected = True
 		
-		# 3. Stochastic vs RSI - осцилляторы должны быть согласованы
-		stoch_oversold = stoch_k < STOCH_OVERSOLD
-		stoch_overbought = stoch_k > STOCH_OVERBOUGHT
+		# КРИТИЧЕСКИЙ КОНФЛИКТ #2: Сильный нисходящий тренд + попытка BUY
+		# Блокируем BUY только если ВСЕ трендовые индикаторы медвежьи + сильный downtrend
+		ema_strong_down = ema_s < ema_l and sma_20 < sma_50
+		macd_strong_bearish = macd < macd_signal and macd_hist < -0.0005  # Сильный negative momentum
+		lr_strong_down = trend_direction == -1 and trend_strength > 0.7
 		
-		if stoch_oversold and rsi > 60:  # Stoch перепродан, но RSI высокий
-			indicator_conflicts.append("⚠️ Stochastic перепродан, но RSI высокий")
-			conflict_detected = True
-		elif stoch_overbought and rsi < 40:  # Stoch перекуплен, но RSI низкий
-			indicator_conflicts.append("⚠️ Stochastic перекуплен, но RSI низкий")
-			conflict_detected = True
+		if ema_strong_down and macd_strong_bearish and lr_strong_down:
+			indicator_conflicts.append("⚠️ КРИТИЧНО: Все индикаторы показывают сильный downtrend")
+			# Не блокируем полностью - просто предупреждение, т.к. может быть MR opportunity
 		
-		# 4. Линейная регрессия vs индикаторы - тренд должен подтверждаться
-		if trend_strength > 0.5:  # Сильный тренд по ЛР
-			if trend_direction == 1 and macd_bearish and rsi_bearish:
-				indicator_conflicts.append("⚠️ ЛР показывает восходящий тренд, но MACD и RSI медвежьи")
-				conflict_detected = True
-			elif trend_direction == -1 and macd_bullish and rsi_bullish:
-				indicator_conflicts.append("⚠️ ЛР показывает нисходящий тренд, но MACD и RSI бычьи")
-				conflict_detected = True
-		
-		# 5. Противоположные экстремумы - критический конфликт
-		extreme_oversold = rsi < RSI_OVERSOLD and stoch_k < STOCH_OVERSOLD
-		extreme_overbought = rsi > RSI_OVERBOUGHT and stoch_k > STOCH_OVERBOUGHT
-		
-		if extreme_oversold and ema_trend_down and macd_bearish:
-			# Все показывают на продолжение падения, но осцилляторы в перепроданности
-			# Возможен разворот, но это конфликт для SHORT
-			pass  # Это нормальная ситуация для потенциального BUY
-		elif extreme_overbought and ema_trend_up and macd_bullish:
-			# Все показывают на продолжение роста, но осцилляторы в перекупленности
-			# Возможен разворот, но это конфликт для LONG
-			pass  # Это нормальная ситуация для потенциального SELL
+		# Убраны:
+		# - RSI vs MACD конфликт (часто ложный)
+		# - EMA vs MACD конфликт (нормальная дивергенция)
+		# - Stoch vs RSI мелкие конфликты (разные периоды)
+		# - ЛР vs индикаторы (ЛР может отставать)
 		
 		# Добавляем информацию о конфликтах в reasons
 		if indicator_conflicts:
