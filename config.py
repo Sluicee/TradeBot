@@ -11,8 +11,8 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OWNER_CHAT_ID = os.getenv("OWNER_CHAT_ID")  # ID владельца бота
 
 # Настройки по умолчанию (захардкожены в конфиге)
-DEFAULT_SYMBOL = "BTCUSDT"
-DEFAULT_INTERVAL = "1h"
+DEFAULT_SYMBOL = "BNBUSDT"  # Лучший результат в тестах: +11.5% за 41.7 дней
+DEFAULT_INTERVAL = "1h"  # 1h для Hybrid Strategy (оптимально)
 
 # Настройки фонового мониторинга
 POLL_INTERVAL = 60  # Базовый интервал проверки сигналов (секунды)
