@@ -21,7 +21,7 @@ from signal_generator import SignalGenerator
 from config import (
 	COMMISSION_RATE, INITIAL_BALANCE,
 	# Mean Reversion параметры v4
-	MR_TAKE_PROFIT_PERCENT, MR_STOP_LOSS_PERCENT, MR_MAX_HOLDING_HOURS_V4,
+	MR_TAKE_PROFIT_PERCENT, MR_STOP_LOSS_PERCENT, MR_MAX_HOLDING_HOURS,
 	# Трейлинг стоп v4 (двухуровневый)
 	USE_TRAILING_STOP_MR, MR_TRAILING_ACTIVATION, MR_TRAILING_DISTANCE,
 	MR_TRAILING_AGGRESSIVE_ACTIVATION, MR_TRAILING_AGGRESSIVE_DISTANCE
@@ -336,40 +336,40 @@ class MeanReversionBacktest:
 					self.position = 0.0
 					self.entry_price = None
 					continue
+			
+			# v4: Таймаут (max holding time)
+			if hours_held > MR_MAX_HOLDING_HOURS:
+				sell_value = self.position * price
+				commission = sell_value * COMMISSION_RATE
+				total_commission += commission
+				self.balance += sell_value - commission
 				
-				# v4: Таймаут (max holding time)
-				if hours_held > MR_MAX_HOLDING_HOURS_V4:
-					sell_value = self.position * price
-					commission = sell_value * COMMISSION_RATE
-					total_commission += commission
-					self.balance += sell_value - commission
-					
-					self.trades.append({
-						"symbol": self.symbol,
-						"entry_time": self.entry_time,
-						"entry_price": self.entry_price,
-						"entry_zscore": self.entry_zscore,
-						"exit_time": current_time,
-						"exit_price": price,
-						"pnl_percent": pnl_percent * 100,
-						"pnl_usd": (sell_value - commission) - (self.entry_price * self.position),
-						"reason": "TIMEOUT",
-						"hours_held": hours_held
-					})
-					
-					self.zscore_pnl_data.append({
-						"zscore": self.entry_zscore,
-						"pnl": pnl_percent * 100
-					})
-					
-					if pnl_percent > 0:
-						wins += 1
-					else:
-						losses += 1
-					
-					self.position = 0.0
-					self.entry_price = None
-					continue
+				self.trades.append({
+					"symbol": self.symbol,
+					"entry_time": self.entry_time,
+					"entry_price": self.entry_price,
+					"entry_zscore": self.entry_zscore,
+					"exit_time": current_time,
+					"exit_price": price,
+					"pnl_percent": pnl_percent * 100,
+					"pnl_usd": (sell_value - commission) - (self.entry_price * self.position),
+					"reason": "TIMEOUT",
+					"hours_held": hours_held
+				})
+				
+				self.zscore_pnl_data.append({
+					"zscore": self.entry_zscore,
+					"pnl": pnl_percent * 100
+				})
+				
+				if pnl_percent > 0:
+					wins += 1
+				else:
+					losses += 1
+				
+				self.position = 0.0
+				self.entry_price = None
+				continue
 			
 			# Вход в позицию
 			if signal == "BUY" and self.position == 0 and self.balance > 0:

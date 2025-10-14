@@ -9,7 +9,7 @@ from config import (
 	TELEGRAM_TOKEN, OWNER_CHAT_ID, DEFAULT_SYMBOL, DEFAULT_INTERVAL,
 	POLL_INTERVAL, POLL_INTERVAL_MIN, POLL_INTERVAL_MAX,
 	VOLATILITY_WINDOW, VOLATILITY_THRESHOLD,
-	VOLATILITY_HIGH_THRESHOLD, VOLATILITY_LOW_THRESHOLD, VOLATILITY_ALERT_COOLDOWN,
+	POLL_VOLATILITY_HIGH_THRESHOLD, POLL_VOLATILITY_LOW_THRESHOLD, VOLATILITY_ALERT_COOLDOWN,
 	INITIAL_BALANCE, STRATEGY_MODE, ADX_WINDOW
 )
 from signal_logger import log_signal
@@ -610,17 +610,17 @@ class TelegramBot:
 		avg_volatility = sum(abs(v) for v in volatilities) / len(volatilities)
 		
 		# Высокая волатильность - проверяем реже (снижаем спам)
-		if avg_volatility >= VOLATILITY_HIGH_THRESHOLD:
+		if avg_volatility >= POLL_VOLATILITY_HIGH_THRESHOLD:
 			interval = POLL_INTERVAL_MAX
 			logger.info(f"Высокая волатильность {avg_volatility*100:.2f}%, увеличиваю интервал до {interval}с")
 		# Низкая волатильность - можно проверять чаще
-		elif avg_volatility <= VOLATILITY_LOW_THRESHOLD:
+		elif avg_volatility <= POLL_VOLATILITY_LOW_THRESHOLD:
 			interval = POLL_INTERVAL_MIN
 			logger.info(f"Низкая волатильность {avg_volatility*100:.2f}%, интервал {interval}с")
 		# Умеренная волатильность - линейная интерполяция
 		else:
 			# Интерполируем между MIN и MAX
-			ratio = (avg_volatility - VOLATILITY_LOW_THRESHOLD) / (VOLATILITY_HIGH_THRESHOLD - VOLATILITY_LOW_THRESHOLD)
+			ratio = (avg_volatility - POLL_VOLATILITY_LOW_THRESHOLD) / (POLL_VOLATILITY_HIGH_THRESHOLD - POLL_VOLATILITY_LOW_THRESHOLD)
 			interval = int(POLL_INTERVAL_MIN + (POLL_INTERVAL_MAX - POLL_INTERVAL_MIN) * ratio)
 			logger.info(f"Умеренная волатильность {avg_volatility*100:.2f}%, интервал {interval}с")
 		
@@ -852,11 +852,11 @@ class TelegramBot:
 				f"  • Базовый: {self.poll_interval} сек\n"
 				f"  • Диапазон: {POLL_INTERVAL_MIN}-{POLL_INTERVAL_MAX} сек\n\n"
 				f"<b>Волатильность:</b>\n"
-				f"  • Окно: {self.volatility_window} свечей\n"
-				f"  • Порог алерта: {self.volatility_threshold*100:.2f}%\n"
-				f"  • Порог высокой: {VOLATILITY_HIGH_THRESHOLD*100:.2f}%\n"
-				f"  • Порог низкой: {VOLATILITY_LOW_THRESHOLD*100:.2f}%\n"
-				f"  • Cooldown: {VOLATILITY_ALERT_COOLDOWN/60:.0f} мин\n\n"
+			f"  • Окно: {self.volatility_window} свечей\n"
+			f"  • Порог алерта: {self.volatility_threshold*100:.2f}%\n"
+			f"  • Порог высокой: {POLL_VOLATILITY_HIGH_THRESHOLD*100:.2f}%\n"
+			f"  • Порог низкой: {POLL_VOLATILITY_LOW_THRESHOLD*100:.2f}%\n"
+			f"  • Cooldown: {VOLATILITY_ALERT_COOLDOWN/60:.0f} мин\n\n"
 				f"<i>При высокой волатильности интервал автоматически\n"
 				f"увеличивается до {POLL_INTERVAL_MAX}с для снижения спама</i>"
 			)

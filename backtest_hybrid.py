@@ -18,7 +18,7 @@ from signal_generator import SignalGenerator
 from config import (
 	COMMISSION_RATE, INITIAL_BALANCE,
 	# Mean Reversion параметры v5
-	MR_TAKE_PROFIT_PERCENT, MR_STOP_LOSS_PERCENT, MR_MAX_HOLDING_HOURS_V4,
+	MR_TAKE_PROFIT_PERCENT, MR_STOP_LOSS_PERCENT, MR_MAX_HOLDING_HOURS,
 	# Трейлинг стоп v5
 	USE_TRAILING_STOP_MR, MR_TRAILING_ACTIVATION, MR_TRAILING_DISTANCE,
 	MR_TRAILING_AGGRESSIVE_ACTIVATION, MR_TRAILING_AGGRESSIVE_DISTANCE,
@@ -290,10 +290,10 @@ class HybridBacktest:
 				
 				# Используем динамический SL если доступен (для MR)
 				if self.entry_mode == "MEAN_REVERSION":
-					current_sl = self.entry_sl if self.entry_sl else MR_STOP_LOSS_PERCENT
-					current_tp = self.entry_tp if self.entry_tp else MR_TAKE_PROFIT_PERCENT
-					max_holding = MR_MAX_HOLDING_HOURS_V4
-				else:  # TF
+				current_sl = self.entry_sl if self.entry_sl else MR_STOP_LOSS_PERCENT
+				current_tp = self.entry_tp if self.entry_tp else MR_TAKE_PROFIT_PERCENT
+				max_holding = MR_MAX_HOLDING_HOURS
+			else:  # TF
 					current_sl = 0.05  # 5% SL для TF
 					current_tp = 0.05  # 5% TP для TF
 					max_holding = MAX_HOLDING_HOURS
