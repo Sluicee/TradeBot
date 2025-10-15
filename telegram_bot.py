@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 import json
 import html
+import math
 from datetime import datetime
 from telegram import Update, __version__ as tg_version
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -18,20 +19,8 @@ from signal_generator import SignalGenerator
 from paper_trader import PaperTrader
 from logger import logger
 from database import db
-import math
+from telegram_handlers import TelegramHandlers
 
-def format_price(price: float) -> str:
-	"""Адаптивное форматирование цены в зависимости от величины"""
-	if price >= 1000:
-		return f"${price:,.2f}"  # 1,234.56
-	elif price >= 1:
-		return f"${price:.4f}"  # 12.3456
-	elif price >= 0.0001:
-		# Для маленьких цен показываем значащие цифры
-		decimals = max(4, abs(int(math.log10(abs(price)))) + 3)
-		return f"${price:.{decimals}f}"
-	else:
-		return f"${price:.8f}"  # Совсем маленькие цены
 
 class TelegramBot:
 	def __init__(self, token: str, default_symbol: str = "BTCUSDT", default_interval: str = "1m"):
@@ -55,8 +44,6 @@ class TelegramBot:
 			self.owner_chat_id = None
 		
 		self._load_tracked_symbols()
-		self.application = Application.builder().token(self.token).build()
-		self._register_handlers()
 		self.last_signals: dict[str, str] = {}
 		self.last_volatility_alert: dict[str, float] = {}
 		self.last_volatility_alert_time: dict[str, float] = {}  # Время последнего уведомления о волатильности
@@ -70,6 +57,13 @@ class TelegramBot:
 		self.last_mode = None  # "MR" или "TF"
 		self.last_mode_time = 0  # часов в текущем режиме
 		self.last_mode_update = datetime.now()  # datetime последнего обновления (инициализируем сразу!)
+		
+		# Инициализируем обработчики команд ПЕРЕД регистрацией
+		self.handlers = TelegramHandlers(self)
+		
+		# Теперь можем зарегистрировать обработчики
+		self.application = Application.builder().token(self.token).build()
+		self._register_handlers()
 
 	def _is_authorized(self, update: Update) -> bool:
 		"""Проверяет, что пользователь является владельцем бота"""
@@ -97,7 +91,6 @@ class TelegramBot:
 		if use_mtf and symbol and hasattr(self, 'data_provider'):
 			try:
 				# MTF анализ - асинхронный
-				import asyncio
 				loop = asyncio.get_event_loop()
 				return loop.run_until_complete(
 					generator.generate_signal_multi_timeframe(
@@ -136,35 +129,36 @@ class TelegramBot:
 			return generator.generate_signal()
 	
 	def _register_handlers(self):
-		self.application.add_handler(CommandHandler("start", self.start))
-		self.application.add_handler(CommandHandler("help", self.help))
-		self.application.add_handler(CommandHandler("status", self.status))
-		self.application.add_handler(CommandHandler("analyze", self.analyze))
-		self.application.add_handler(CommandHandler("mtf_signal", self.mtf_signal))
-		self.application.add_handler(CommandHandler("add", self.add_symbol))
-		self.application.add_handler(CommandHandler("remove", self.remove_symbol))
-		self.application.add_handler(CommandHandler("list", self.list_symbols))
-		self.application.add_handler(CommandHandler("settings", self.settings))
+		# Основные команды
+		self.application.add_handler(CommandHandler("start", self.handlers.start))
+		self.application.add_handler(CommandHandler("help", self.handlers.help))
+		self.application.add_handler(CommandHandler("status", self.handlers.status))
+		self.application.add_handler(CommandHandler("analyze", self.handlers.analyze))
+		self.application.add_handler(CommandHandler("mtf_signal", self.handlers.mtf_signal))
+		self.application.add_handler(CommandHandler("add", self.handlers.add_symbol))
+		self.application.add_handler(CommandHandler("remove", self.handlers.remove_symbol))
+		self.application.add_handler(CommandHandler("list", self.handlers.list_symbols))
+		self.application.add_handler(CommandHandler("settings", self.handlers.settings))
 		
 		# Paper Trading
-		self.application.add_handler(CommandHandler("paper_start", self.paper_start))
-		self.application.add_handler(CommandHandler("paper_stop", self.paper_stop))
-		self.application.add_handler(CommandHandler("paper_status", self.paper_status))
-		self.application.add_handler(CommandHandler("paper_balance", self.paper_balance))
-		self.application.add_handler(CommandHandler("paper_trades", self.paper_trades))
-		self.application.add_handler(CommandHandler("paper_reset", self.paper_reset))
-		self.application.add_handler(CommandHandler("paper_backtest", self.paper_backtest))
-		self.application.add_handler(CommandHandler("paper_debug", self.paper_debug))
-		self.application.add_handler(CommandHandler("paper_candidates", self.paper_candidates))
-		self.application.add_handler(CommandHandler("paper_force_buy", self.paper_force_buy))
+		self.application.add_handler(CommandHandler("paper_start", self.handlers.paper_start))
+		self.application.add_handler(CommandHandler("paper_stop", self.handlers.paper_stop))
+		self.application.add_handler(CommandHandler("paper_status", self.handlers.paper_status))
+		self.application.add_handler(CommandHandler("paper_balance", self.handlers.paper_balance))
+		self.application.add_handler(CommandHandler("paper_trades", self.handlers.paper_trades))
+		self.application.add_handler(CommandHandler("paper_reset", self.handlers.paper_reset))
+		self.application.add_handler(CommandHandler("paper_backtest", self.handlers.paper_backtest))
+		self.application.add_handler(CommandHandler("paper_debug", self.handlers.paper_debug))
+		self.application.add_handler(CommandHandler("paper_candidates", self.handlers.paper_candidates))
+		self.application.add_handler(CommandHandler("paper_force_buy", self.handlers.paper_force_buy))
 		
 		# Kelly Criterion и Averaging
-		self.application.add_handler(CommandHandler("kelly_info", self.kelly_info))
-		self.application.add_handler(CommandHandler("averaging_status", self.averaging_status))
+		self.application.add_handler(CommandHandler("kelly_info", self.handlers.kelly_info))
+		self.application.add_handler(CommandHandler("averaging_status", self.handlers.averaging_status))
 		
 		# Диагностика сигналов (v5.5)
-		self.application.add_handler(CommandHandler("signal_stats", self.signal_stats))
-		self.application.add_handler(CommandHandler("signal_analysis", self.signal_analysis))
+		self.application.add_handler(CommandHandler("signal_stats", self.handlers.signal_stats))
+		self.application.add_handler(CommandHandler("signal_analysis", self.handlers.signal_analysis))
 
 	# -----------------------------
 	# Работа с БД
@@ -226,386 +220,6 @@ class TelegramBot:
 		except Exception as e:
 			logger.error(f"Ошибка сохранения в БД: {e}")
 			raise
-
-	# -------------------------
-	# Форматирование вывода
-	# -------------------------
-	def format_analysis(self, result, symbol, interval):
-		def html_escape(s):
-			s = str(s)
-			s = s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
-			return s
-
-		def fmt_price(val):
-			"""Форматирование цены (2 знака для USDT пар)"""
-			if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
-				return 'н/д'
-			if isinstance(val, float):
-				# Для больших цен (>1000) показываем 2 знака, для маленьких (<1) - 8
-				if val > 1000:
-					return f'{val:.2f}'
-				elif val > 1:
-					return f'{val:.4f}'
-				else:
-					return f'{val:.8f}'
-			return str(val)
-		
-		def fmt_indicator(val):
-			"""Форматирование индикаторов (RSI, ADX) - 1 знак после запятой"""
-			if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
-				return 'н/д'
-			if isinstance(val, (int, float)) and val == 0:
-				return 'н/д'
-			return f'{val:.1f}' if isinstance(val, float) else str(val)
-
-		# Извлекаем данные
-		signal = html_escape(result.get('signal', 'HOLD'))
-		emoji = result.get('signal_emoji', '⚠️')
-		price = result.get('price', 0)
-		rsi = result.get('RSI', 0)
-		adx = result.get('ADX', 0)
-		
-		# Определяем режим
-		market_regime = result.get('market_regime', 'NEUTRAL')
-		strategy_mode = result.get('strategy', 'UNKNOWN')
-		
-		# Проверяем MTF
-		is_mtf = result.get('mtf_enabled', False)
-		alignment = result.get('alignment_strength', 0)
-		
-		# Основная информация
-		lines = [
-			f"<b>{html_escape(symbol)}</b> {emoji} <b>{signal}</b>",
-			f"💰 Цена: <code>${fmt_price(price)}</code> | 📊 RSI: <code>{fmt_indicator(rsi)}</code> | ADX: <code>{fmt_indicator(adx)}</code>"
-		]
-		
-		# Режим стратегии
-		if market_regime != 'NEUTRAL':
-			lines.append(f"🎯 Режим: <b>{market_regime}</b>")
-		
-		# MTF информация
-		if is_mtf:
-			lines.append(f"🔀 MTF: согласованность {alignment*100:.0f}%")
-		
-		# Первые 2 причины (самые важные)
-		if result.get("reasons"):
-			lines.append(f"\n📝 <i>{html_escape(result['reasons'][0])}</i>")
-			if len(result["reasons"]) > 1:
-				lines.append(f"<i>{html_escape(result['reasons'][1])}</i>")
-		
-		return "\n".join(lines)
-
-	def format_volatility(self, symbol, interval, change, close_price, window):
-		direction = "↑" if change > 0 else "↓"
-		return f"<b>{symbol}</b> ⚠️ {change*100:.2f}% {direction} | Цена: {close_price:.8f}"
-
-	# -------------------------
-	# Основные команды
-	# -------------------------
-	async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		if not self._is_authorized(update):
-			await update.message.reply_text(
-				"🚫 <b>Доступ запрещен</b>\n\n"
-				"Этот бот настроен только для владельца.\n"
-				f"Ваш ID: <code>{update.effective_chat.id}</code>\n\n"
-				"Если это ваш бот, добавьте свой ID в файл .env:\n"
-				"<code>OWNER_CHAT_ID={}</code>".format(update.effective_chat.id),
-				parse_mode="HTML"
-			)
-			return
-		
-		text = (
-			"<b>👋 Привет! Я — бот для анализа криптовалют.</b>\n\n"
-			"<b>Основные команды:</b>\n"
-			"• /start — показать это сообщение\n"
-			"• /help — помощь по командам\n"
-			"• /status — статус бота и отслеживаемые пары\n"
-			"• /analyze [SYMBOL] [INTERVAL] — анализ пары\n"
-			"• /mtf_signal SYMBOL — multi-timeframe анализ\n"
-			"• /add SYMBOL — добавить пару в отслеживаемые\n"
-			"• /remove SYMBOL — удалить пару из отслеживаемых\n"
-			"• /list — показать все отслеживаемые пары\n\n"
-			"<b>📊 Paper Trading:</b>\n"
-			"• /paper_start [баланс] — запустить виртуальную торговлю\n"
-			"• /paper_stop — остановить и закрыть все позиции\n"
-			"• /paper_status — текущий статус и позиции\n"
-			"• /paper_balance — детали баланса\n"
-			"• /paper_trades [N] — последние N сделок\n"
-			"• /paper_backtest [часы] — быстрая симуляция на истории\n"
-			"• /paper_debug [SYMBOL] — отладка сигналов\n"
-			"• /paper_candidates — показать кандидатов на сделку\n"
-			"• /paper_reset — сбросить баланс и историю\n\n"
-			"<b>🔬 Аналитика и настройки:</b>\n"
-			"• /kelly_info — информация о Kelly Criterion\n"
-			"• /averaging_status — статус докупаний\n"
-			"• /settings — настройки бота"
-		)
-		await update.message.reply_text(text, parse_mode="HTML")
-		
-		if self.chat_id is None:
-			self.chat_id = update.effective_chat.id
-			self._save_tracked_symbols()
-
-	async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		text = (
-			"<b>🆘 Помощь:</b>\n\n"
-			"<b>Анализ:</b>\n"
-			"• /analyze SYMBOL INTERVAL — анализ указанной пары\n"
-			"• /mtf_signal SYMBOL — multi-timeframe анализ (15m+1h+4h)\n"
-			"• /add SYMBOL — добавить пару в отслеживаемые\n"
-			"• /remove SYMBOL — удалить пару из отслеживаемых\n"
-			"• /list — показать все отслеживаемые пары\n\n"
-			"<b>Paper Trading:</b>\n"
-			"• /paper_start [баланс] — запустить виртуальную торговлю\n"
-			"• /paper_stop — остановить и закрыть все позиции\n"
-			"• /paper_status — текущий статус и позиции\n"
-			"• /paper_balance — детали баланса\n"
-			"• /paper_trades [N] — последние N сделок\n"
-			"• /paper_backtest [часы] — быстрая симуляция на истории\n"
-			"• /paper_debug [SYMBOL] — отладка сигналов\n"
-			"• /paper_candidates — показать кандидатов на сделку\n"
-			"• /paper_force_buy [SYMBOL] — принудительная покупка\n"
-			"• /paper_reset — сбросить баланс и историю\n\n"
-			"<b>Аналитика:</b>\n"
-			"• /kelly_info — информация о Kelly Criterion\n"
-			"• /averaging_status — статус докупаний\n"
-			"• /signal_stats — статистика сигналов v5.5 🆕\n"
-			"• /signal_analysis — детальный анализ голосов 🆕\n\n"
-			"<b>Настройки:</b>\n"
-			"• /settings — настройки интервала опроса и волатильности\n\n"
-			"<i>Если SYMBOL и INTERVAL не указаны, используются значения по умолчанию.</i>"
-		)
-		await update.message.reply_text(text, parse_mode="HTML")
-
-	async def status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		symbols = ", ".join(self.tracked_symbols) if self.tracked_symbols else "нет"
-		text = (
-			f"<b>ℹ️ Статус бота</b>\n"
-			f"• Версия библиотеки: python-telegram-bot {tg_version}\n"
-			f"• Символ по умолчанию: {self.default_symbol}\n"
-			f"• Интервал по умолчанию: {self.default_interval}\n"
-			f"• Отслеживаемые пары: {symbols}\n"
-			f"• Статус: ✅ OK"
-		)
-		await update.message.reply_text(text, parse_mode="HTML")
-		
-		if self.chat_id is None:
-			self.chat_id = update.effective_chat.id
-			self._save_tracked_symbols()
-
-	# -------------------------
-	# Управление парами
-	# -------------------------
-	async def add_symbol(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		if not context.args:
-			await update.message.reply_text("⚠️ Использование: /add SYMBOL")
-			return
-		symbol = context.args[0].upper()
-		if symbol in self.tracked_symbols:
-			await update.message.reply_text(f"ℹ️ {symbol} уже в списке отслеживаемых.")
-		else:
-			self.tracked_symbols.add(symbol)
-			self._save_tracked_symbols()
-			await update.message.reply_text(f"✅ {symbol} добавлен в список отслеживаемых.")
-
-	async def remove_symbol(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		if not context.args:
-			await update.message.reply_text("⚠️ Использование: /remove SYMBOL")
-			return
-		symbol = context.args[0].upper()
-		if symbol in self.tracked_symbols:
-			self.tracked_symbols.remove(symbol)
-			self._save_tracked_symbols()
-			await update.message.reply_text(f"✅ {symbol} удалён из списка отслеживаемых.")
-		else:
-			await update.message.reply_text(f"ℹ️ {symbol} нет в списке отслеживаемых.")
-
-	async def list_symbols(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		if self.tracked_symbols:
-			text = "<b>📋 Отслеживаемые пары:</b>\n" + "\n".join([f"• {s}" for s in self.tracked_symbols])
-		else:
-			text = "📋 Список отслеживаемых пар пуст."
-		await update.message.reply_text(text, parse_mode="HTML")
-
-
-	# -------------------------
-	# Анализ пары
-	# -------------------------
-	async def analyze(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		args = context.args or []
-		symbol = args[0].upper() if len(args) >= 1 else self.default_symbol
-		interval = args[1] if len(args) >= 2 else self.default_interval
-
-		msg = await update.message.reply_text(f"Запрашиваю данные для {symbol} {interval}...")
-
-		try:
-			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				klines = await provider.fetch_klines(symbol=symbol, interval=interval, limit=500)
-				df = provider.klines_to_dataframe(klines)
-
-				if df.empty:
-					await msg.edit_text("Не удалось получить данные от ByBIT.")
-					return
-
-				generator = SignalGenerator(df)
-				generator.compute_indicators()
-				
-				# Если MTF включен - используем MTF анализ напрямую
-				from config import USE_MULTI_TIMEFRAME, STRATEGY_MODE
-				if USE_MULTI_TIMEFRAME:
-					result = await generator.generate_signal_multi_timeframe(
-						data_provider=provider,
-						symbol=symbol,
-						strategy=STRATEGY_MODE
-					)
-				else:
-					result = self._generate_signal_with_strategy(generator, symbol=symbol)
-
-			text = self.format_analysis(result, symbol, interval)
-			await msg.edit_text(text, parse_mode="HTML")
-		except Exception as e:
-			await msg.edit_text(f"Ошибка при анализе: {e}")
-	
-	async def mtf_signal(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""🔀 Multi-timeframe анализ сигнала"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		if not context.args:
-			await update.message.reply_text("⚠️ Использование: /mtf_signal SYMBOL")
-			return
-		
-		symbol = context.args[0].upper()
-		msg = await update.message.reply_text(f"🔍 Multi-timeframe анализ {symbol}...")
-		
-		try:
-			from config import MTF_TIMEFRAMES, STRATEGY_MODE
-			
-			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				
-				# Загружаем данные для основного таймфрейма
-				klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=200)
-				df = provider.klines_to_dataframe(klines)
-				
-				if df.empty:
-					await msg.edit_text("⚠️ Не удалось получить данные")
-					return
-				
-				# Генерируем MTF сигнал напрямую (async) - ВНУТРИ async with!
-				generator = SignalGenerator(df)
-				generator.compute_indicators()
-				result = await generator.generate_signal_multi_timeframe(
-					data_provider=provider,
-					symbol=symbol,
-					strategy=STRATEGY_MODE
-				)
-			
-			# Форматируем вывод (после async with, но данные уже получены)
-			text = self._format_mtf_analysis(result, symbol)
-			await msg.edit_text(text, parse_mode="HTML")
-		
-		except Exception as e:
-			logger.error(f"Ошибка MTF анализа: {e}")
-			await msg.edit_text(f"❌ Ошибка: {e}")
-	
-	def _format_mtf_analysis(self, result: dict, symbol: str) -> str:
-		"""Форматирует вывод MTF анализа"""
-		from config import MTF_TIMEFRAMES
-		
-		signal = result.get("signal", "HOLD")
-		emoji = result.get("signal_emoji", "⚠️")
-		price = result.get("price", 0)
-		
-		# Основная информация
-		lines = [
-			f"🔀 <b>Multi-Timeframe Анализ: {symbol}</b>",
-			f"💰 Цена: <code>${price:.4f}</code>",
-			f"",
-			f"{emoji} <b>Итоговый сигнал: {signal}</b>",
-			f""
-		]
-		
-		# Информация по каждому таймфрейму
-		timeframe_signals = result.get("timeframe_signals", {})
-		if timeframe_signals:
-			lines.append("📊 <b>Сигналы по таймфреймам:</b>")
-			for tf in MTF_TIMEFRAMES:
-				tf_data = timeframe_signals.get(tf, {})
-				tf_signal = tf_data.get("signal", "HOLD")
-				tf_weight = tf_data.get("weight", 0)
-				tf_rsi = tf_data.get("RSI", 0)
-				tf_adx = tf_data.get("ADX", 0)
-				
-				# Emoji для сигнала
-				if tf_signal == "BUY":
-					tf_emoji = "🟢"
-				elif tf_signal == "SELL":
-					tf_emoji = "🔴"
-				else:
-					tf_emoji = "⚠️"
-				
-				lines.append(
-					f"  {tf_emoji} <b>{tf}</b>: {tf_signal} "
-					f"(вес: {tf_weight:.2f}, RSI: {tf_rsi:.1f}, ADX: {tf_adx:.1f})"
-				)
-			lines.append("")
-		
-		# Согласованность
-		alignment_strength = result.get("alignment_strength", 0)
-		buy_count = result.get("buy_count", 0)
-		sell_count = result.get("sell_count", 0)
-		hold_count = result.get("hold_count", 0)
-		
-		lines.append(f"🎯 <b>Согласованность:</b> {alignment_strength*100:.0f}%")
-		lines.append(f"   BUY: {buy_count} | SELL: {sell_count} | HOLD: {hold_count}")
-		lines.append("")
-		
-		# Weighted scores
-		buy_score = result.get("buy_score", 0)
-		sell_score = result.get("sell_score", 0)
-		hold_score = result.get("hold_score", 0)
-		
-		lines.append(f"⚖️ <b>Взвешенные оценки:</b>")
-		lines.append(f"   BUY: {buy_score:.2f} | SELL: {sell_score:.2f} | HOLD: {hold_score:.2f}")
-		lines.append("")
-		
-		# Причины
-		reasons = result.get("reasons", [])
-		if reasons:
-			lines.append("<b>📝 Причины:</b>")
-			for reason in reasons[:10]:  # Показываем первые 10
-				# Убираем emoji из причин для чистоты
-				clean_reason = reason.replace("📊", "").replace("✅", "").replace("⚠️", "").strip()
-				lines.append(f"  • {clean_reason}")
-		
-		return "\n".join(lines)
 
 	def _calculate_adaptive_poll_interval(self, volatilities: list[float]) -> int:
 		"""Вычисляет адаптивный интервал опроса на основе волатильности"""
@@ -679,20 +293,20 @@ class TelegramBot:
 						profit_percent = action.get('profit_percent', 0)
 						
 						if trade_type == "STOP-LOSS":
-							msg = f"🛑 <b>STOP-LOSS</b> {symbol}\n  Цена: {format_price(price)}\n  Убыток: ${profit:+.2f} ({profit_percent:+.2f}%)"
+							msg = f"🛑 <b>STOP-LOSS</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Убыток: ${profit:+.2f} ({profit_percent:+.2f}%)"
 						elif trade_type == "PARTIAL-TP":
-							msg = f"💎 <b>PARTIAL TP</b> {symbol}\n  Цена: {format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)\n  Закрыто: 50%, активен trailing stop"
+							msg = f"💎 <b>PARTIAL TP</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)\n  Закрыто: 50%, активен trailing stop"
 						elif trade_type == "TRAILING-STOP":
-							msg = f"🔻 <b>TRAILING STOP</b> {symbol}\n  Цена: {format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)"
+							msg = f"🔻 <b>TRAILING STOP</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)"
 						else:
-							msg = f"📊 <b>{trade_type}</b> {symbol} @ {format_price(price)}"
+							msg = f"📊 <b>{trade_type}</b> {symbol} @ {self.handlers.formatters.format_price(price)}"
 							
 						all_messages.append(msg)
-						logger.info(f"[PAPER] {trade_type} {symbol} @ {format_price(price)}")
+						logger.info(f"[PAPER] {trade_type} {symbol} @ {self.handlers.formatters.format_price(price)}")
 						
-					# Сохраняем состояние если были действия
-					if actions:
-						self.paper_trader.save_state()
+						# Сохраняем состояние если были действия
+						if actions:
+							self.paper_trader.save_state()
 				
 				# Анализируем отслеживаемые символы
 				for symbol in self.tracked_symbols:
@@ -715,7 +329,7 @@ class TelegramBot:
 
 						last = self.last_signals.get(symbol)
 						if last != signal:
-							text = self.format_analysis(result, symbol, self.default_interval)
+							text = self.handlers.formatters.format_analysis(result, symbol, self.default_interval)
 							all_messages.append(text)
 							self.last_signals[symbol] = signal
 							log_signal(symbol, self.default_interval, signal, result["reasons"], result["price"])
@@ -747,7 +361,7 @@ class TelegramBot:
 							price_changed_significantly = last_alert_price is None or abs(current_close - last_alert_price) / last_alert_price >= self.volatility_threshold * 0.5
 							
 							if abs(change) >= self.volatility_threshold and time_since_last_alert >= VOLATILITY_ALERT_COOLDOWN and price_changed_significantly:
-								text = self.format_volatility(symbol, self.default_interval, change, current_close, self.volatility_window)
+								text = self.handlers.formatters.format_volatility(symbol, self.default_interval, change, current_close, self.volatility_window)
 								all_messages.append(text)
 								self.last_volatility_alert[symbol] = current_close
 								self.last_volatility_alert_time[symbol] = current_time
@@ -807,7 +421,7 @@ class TelegramBot:
 							if trade_info:
 								msg = (
 									f"🟢 <b>КУПИЛ</b> {symbol} ({active_mode})\n"
-									f"  Цена: {format_price(price)}\n"
+									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
 									f"  Вложено: ${trade_info['invest_amount']:.2f} ({position_size_percent*100:.0f}%)\n"
 									f"  Голоса: +{bullish_votes}/-{bearish_votes} (Δ{bullish_votes-bearish_votes:+d})\n"
 									f"  Баланс: ${trade_info['balance_after']:.2f}"
@@ -824,7 +438,7 @@ class TelegramBot:
 								profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
 								msg = (
 									f"🟢📈 <b>ЗАКРЫЛ SHORT</b> {symbol}\n"
-									f"  Цена: {format_price(price)}\n"
+									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
 									f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
 									f"  Баланс: ${trade_info['balance_after']:.2f}"
 								)
@@ -846,10 +460,10 @@ class TelegramBot:
 							mode = trade_info.get("type", "AVERAGE")
 							msg = (
 								f"🟡 <b>ДОКУПИЛ</b> {symbol} ({mode})\n"
-								f"  Цена: {format_price(price)}\n"
+								f"  Цена: {self.handlers.formatters.format_price(price)}\n"
 								f"  Докуплено: ${trade_info['invest_amount']:.2f}\n"
 								f"  Попытка #{trade_info['averaging_count']}\n"
-								f"  Средняя цена: {format_price(trade_info['average_entry_price'])}\n"
+								f"  Средняя цена: {self.handlers.formatters.format_price(trade_info['average_entry_price'])}\n"
 								f"  Баланс: ${trade_info['balance_after']:.2f}"
 							)
 							all_messages.append(msg)
@@ -864,7 +478,7 @@ class TelegramBot:
 								profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
 								msg = (
 									f"🔴 <b>ПРОДАЛ</b> {symbol}\n"
-									f"  Цена: {format_price(price)}\n"
+									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
 									f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
 									f"  Баланс: ${trade_info['balance_after']:.2f}"
 								)
@@ -903,7 +517,7 @@ class TelegramBot:
 							if trade_info:
 								msg = (
 									f"🔴📉 <b>SHORT v{short_version}</b> {symbol}\n"
-									f"  Цена: {format_price(price)}\n"
+									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
 									f"  Размер: {short_position_size:.1%} (скор: {short_score:.2f})\n"
 									f"  Баланс: ${trade_info['balance_after']:.2f}"
 								)
@@ -934,1041 +548,6 @@ class TelegramBot:
 				self.current_poll_interval = POLL_INTERVAL
 			
 			await asyncio.sleep(self.current_poll_interval)
-
-	# -------------------------
-	# Настройки
-	# -------------------------
-	async def settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		args = context.args
-		if not args:
-			text = (
-				f"<b>⚙️ Текущие настройки:</b>\n\n"
-				f"<b>Интервал опроса:</b>\n"
-				f"  • Текущий: {self.current_poll_interval} сек\n"
-				f"  • Базовый: {self.poll_interval} сек\n"
-				f"  • Диапазон: {POLL_INTERVAL_MIN}-{POLL_INTERVAL_MAX} сек\n\n"
-				f"<b>Волатильность:</b>\n"
-			f"  • Окно: {self.volatility_window} свечей\n"
-			f"  • Порог алерта: {self.volatility_threshold*100:.2f}%\n"
-			f"  • Порог высокой: {POLL_VOLATILITY_HIGH_THRESHOLD*100:.2f}%\n"
-			f"  • Порог низкой: {POLL_VOLATILITY_LOW_THRESHOLD*100:.2f}%\n"
-			f"  • Cooldown: {VOLATILITY_ALERT_COOLDOWN/60:.0f} мин\n\n"
-				f"<i>При высокой волатильности интервал автоматически\n"
-				f"увеличивается до {POLL_INTERVAL_MAX}с для снижения спама</i>"
-			)
-			await update.message.reply_text(text, parse_mode="HTML")
-			return
-
-		try:
-			if len(args) >= 1:
-				self.poll_interval = int(args[0])
-			if len(args) >= 2:
-				self.volatility_window = int(args[1])
-			if len(args) >= 3:
-				self.volatility_threshold = float(args[2])
-			self._save_tracked_symbols()
-			await update.message.reply_text(
-				f"✅ Настройки обновлены:\n"
-				f"poll_interval = {self.poll_interval} сек\n"
-				f"volatility_window = {self.volatility_window} свечей\n"
-				f"volatility_threshold = {self.volatility_threshold*100:.2f}%"
-			)
-		except Exception as e:
-			await update.message.reply_text(f"Ошибка при обновлении настроек: {e}")
-
-	# -------------------------
-	# Paper Trading команды
-	# -------------------------
-	async def paper_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Запускает paper trading"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		if self.paper_trader.is_running:
-			await update.message.reply_text("⚠️ Paper Trading уже запущен!")
-			return
-		
-		# Опционально можно задать стартовый баланс
-		if context.args and len(context.args) > 0:
-			try:
-				initial_balance = float(context.args[0])
-				self.paper_trader = PaperTrader(initial_balance=initial_balance)
-			except ValueError:
-				await update.message.reply_text("⚠️ Неверный формат баланса. Используется значение по умолчанию $100")
-		
-		self.paper_trader.start()
-		self.paper_trader.save_state()
-		
-		text = (
-			f"<b>🚀 Paper Trading запущен!</b>\n\n"
-			f"💰 Стартовый баланс: ${self.paper_trader.initial_balance:.2f}\n"
-			f"📊 Стратегия: как в бэктестинге\n"
-			f"• Стоп-лосс: 5%\n"
-			f"• Тейк-профит: 10% (частичное 50%)\n"
-			f"• Trailing stop: 2%\n"
-			f"• Макс. позиций: 3\n\n"
-			f"Бот будет автоматически торговать по сигналам.\n"
-			f"Используйте /paper_status для проверки состояния."
-		)
-		await update.message.reply_text(text, parse_mode="HTML")
-		
-		if self.chat_id is None:
-			self.chat_id = update.effective_chat.id
-			self._save_tracked_symbols()
-
-	async def paper_stop(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Останавливает paper trading и закрывает все позиции"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		if not self.paper_trader.is_running:
-			await update.message.reply_text("⚠️ Paper Trading не запущен.")
-			return
-		
-		# Закрываем все открытые позиции по текущим ценам
-		if self.paper_trader.positions:
-			msg = await update.message.reply_text("⏳ Закрываю все позиции...")
-			
-			closed_positions = []
-			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				for symbol in list(self.paper_trader.positions.keys()):
-					try:
-						klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=1)
-						df = provider.klines_to_dataframe(klines)
-						if not df.empty:
-							current_price = float(df['close'].iloc[-1])
-							trade_info = self.paper_trader.close_position(symbol, current_price, "MANUAL-CLOSE")
-							if trade_info:
-								closed_positions.append(f"• {symbol}: {trade_info['profit']:+.2f} USD ({trade_info['profit_percent']:+.2f}%)")
-					except Exception as e:
-						logger.error(f"Ошибка закрытия позиции {symbol}: {e}")
-			
-			positions_text = "\n".join(closed_positions) if closed_positions else "Нет позиций для закрытия"
-		else:
-			positions_text = "Нет открытых позиций"
-		
-		self.paper_trader.stop()
-		self.paper_trader.save_state()
-		
-		status = self.paper_trader.get_status()
-		text = (
-			f"<b>⏸ Paper Trading остановлен</b>\n\n"
-			f"Закрыто позиций:\n{positions_text}\n\n"
-			f"💰 Итоговый баланс: ${status['total_balance']:.2f}\n"
-			f"📈 Прибыль: {status['total_profit']:+.2f} USD ({status['total_profit_percent']:+.2f}%)"
-		)
-		
-		if self.paper_trader.positions:
-			await msg.edit_text(text, parse_mode="HTML")
-		else:
-			await update.message.reply_text(text, parse_mode="HTML")
-
-	async def paper_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Показывает текущий статус paper trading"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		status = self.paper_trader.get_status()
-		
-		# Получаем текущие цены для расчета PnL
-		current_prices = {}
-		if status['positions']:
-			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				for pos in status['positions']:
-					symbol = pos['symbol']
-					try:
-						klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=1)
-						df = provider.klines_to_dataframe(klines)
-						if not df.empty:
-							current_prices[symbol] = float(df['close'].iloc[-1])
-					except:
-						current_prices[symbol] = pos['entry_price']
-		
-		# Пересчитываем PnL с текущими ценами
-		total_pnl = 0.0
-		positions_text = ""
-		for pos in status['positions']:
-			symbol = pos['symbol']
-			current_price = current_prices.get(symbol, pos['entry_price'])
-			position_obj = self.paper_trader.positions[symbol]
-			pnl_info = position_obj.get_pnl(current_price)
-			total_pnl += pnl_info['pnl']
-			
-			emoji = "🟢" if pnl_info['pnl'] > 0 else "🔴" if pnl_info['pnl'] < 0 else "⚪"
-			partial_mark = " [частично]" if pos['partial_closed'] else ""
-			
-			positions_text += (
-				f"  {emoji} <b>{symbol}</b>{partial_mark}\n"
-				f"    Вход: {format_price(pos['entry_price'])} → Сейчас: {format_price(current_price)}\n"
-				f"    PnL: ${pnl_info['pnl']:+.2f} ({pnl_info['pnl_percent']:+.2f}%)\n"
-				f"    SL: {format_price(pos['stop_loss'])} | TP: {format_price(pos['take_profit'])}\n\n"
-			)
-		
-		total_balance = status['current_balance'] + sum(
-			self.paper_trader.positions[pos['symbol']].get_pnl(current_prices.get(pos['symbol'], pos['entry_price']))['current_value']
-			for pos in status['positions']
-		)
-		
-		total_profit = total_balance - status['initial_balance']
-		total_profit_percent = (total_profit / status['initial_balance']) * 100
-		
-		status_emoji = "🟢" if status['is_running'] else "⏸"
-		
-		text = (
-			f"<b>{status_emoji} Paper Trading Status</b>\n\n"
-			f"💰 <b>Баланс:</b>\n"
-			f"  • Свободно: ${status['current_balance']:.2f}\n"
-			f"  • Всего: ${total_balance:.2f}\n"
-			f"  • Прибыль: {total_profit:+.2f} USD ({total_profit_percent:+.2f}%)\n\n"
-			f"📊 <b>Позиции ({len(status['positions'])}/{status.get('max_positions', 3)}):</b>\n"
-		)
-		
-		if positions_text:
-			text += positions_text
-		else:
-			text += "  Нет открытых позиций\n\n"
-		
-		text += (
-			f"📈 <b>Статистика:</b>\n"
-			f"  • Всего сделок: {status['stats']['total_trades']}\n"
-			f"  • Винрейт: {status['stats']['win_rate']:.1f}%\n"
-			f"  • Комиссии: ${status['stats']['total_commission']:.4f}\n"
-			f"  • Stop-loss: {status['stats']['stop_loss_triggers']}\n"
-			f"  • Take-profit: {status['stats']['take_profit_triggers']}\n"
-			f"  • Trailing-stop: {status['stats']['trailing_stop_triggers']}"
-		)
-		
-		await update.message.reply_text(text, parse_mode="HTML")
-
-	async def paper_balance(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Показывает детальную информацию о балансе"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		status = self.paper_trader.get_status()
-		
-		# Получаем текущие цены
-		current_prices = {}
-		if status['positions']:
-			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				for pos in status['positions']:
-					symbol = pos['symbol']
-					try:
-						klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=1)
-						df = provider.klines_to_dataframe(klines)
-						if not df.empty:
-							current_prices[symbol] = float(df['close'].iloc[-1])
-					except:
-						current_prices[symbol] = pos['entry_price']
-		
-		# Рассчитываем детали
-		total_invested = sum(
-			self.paper_trader.positions[pos['symbol']].invest_amount
-			for pos in status['positions']
-		)
-		
-		total_current_value = sum(
-			self.paper_trader.positions[pos['symbol']].get_pnl(current_prices.get(pos['symbol'], pos['entry_price']))['current_value']
-			for pos in status['positions']
-		)
-		
-		total_balance = status['current_balance'] + total_current_value
-		total_profit = total_balance - status['initial_balance']
-		total_profit_percent = (total_profit / status['initial_balance']) * 100
-		
-		text = (
-			f"<b>💰 Paper Trading Balance</b>\n\n"
-			f"<b>Начальный баланс:</b> ${status['initial_balance']:.2f}\n"
-			f"<b>Свободные средства:</b> ${status['current_balance']:.2f}\n"
-			f"<b>Инвестировано:</b> ${total_invested:.2f}\n"
-			f"<b>Текущая стоимость позиций:</b> ${total_current_value:.2f}\n"
-			f"<b>Общая стоимость:</b> ${total_balance:.2f}\n\n"
-			f"<b>{'📈' if total_profit >= 0 else '📉'} Прибыль/Убыток:</b> {total_profit:+.2f} USD ({total_profit_percent:+.2f}%)\n"
-			f"<b>💸 Комиссии:</b> ${status['stats']['total_commission']:.4f}\n\n"
-			f"<b>Процент использования капитала:</b> {(total_invested / status['initial_balance'] * 100):.1f}%"
-		)
-		
-		await update.message.reply_text(text, parse_mode="HTML")
-
-	async def paper_trades(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Показывает последние сделки"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-			
-		limit = 10
-		if context.args and len(context.args) > 0:
-			try:
-				limit = int(context.args[0])
-				limit = min(max(limit, 1), 50)  # От 1 до 50
-			except ValueError:
-				pass
-		
-		trades = self.paper_trader.trades_history[-limit:]
-		
-		if not trades:
-			await update.message.reply_text("📝 История сделок пуста.")
-			return
-		
-		text = f"<b>📝 Последние {len(trades)} сделок:</b>\n\n"
-		
-		for trade in reversed(trades):
-			trade_type = trade['type']
-			symbol = trade.get('symbol', 'N/A')
-			price = trade.get('price', 0)
-			
-			if trade_type == "BUY":
-				emoji = "🟢"
-				details = f"  Купил {trade['amount']:.6f} @ {format_price(price)}\n  Вложено: ${trade['invest_amount']:.2f}"
-			elif trade_type in ["SELL", "MANUAL-CLOSE"]:
-				emoji = "🔴"
-				profit_emoji = "📈" if trade['profit'] >= 0 else "📉"
-				details = f"  Продал {trade['amount']:.6f} @ {format_price(price)}\n  {profit_emoji} Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
-			elif trade_type == "STOP-LOSS":
-				emoji = "🛑"
-				details = f"  Стоп-лосс {trade['amount']:.6f} @ {format_price(price)}\n  📉 Убыток: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
-			elif trade_type == "PARTIAL-TP":
-				emoji = "💎"
-				details = f"  Частичный тейк {trade['amount']:.6f} @ {format_price(price)}\n  📈 Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
-			elif trade_type == "TRAILING-STOP":
-				emoji = "🔻"
-				details = f"  Trailing stop {trade['amount']:.6f} @ {format_price(price)}\n  📊 Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
-			else:
-				emoji = "⚪"
-				details = f"  {trade.get('amount', 0):.6f} @ {format_price(price)}"
-			
-			time_str = trade.get('time', 'N/A')
-			if isinstance(time_str, datetime):
-				time_str = time_str.strftime('%H:%M:%S')
-			elif isinstance(time_str, str) and 'T' in time_str:
-				time_str = time_str.split('T')[1].split('.')[0]
-			
-			text += f"{emoji} <b>{trade_type}</b> {symbol} [{time_str}]\n{details}\n\n"
-		
-		await update.message.reply_text(text, parse_mode="HTML")
-
-	async def paper_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Сбрасывает paper trading"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		if self.paper_trader.is_running:
-			await update.message.reply_text("⚠️ Сначала остановите Paper Trading командой /paper_stop")
-			return
-		
-		old_balance = self.paper_trader.balance
-		old_trades = len(self.paper_trader.trades_history)
-		
-		self.paper_trader.reset()
-		self.paper_trader.save_state()
-		
-		text = (
-			f"<b>🔄 Paper Trading сброшен</b>\n\n"
-			f"Баланс сброшен с ${old_balance:.2f} → ${self.paper_trader.initial_balance:.2f}\n"
-			f"Удалено сделок: {old_trades}\n\n"
-			f"Используйте /paper_start для запуска."
-		)
-		await update.message.reply_text(text, parse_mode="HTML")
-
-	async def paper_backtest(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Быстрая симуляция paper trading на исторических данных"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		period_hours = 24  # По умолчанию 24 часа
-		if context.args and len(context.args) > 0:
-			try:
-				period_hours = int(context.args[0])
-				period_hours = min(max(period_hours, 1), 168)  # От 1 до 168 часов (неделя)
-			except ValueError:
-				await update.message.reply_text("⚠️ Неверный формат. Использую 24 часа.")
-		
-		if not self.tracked_symbols:
-			await update.message.reply_text("⚠️ Нет отслеживаемых символов. Используйте /add SYMBOL")
-			return
-		
-		msg = await update.message.reply_text(f"⏳ Запускаю симуляцию за {period_hours}ч на {len(self.tracked_symbols)} парах...")
-		
-		from backtest import run_backtest_multiple
-		import asyncio as aio_backtest
-		
-		try:
-			# Запускаем бэктест
-			symbols = list(self.tracked_symbols)
-			results = []
-			
-			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				
-				for i, symbol in enumerate(symbols):
-					await msg.edit_text(f"⏳ Симуляция {i+1}/{len(symbols)}: {symbol}...")
-					
-					# Получаем данные
-					candles_per_hour = int(60 / int(self.default_interval.replace('m',''))) if 'm' in self.default_interval else 1
-					limit = period_hours * candles_per_hour
-					
-					df = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=limit)
-					
-					if df is None or df.empty:
-						continue
-					
-					# Симулируем как в backtest.py
-					generator = SignalGenerator(df)
-					generator.compute_indicators()
-					
-					signals = []
-					min_window = 14
-					
-					for j in range(len(df)):
-						sub_df = df.iloc[:j+1]
-						if len(sub_df) < min_window:
-							signals.append({"signal": "HOLD", "price": sub_df["close"].iloc[-1]})
-							continue
-						gen = SignalGenerator(sub_df)
-						gen.compute_indicators()
-						res = self._generate_signal_with_strategy(gen)
-						signals.append(res)
-					
-					# Симулируем торговлю
-					from paper_trader import COMMISSION_RATE, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT, PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT, get_position_size_percent
-					
-					balance = 100.0
-					position = 0.0
-					entry_price = None
-					trades = 0
-					wins = 0
-					losses = 0
-					partial_closed = False
-					max_price = 0.0
-					
-					for s in signals:
-						price = s.get("price", 0)
-						sig = s.get("signal", "HOLD")
-					signal_strength = abs(s.get("bullish_votes", 0) - s.get("bearish_votes", 0))
-					atr = s.get("ATR", 0.0)
-					
-					# Проверка стоп-лоссов
-					if position > 0 and entry_price:
-						price_change = (price - entry_price) / entry_price
-						
-						if partial_closed:
-							if price > max_price:
-								max_price = price
-							trailing_drop = (max_price - price) / max_price
-							if trailing_drop >= TRAILING_STOP_PERCENT:
-								sell_value = position * price
-								commission = sell_value * COMMISSION_RATE
-								balance += sell_value - commission
-								trades += 1
-								if (price - entry_price) > 0:
-									wins += 1
-								else:
-									losses += 1
-								position = 0.0
-								entry_price = None
-								partial_closed = False
-								max_price = 0.0
-								continue
-						else:
-							if price_change <= -STOP_LOSS_PERCENT:
-								sell_value = position * price
-								commission = sell_value * COMMISSION_RATE
-								balance += sell_value - commission
-								trades += 1
-								losses += 1
-								position = 0.0
-								entry_price = None
-								continue
-							
-							if price_change >= TAKE_PROFIT_PERCENT:
-								close_amount = position * PARTIAL_CLOSE_PERCENT
-								keep_amount = position - close_amount
-								sell_value = close_amount * price
-								commission = sell_value * COMMISSION_RATE
-								balance += sell_value - commission
-								position = keep_amount
-								partial_closed = True
-								max_price = price
-								trades += 1
-								wins += 1
-								continue
-					
-					# Открытие/закрытие позиций
-					if sig == "BUY" and position == 0 and balance > 0:
-						position_size_percent = get_position_size_percent(signal_strength, atr, price)
-						invest_amount = balance * position_size_percent
-						commission = invest_amount * COMMISSION_RATE
-						position = (invest_amount - commission) / price
-						entry_price = price
-						balance -= invest_amount
-						trades += 1
-					elif sig == "SELL" and position > 0 and not partial_closed:
-						sell_value = position * price
-						commission = sell_value * COMMISSION_RATE
-						balance += sell_value - commission
-						if (price - entry_price) > 0:
-							wins += 1
-						else:
-							losses += 1
-							position = 0.0
-							entry_price = None
-					
-					# Закрываем оставшуюся позицию
-					if position > 0:
-						final_price = signals[-1]["price"]
-						sell_value = position * final_price
-						commission = sell_value * COMMISSION_RATE
-						balance += sell_value - commission
-						if (final_price - entry_price) > 0:
-							wins += 1
-						else:
-							losses += 1
-						position = 0.0
-						partial_closed = False
-					
-					profit = balance - 100.0
-					profit_percent = profit
-					win_rate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0
-					
-					results.append({
-						"symbol": symbol,
-						"profit": profit,
-						"profit_percent": profit_percent,
-						"trades": trades,
-						"win_rate": win_rate
-					})
-			
-			# Формируем отчет
-			if results:
-				text = f"<b>📊 Симуляция за {period_hours}ч ({self.default_interval})</b>\n\n"
-				
-				total_profit = 0
-				total_trades = 0
-				
-				for r in sorted(results, key=lambda x: x['profit'], reverse=True):
-					emoji = "🟢" if r['profit'] > 0 else "🔴" if r['profit'] < 0 else "⚪"
-					text += (
-						f"{emoji} <b>{r['symbol']}</b>\n"
-						f"  Прибыль: {r['profit']:+.2f} USD ({r['profit_percent']:+.2f}%)\n"
-						f"  Сделок: {r['trades']} | Винрейт: {r['win_rate']:.0f}%\n\n"
-					)
-					total_profit += r['profit']
-					total_trades += r['trades']
-				
-				avg_profit = total_profit / len(results)
-				text += (
-					f"<b>{'📈' if total_profit >= 0 else '📉'} ИТОГО:</b>\n"
-					f"  Общая прибыль: {total_profit:+.2f} USD\n"
-					f"  Средняя: {avg_profit:+.2f} USD\n"
-					f"  Всего сделок: {total_trades}\n\n"
-					f"<i>Это симуляция на исторических данных.\n"
-					f"Реальные результаты могут отличаться.</i>"
-				)
-				
-				await msg.edit_text(text, parse_mode="HTML")
-			else:
-				await msg.edit_text("⚠️ Нет данных для симуляции")
-				
-		except Exception as e:
-			logger.error(f"Ошибка при симуляции: {e}")
-			await msg.edit_text(f"❌ Ошибка при симуляции: {e}")
-
-	async def paper_debug(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Отладочная информация по сигналу"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		if not context.args:
-			await update.message.reply_text("⚠️ Использование: /paper_debug SYMBOL")
-			return
-		
-		symbol = context.args[0].upper()
-		
-		msg = await update.message.reply_text(f"🔍 Анализирую {symbol}...")
-		
-		try:
-			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=500)
-				df = provider.klines_to_dataframe(klines)
-				
-				if df.empty:
-					await msg.edit_text("⚠️ Нет данных")
-					return
-				
-				generator = SignalGenerator(df)
-				generator.compute_indicators()
-				result = self._generate_signal_with_strategy(generator, symbol=symbol)
-				
-			signal = result["signal"]
-			price = result["price"]
-			bullish = result.get("bullish_votes", 0)
-			bearish = result.get("bearish_votes", 0)
-			
-			# Собираем информацию об индикаторах (из result или из DataFrame)
-			last = df.iloc[-1]
-			
-			# Используем значения из result, если доступны, иначе из DataFrame
-			rsi = float(result.get("RSI", last.get("RSI", 50)))
-			adx = float(result.get("ADX", last.get(f"ADX_{ADX_WINDOW}", 0)))
-			ema_s = float(result.get("EMA_short", last.get("EMA_short", 0)))
-			ema_l = float(result.get("EMA_long", last.get("EMA_long", 0)))
-			sma_20 = float(last.get("SMA_20", 0))
-			sma_50 = float(last.get("SMA_50", 0))
-			macd = float(result.get("MACD", last.get("MACD", 0)))
-			macd_signal = float(result.get("MACD_signal", last.get("MACD_signal", 0)))
-			macd_hist = float(result.get("MACD_hist", last.get("MACD_hist", 0)))
-			
-			# Проверяем фильтры для BUY
-			buy_trend_ok = ema_s > ema_l and sma_20 > sma_50
-			buy_rsi_ok = 35 < rsi < 70
-			macd_buy_ok = macd > macd_signal and macd_hist > 0
-			strong_trend = adx > 25
-			vote_diff = bullish - bearish
-			
-			# Проверяем фильтры для SELL
-			sell_trend_ok = ema_s < ema_l and sma_20 < sma_50
-			sell_rsi_ok = 30 < rsi < 65
-			macd_sell_ok = macd < macd_signal and macd_hist < 0
-			
-			signal_emoji = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "⚠️"
-			
-			text = (
-				f"<b>🔍 Debug: {symbol}</b> [{signal_emoji} {signal}]\n\n"
-				f"💰 Цена: {format_price(price)}\n\n"
-				f"<b>📊 Голосование:</b>\n"
-				f"  Бычьи: {bullish} | Медвежьи: {bearish}\n"
-				f"  Разница: {vote_diff} (порог: 5)\n\n"
-				f"<b>📈 Индикаторы:</b>\n"
-				f"  EMA: {ema_s:.2f} vs {ema_l:.2f} {'✅' if ema_s > ema_l else '❌'}\n"
-				f"  SMA: {sma_20:.2f} vs {sma_50:.2f} {'✅' if sma_20 > sma_50 else '❌'}\n"
-				f"  RSI: {rsi:.1f} (35-70 для BUY) {'✅' if buy_rsi_ok else '❌'}\n"
-				f"  MACD: {macd:.4f} vs {macd_signal:.4f} {'✅' if macd > macd_signal else '❌'}\n"
-				f"  MACD hist: {macd_hist:.4f} {'✅' if macd_hist > 0 else '❌'}\n"
-				f"  ADX: {adx:.1f} (&gt;25 для сигнала) {'✅' if strong_trend else '❌'}\n\n"
-				f"<b>🎯 Фильтры BUY:</b>\n"
-				f"  {'✅' if vote_diff >= 5 else '❌'} Голосов &gt;= 5: {vote_diff}/5\n"
-				f"  {'✅' if strong_trend else '❌'} Сильный тренд: ADX {adx:.1f}/25\n"
-				f"  {'✅' if buy_trend_ok else '❌'} Тренд вверх: EMA+SMA\n"
-				f"  {'✅' if buy_rsi_ok else '❌'} RSI в зоне: {rsi:.1f}\n"
-				f"  {'✅' if macd_buy_ok else '❌'} MACD подтверждает\n\n"
-			)
-			
-			# Добавляем причины
-			text += "<b>📝 Причины:</b>\n"
-			for i, reason in enumerate(result["reasons"][-5:], 1):
-				escaped_reason = html.escape(reason)
-				text += f"{i}. {escaped_reason[:80]}...\n" if len(escaped_reason) > 80 else f"{i}. {escaped_reason}\n"
-			
-			await msg.edit_text(text, parse_mode="HTML")
-				
-		except Exception as e:
-			logger.error(f"Ошибка debug для {symbol}: {e}")
-			await msg.edit_text(f"❌ Ошибка: {e}")
-
-	async def paper_candidates(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Показывает пары близкие к сигналу"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		if not self.tracked_symbols:
-			await update.message.reply_text("⚠️ Нет отслеживаемых символов")
-			return
-		
-		msg = await update.message.reply_text(f"🔍 Ищу кандидатов среди {len(self.tracked_symbols)} пар...")
-		
-		candidates = []
-		
-		try:
-			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				
-				for symbol in self.tracked_symbols:
-					try:
-						klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=500)
-						df = provider.klines_to_dataframe(klines)
-						
-						if df.empty:
-							continue
-						
-						generator = SignalGenerator(df)
-						generator.compute_indicators()
-						result = self._generate_signal_with_strategy(generator, symbol=symbol)
-						
-						signal = result["signal"]
-						price = result["price"]
-						bullish = result.get("bullish_votes", 0)
-						bearish = result.get("bearish_votes", 0)
-						
-						# Берем индикаторы из result или DataFrame
-						last = df.iloc[-1]
-						adx = float(result.get("ADX", last.get(f"ADX_{ADX_WINDOW}", 0)))
-						rsi = float(result.get("RSI", last.get("RSI", 50)))
-						
-						# Кандидат если:
-						# 1. Голосов 3-5 (близко к порогу)
-						# 2. ADX > 20 (приближается к 25)
-						vote_diff_buy = bullish - bearish
-						vote_diff_sell = bearish - bullish
-						
-						if (3 <= vote_diff_buy < 5 or 3 <= vote_diff_sell < 5) and adx > 20:
-							direction = "BUY" if vote_diff_buy > vote_diff_sell else "SELL"
-							votes = vote_diff_buy if direction == "BUY" else vote_diff_sell
-							
-							candidates.append({
-								"symbol": symbol,
-								"direction": direction,
-								"votes": votes,
-								"adx": adx,
-								"rsi": rsi,
-								"price": price
-							})
-					
-					except Exception as e:
-						logger.error(f"Ошибка анализа {symbol}: {e}")
-				
-				if candidates:
-					# Сортируем по количеству голосов (больше = ближе к сигналу)
-					candidates.sort(key=lambda x: x['votes'], reverse=True)
-					
-					text = f"<b>🎯 Кандидаты на сигнал ({len(candidates)}):</b>\n\n"
-					
-					for c in candidates[:10]:  # Топ 10
-						emoji = "🟢" if c['direction'] == "BUY" else "🔴"
-						text += (
-							f"{emoji} <b>{c['symbol']}</b> → {c['direction']}\n"
-							f"  Голосов: {c['votes']}/5 | ADX: {c['adx']:.1f}/25\n"
-							f"  RSI: {c['rsi']:.1f} | Цена: {format_price(c['price'])}\n\n"
-						)
-					
-					text += "<i>Эти пары близки к генерации сигнала</i>"
-					await msg.edit_text(text, parse_mode="HTML")
-				else:
-					await msg.edit_text("⚠️ Нет кандидатов близких к сигналу.\n\nПопробуйте позже или добавьте больше пар.")
-				
-		except Exception as e:
-			logger.error(f"Ошибка поиска кандидатов: {e}")
-			await msg.edit_text(f"❌ Ошибка: {e}")
-
-	async def paper_force_buy(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Принудительно открывает позицию для тестирования"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("🚫 Доступ запрещен")
-			return
-		
-		if not self.paper_trader.is_running:
-			await update.message.reply_text("⚠️ Paper Trading не запущен. Используйте /paper_start")
-			return
-		
-		if not context.args:
-			await update.message.reply_text("⚠️ Использование: /paper_force_buy SYMBOL")
-			return
-		
-		symbol = context.args[0].upper()
-		
-		if symbol in self.paper_trader.positions:
-			await update.message.reply_text(f"⚠️ Позиция по {symbol} уже открыта")
-			return
-		
-		if not self.paper_trader.can_open_position(symbol):
-			await update.message.reply_text(f"⚠️ Невозможно открыть позицию (лимит или нет баланса)")
-			return
-		
-		try:
-			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=500)
-				df = provider.klines_to_dataframe(klines)
-				
-				if df.empty:
-					await update.message.reply_text("⚠️ Нет данных для получения цены")
-					return
-				
-			# Генерируем сигнал чтобы получить ATR
-			generator = SignalGenerator(df)
-			generator.compute_indicators()
-			result = self._generate_signal_with_strategy(generator, symbol=symbol)
-			
-			price = float(df['close'].iloc[-1])
-			signal_strength = 5  # Средняя сила для теста
-			atr = result.get("ATR", 0.0)
-			
-			trade_info = self.paper_trader.open_position(symbol, price, signal_strength, atr)
-			
-			if trade_info:
-				self.paper_trader.save_state()
-				
-				text = (
-					f"<b>🟢 ПРИНУДИТЕЛЬНАЯ ПОКУПКА</b>\n\n"
-					f"Символ: {symbol}\n"
-					f"Цена: {format_price(price)}\n"
-					f"Вложено: ${trade_info['invest_amount']:.2f}\n"
-					f"Баланс: ${trade_info['balance_after']:.2f}\n\n"
-					f"⚠️ Это тестовая сделка!\n"
-					f"Проверьте /paper_status"
-				)
-				await update.message.reply_text(text, parse_mode="HTML")
-			else:
-				await update.message.reply_text("❌ Не удалось открыть позицию")
-					
-		except Exception as e:
-			logger.error(f"Ошибка force_buy для {symbol}: {e}")
-			await update.message.reply_text(f"❌ Ошибка: {e}")
-
-	async def kelly_info(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Информация о Kelly Criterion"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("❌ У вас нет доступа к этому боту.")
-			return
-		
-		from config import USE_KELLY_CRITERION, KELLY_FRACTION, MIN_TRADES_FOR_KELLY, KELLY_LOOKBACK_WINDOW
-		
-		message = "📊 <b>Kelly Criterion</b>\n\n"
-		message += f"Статус: {'✅ Включен' if USE_KELLY_CRITERION else '❌ Выключен'}\n"
-		message += f"Kelly Fraction: {KELLY_FRACTION:.0%} (консервативный)\n"
-		message += f"Min Trades: {MIN_TRADES_FOR_KELLY}\n"
-		message += f"Lookback Window: {KELLY_LOOKBACK_WINDOW} сделок\n\n"
-		
-		# Рассчитываем текущий Kelly
-		closed_trades = [
-			t for t in self.paper_trader.trades_history 
-			if t.get("type") in ["SELL", "STOP-LOSS", "TRAILING-STOP", "TIME-EXIT"]
-			and t.get("profit") is not None
-		]
-		
-		if len(closed_trades) >= MIN_TRADES_FOR_KELLY:
-			recent_trades = closed_trades[-KELLY_LOOKBACK_WINDOW:]
-			
-			winning_trades = [t for t in recent_trades if t.get("profit", 0) > 0]
-			losing_trades = [t for t in recent_trades if t.get("profit", 0) <= 0]
-			
-			win_rate = len(winning_trades) / len(recent_trades) if recent_trades else 0
-			
-			if winning_trades:
-				avg_win = sum(t.get("profit_percent", 0) for t in winning_trades) / len(winning_trades)
-			else:
-				avg_win = 0
-			
-			if losing_trades:
-				avg_loss = abs(sum(t.get("profit_percent", 0) for t in losing_trades) / len(losing_trades))
-			else:
-				avg_loss = 1.0
-			
-			if avg_win > 0 and avg_loss > 0:
-				kelly_full = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
-				kelly_conservative = kelly_full * KELLY_FRACTION
-				
-				message += f"<b>Текущая статистика ({len(recent_trades)} сделок):</b>\n"
-				message += f"• Win Rate: {win_rate:.1%}\n"
-				message += f"• Avg Win: {avg_win:.2f}%\n"
-				message += f"• Avg Loss: {avg_loss:.2f}%\n\n"
-				message += f"<b>Kelly (полный):</b> {kelly_full:.2%}\n"
-				message += f"<b>Kelly (1/4):</b> {kelly_conservative:.2%}\n\n"
-				
-				if kelly_conservative > 0:
-					message += f"✅ Рекомендация: размер позиции {kelly_conservative:.1%} от баланса"
-				else:
-					message += "⚠️ Kelly отрицательный - стратегия убыточна на текущей выборке"
-			else:
-				message += "⚠️ Недостаточно данных для расчёта Kelly"
-		else:
-			message += f"⏳ Недостаточно сделок: {len(closed_trades)}/{MIN_TRADES_FOR_KELLY}\n"
-			message += "Необходимо больше сделок для расчёта Kelly Criterion"
-		
-		await update.message.reply_text(message, parse_mode="HTML")
-	
-	async def averaging_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""Статус докупаний по позициям"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("❌ У вас нет доступа к этому боту.")
-			return
-		
-		from config import (
-			ENABLE_AVERAGING, MAX_AVERAGING_ATTEMPTS, AVERAGING_PRICE_DROP_PERCENT,
-			AVERAGING_TIME_THRESHOLD_HOURS, MAX_TOTAL_RISK_MULTIPLIER,
-			ENABLE_PYRAMID_UP, PYRAMID_ADX_THRESHOLD
-		)
-		
-		message = "🔄 <b>Умное докупание (Averaging)</b>\n\n"
-		message += f"Статус: {'✅ Включено' if ENABLE_AVERAGING else '❌ Выключено'}\n"
-		message += f"Max Attempts: {MAX_AVERAGING_ATTEMPTS}\n"
-		message += f"Price Drop: {AVERAGING_PRICE_DROP_PERCENT:.1%}\n"
-		message += f"Time Threshold: {AVERAGING_TIME_THRESHOLD_HOURS}ч\n"
-		message += f"Max Risk Multiplier: {MAX_TOTAL_RISK_MULTIPLIER}x\n"
-		message += f"Pyramid Up: {'✅' if ENABLE_PYRAMID_UP else '❌'} (ADX > {PYRAMID_ADX_THRESHOLD})\n\n"
-		
-		# Статус по позициям
-		if self.paper_trader.positions:
-			message += "<b>Текущие позиции:</b>\n\n"
-			
-			for symbol, position in self.paper_trader.positions.items():
-				averaging_count = position.averaging_count
-				avg_entry = position.average_entry_price
-				entry_price = position.entry_price
-				mode = "PYRAMID" if position.pyramid_mode else "AVERAGE"
-				
-				message += f"<b>{symbol}</b>\n"
-				message += f"• Вход: {format_price(entry_price)}\n"
-				
-				if averaging_count > 0:
-					message += f"• Средняя: {format_price(avg_entry)}\n"
-					message += f"• Докупания: {averaging_count}/{MAX_AVERAGING_ATTEMPTS} ({mode})\n"
-					message += f"• Инвестировано: ${position.total_invested:.2f}\n"
-					
-					# История докупаний
-					if position.averaging_entries:
-						message += f"  Записи:\n"
-						for i, entry in enumerate(position.averaging_entries[:3], 1):  # Максимум 3
-							message += f"  {i}. ${entry['price']:.2f} - {entry['mode']}\n"
-				else:
-					message += f"• Докупания: 0/{MAX_AVERAGING_ATTEMPTS}\n"
-				
-				message += "\n"
-		else:
-			message += "Нет открытых позиций\n"
-		
-		# Статистика по докупаниям
-		avg_trades = [t for t in self.paper_trader.trades_history if "AVERAGE" in t.get("type", "")]
-		
-		if avg_trades:
-			message += f"\n<b>Статистика:</b>\n"
-			message += f"• Всего докупаний: {len(avg_trades)}\n"
-			
-			pyramid_trades = [t for t in avg_trades if "PYRAMID" in t.get("type", "")]
-			average_trades = [t for t in avg_trades if "AVERAGE-AVERAGE" in t.get("type", "")]
-			
-			message += f"• Pyramid Up: {len(pyramid_trades)}\n"
-			message += f"• Average Down: {len(average_trades)}\n"
-		
-		await update.message.reply_text(message, parse_mode="HTML")
-	
-	# -------------------------
-	# Диагностика сигналов (v5.5)
-	# -------------------------
-	async def signal_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""📊 Статистика сигналов"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("❌ У вас нет доступа к этому боту.")
-			return
-		
-		from signal_diagnostics import diagnostics
-		
-		total = diagnostics.buy_signals_count + diagnostics.hold_signals_count + diagnostics.sell_signals_count
-		
-		if total == 0:
-			await update.message.reply_text("⚠️ Нет данных по сигналам. Бот ещё не запущен или не было проверок.")
-			return
-		
-		message = "📊 <b>СТАТИСТИКА СИГНАЛОВ v5.5</b>\n\n"
-		message += f"<b>Всего сигналов:</b> {total}\n"
-		message += f"• BUY:  {diagnostics.buy_signals_count} ({diagnostics.buy_signals_count/total*100:.1f}%)\n"
-		message += f"• HOLD: {diagnostics.hold_signals_count} ({diagnostics.hold_signals_count/total*100:.1f}%)\n"
-		message += f"• SELL: {diagnostics.sell_signals_count} ({diagnostics.sell_signals_count/total*100:.1f}%)\n\n"
-		
-		if diagnostics.last_buy_time:
-			message += f"<b>Последний BUY:</b> {diagnostics.last_buy_time}\n\n"
-		else:
-			message += "⚠️ <b>Ни одного BUY сигнала!</b>\n\n"
-		
-		if diagnostics.blocked_reasons:
-			message += "<b>🚫 Причины блокировки BUY:</b>\n"
-			for reason, count in sorted(diagnostics.blocked_reasons.items(), key=lambda x: x[1], reverse=True)[:5]:
-				message += f"• {reason}: {count}x\n"
-			message += "\n"
-		
-		# Последние 5 сигналов
-		if len(diagnostics.signal_history) > 0:
-			recent = diagnostics.signal_history[-5:]
-			message += "<b>📋 Последние 5 сигналов:</b>\n"
-			for sig in recent:
-				symbol = sig["symbol"]
-				signal = sig["signal"]
-				delta = sig["votes_delta"]
-				mode = sig["mode"]
-				emoji = "✅" if sig["can_buy"] else "❌"
-				message += f"{emoji} {symbol}: {signal} (Δ{delta:+d}, {mode})\n"
-		
-		message += "\n💡 <i>Используйте /signal_analysis для детального анализа</i>"
-		
-		await update.message.reply_text(message, parse_mode="HTML")
-	
-	async def signal_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		"""🔍 Детальный анализ сигналов"""
-		if not self._is_authorized(update):
-			await update.message.reply_text("❌ У вас нет доступа к этому боту.")
-			return
-		
-		from signal_diagnostics import diagnostics
-		import config
-		
-		if not diagnostics.signal_history:
-			await update.message.reply_text("⚠️ Нет данных для анализа. Подождите несколько циклов проверки.")
-			return
-		
-		deltas = [s["votes_delta"] for s in diagnostics.signal_history]
-		
-		message = "🔍 <b>АНАЛИЗ РАСПРЕДЕЛЕНИЯ ГОЛОСОВ</b>\n\n"
-		message += f"<b>Статистика:</b>\n"
-		message += f"• Min delta: {min(deltas):+d}\n"
-		message += f"• Max delta: {max(deltas):+d}\n"
-		message += f"• Avg delta: {sum(deltas)/len(deltas):+.1f}\n"
-		message += f"• Median: {sorted(deltas)[len(deltas)//2]:+d}\n\n"
-		
-		# Распределение (HYBRID v5.5 использует адаптивную логику, примерный порог ~5)
-		min_buy_threshold = 5
-		ranges = [
-			(float('-inf'), -5, "Сильно bearish (&lt;-5)"),
-			(-5, -3, "Средне bearish (-5..-3)"),
-			(-3, 0, "Слабо bearish (-3..0)"),
-			(0, 3, "Слабо bullish (0..3)"),
-			(3, min_buy_threshold, f"Средне bullish (3..{min_buy_threshold-1})"),
-			(min_buy_threshold, float('inf'), f"🎯 BUY (&gt;={min_buy_threshold})")
-		]
-		
-		message += "<b>Распределение:</b>\n"
-		for low, high, label in ranges:
-			count = len([d for d in deltas if low <= d < high])
-			pct = count / len(deltas) * 100
-			if count > 0:
-				message += f"• {label}: {count} ({pct:.1f}%)\n"
-		
-		# Рекомендации
-		max_delta = max(deltas)
-		avg_delta = sum(deltas)/len(deltas)
-		buy_ready = len([d for d in deltas if d >= min_buy_threshold])
-		
-		message += "\n<b>💡 РЕКОМЕНДАЦИИ:</b>\n"
-		
-		if max_delta < min_buy_threshold:
-			message += f"⚠️ Max delta ({max_delta:+d}) &lt; примерный порог BUY (~{min_buy_threshold})\n"
-			message += f"→ Рынок слабый, дождаться более сильных сигналов\n"
-		
-		if avg_delta < 0:
-			message += f"⚠️ Avg delta отрицательный ({avg_delta:+.1f})\n"
-			message += "→ Рынок медвежий, стратегия работает корректно\n"
-		
-		if buy_ready == 0:
-			message += "⚠️ Ни один сигнал не достиг порога BUY!\n"
-			message += "→ Проверить фильтры или смягчить условия\n"
-		else:
-			message += f"✅ {buy_ready} сигналов готовы к BUY ({buy_ready/len(deltas)*100:.1f}%)\n"
-		
-		await update.message.reply_text(message, parse_mode="HTML")
 
 	# -------------------------
 	# Запуск бота
