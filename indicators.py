@@ -123,9 +123,12 @@ class IndicatorsCalculator:
 		):
 			try:
 				self.df[f"ADX_{ADX_WINDOW}"] = ta.trend.adx(high, low, close, window=ADX_WINDOW)
-			except Exception:
+				logger.info(f"✅ ADX рассчитан: len(df)={len(self.df)}, ADX_WINDOW={ADX_WINDOW}")
+			except Exception as e:
+				logger.warning(f"❌ Ошибка расчёта ADX: {e}")
 				self.df[f"ADX_{ADX_WINDOW}"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
 		else:
+			logger.warning(f"❌ ADX не рассчитан: len(df)={len(self.df)}, ADX_WINDOW={ADX_WINDOW}, NaN_count={self.df[['high', 'low', 'close']].tail(ADX_WINDOW).isna().sum().sum()}")
 			self.df[f"ADX_{ADX_WINDOW}"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
 		
 		# Stochastic - для перекупленности/перепроданности

@@ -344,6 +344,9 @@ class HybridStrategy:
 		price = float(last["close"])
 		adx = float(last.get(f"ADX_{ADX_WINDOW}", 0))
 		
+		# Логирование для отладки данных
+		logger.info(f"📊 HYBRID DATA: len(df)={len(self.df)}, price={price:.2f}, adx={adx:.2f}, ADX_WINDOW={ADX_WINDOW}")
+		
 		if np.isnan(adx) or adx == 0 or price == 0:
 			return {
 				"signal": "HOLD",
