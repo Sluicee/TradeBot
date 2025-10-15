@@ -344,7 +344,7 @@ class HybridStrategy:
 		price = float(last["close"])
 		adx = float(last.get(f"ADX_{ADX_WINDOW}", 0))
 		
-		if adx == 0 or price == 0:
+		if np.isnan(adx) or adx == 0 or price == 0:
 			return {
 				"signal": "HOLD",
 				"signal_emoji": "⚠️",
