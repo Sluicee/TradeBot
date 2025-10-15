@@ -39,7 +39,7 @@ from config import (
 	# SHORT v2.1 - Adaptive Fear SHORT
 	USE_ADVANCED_SHORT, SHORT_VERSION, SHORT_POSITION_SIZE_EXTREME_FEAR, SHORT_POSITION_SIZE_HIGH_FEAR,
 	SHORT_POSITION_SIZE_MODERATE_FEAR, SHORT_POSITION_SIZE_NEUTRAL,
-	SHORT_FEAR_EXTREME_THRESHOLD, SHORT_FEAR_HIGH_THRESHOLD, SHORT_FEAR_MODERATE_THRESHOLD,
+	SHORT_FEAR_EXTREME_THRESHOLD, SHORT_FEAR_HIGH_THRESHOLD, SHORT_FEAR_MODERATE_THRESHOLD, SHORT_GREED_THRESHOLD, SHORT_EMA_SLOPE_THRESHOLD, SHORT_MAX_VOTES, SHORT_V1_VOTES, SHORT_V1_MIN_CONDITIONS,
 	SHORT_FEAR_INERTIA_THRESHOLD, SHORT_FEAR_INERTIA_CANDLES, SHORT_FEAR_INERTIA_BONUS,
 	SHORT_FEAR_WEIGHT, SHORT_FUNDING_WEIGHT, SHORT_LIQUIDATION_WEIGHT, SHORT_RSI_WEIGHT, SHORT_EMA_WEIGHT, SHORT_VOLATILITY_WEIGHT,
 	SHORT_MIN_SCORE, SHORT_API_TIMEOUT, SHORT_FUNDING_RATE_THRESHOLD, SHORT_LIQUIDATION_RATIO_THRESHOLD,
@@ -89,7 +89,7 @@ class SignalGenerator:
 		- fear_greed_index: индекс страха/жадности (0-100)
 		
 		Возвращает:
-		- "BEAR": медвежий рынок (EMA200 падает, ADX>20, страх<40)
+		- "BEAR": медвежий рынок (EMA200 падает, ADX>20, страх<{SHORT_FEAR_MODERATE_THRESHOLD})
 		- "BULL": бычий рынок (EMA200 растёт, страх>60)
 		- "NEUTRAL": нейтральный режим
 		"""
@@ -113,9 +113,9 @@ class SignalGenerator:
 				adx_value = adx.iloc[-1]
 			
 			# Логика определения режима (упрощённая)
-			if slope < -0.001 and fear_greed_index < 40:  # Более мягкие условия
+			if slope < -SHORT_EMA_SLOPE_THRESHOLD and fear_greed_index < SHORT_FEAR_MODERATE_THRESHOLD:  # Более мягкие условия
 				return "BEAR"
-			elif slope > 0.001 and fear_greed_index > 60:
+			elif slope > SHORT_EMA_SLOPE_THRESHOLD and fear_greed_index > SHORT_GREED_THRESHOLD:
 				return "BULL"
 			else:
 				return "NEUTRAL"
@@ -138,7 +138,7 @@ class SignalGenerator:
 		- False: SHORT отключён
 		"""
 		regime = self.get_market_regime(df, fear_greed_index)
-		return regime == "BEAR" and fear_greed_index < 40
+		return regime == "BEAR" and fear_greed_index < SHORT_FEAR_MODERATE_THRESHOLD
 
 	def get_fear_greed_index(self) -> int:
 		"""
@@ -329,7 +329,7 @@ class SignalGenerator:
 		- tuple: (score, breakdown) где score 0-1, breakdown - детализация
 		"""
 		# Компоненты скора
-		fear_score = 1.0 if fear_greed_index < 40 else 0.0
+		fear_score = 1.0 if fear_greed_index < SHORT_FEAR_MODERATE_THRESHOLD else 0.0
 		funding_score = 1.0 if funding_rate < SHORT_FUNDING_RATE_THRESHOLD else 0.0
 		
 		# Ликвидации: больше long ликвидаций = больше SHORT сигнала
@@ -339,7 +339,7 @@ class SignalGenerator:
 		else:
 			liquidation_score = 0.0
 		
-		rsi_score = 1.0 if rsi > 70 else 0.0
+		rsi_score = 1.0 if rsi > RSI_OVERBOUGHT else 0.0
 		ema_score = 1.0 if ema_short < ema_long else 0.0
 		
 		# Взвешенный скор
@@ -507,7 +507,7 @@ class SignalGenerator:
 		- tuple: (score, breakdown) где score 0-1, breakdown - детализация
 		"""
 		# Компоненты скора v2.1
-		fear_score = 1.0 if fear_greed_index < 45 else 0.0  # Увеличен порог
+		fear_score = 1.0 if fear_greed_index < SHORT_FEAR_MODERATE_THRESHOLD else 0.0
 		funding_score = 1.0 if funding_rate < SHORT_FUNDING_RATE_THRESHOLD else 0.0
 		
 		# Ликвидации: больше long ликвидаций = больше SHORT сигнала
@@ -517,7 +517,7 @@ class SignalGenerator:
 		else:
 			liquidation_score = 0.0
 		
-		rsi_score = 1.0 if rsi > 70 else 0.0
+		rsi_score = 1.0 if rsi > RSI_OVERBOUGHT else 0.0
 		ema_score = 1.0 if ema_short < ema_long else 0.0
 		
 		# Новые компоненты v2.1
@@ -986,26 +986,26 @@ class SignalGenerator:
 				
 				# Формируем условия для логирования v2.1
 				if short_breakdown["fear_score"] > 0:
-					short_conditions.append(f"Страх: {fear_greed_index} < 45")
+					short_conditions.append(f"Страх: {fear_greed_index} < {SHORT_FEAR_MODERATE_THRESHOLD}")
 				if short_breakdown["funding_score"] > 0:
 					short_conditions.append(f"Funding: {funding_rate:.4f}% < 0")
 				if short_breakdown["liquidation_score"] > 0:
 					short_conditions.append(f"Ликвидации Long: ${long_liquidations:.1f}M > Short: ${short_liquidations:.1f}M")
 				if short_breakdown["rsi_score"] > 0:
-					short_conditions.append(f"RSI: {rsi:.1f} > 70")
+					short_conditions.append(f"RSI: {rsi:.1f} > {RSI_OVERBOUGHT}")
 				if short_breakdown["ema_score"] > 0:
 					short_conditions.append(f"EMA: {ema_s:.2f} < {ema_l:.2f}")
 				if short_breakdown["volatility_score"] > 0:
 					volatility_ratio = atr / atr_mean if atr_mean > 0 else 1.0
-					short_conditions.append(f"Волатильность: {volatility_ratio:.2f}x > 1.2x")
+					short_conditions.append(f"Волатильность: {volatility_ratio:.2f}x > {SHORT_VOLATILITY_MULTIPLIER}x")
 				if short_breakdown["btc_dominance_bonus"] > 0:
 					short_conditions.append(f"BTC.D: +{btc_dominance_change:.1f}% при страхе {fear_greed_index}")
 				if short_breakdown["inertia_bonus"] > 0:
-					short_conditions.append(f"Инерция страха: {SHORT_FEAR_INERTIA_CANDLES} свечей < 30")
+					short_conditions.append(f"Инерция страха: {SHORT_FEAR_INERTIA_CANDLES} свечей < {SHORT_FEAR_INERTIA_THRESHOLD}")
 				
 				# Добавляем голоса за SHORT
-				bearish += int(short_score * 5)  # До 5 голосов за сильный SHORT
-				reasons.append(f"🔴 SHORT v{SHORT_VERSION} АКТИВЕН: скор {short_score:.2f}, размер {short_position_size:.1%} [+{int(short_score * 5)}]")
+				bearish += int(short_score * SHORT_MAX_VOTES)  # До 5 голосов за сильный SHORT
+				reasons.append(f"🔴 SHORT v{SHORT_VERSION} АКТИВЕН: скор {short_score:.2f}, размер {short_position_size:.1%} [+{int(short_score * SHORT_MAX_VOTES)}]")
 				reasons.append(f"   Условия: {', '.join(short_conditions)}")
 				
 				# Детальное логирование v2.1
@@ -1029,25 +1029,25 @@ class SignalGenerator:
 			
 			if short_enabled:
 				# RSI > 70 (перекупленность)
-				if rsi > 70:
-					short_conditions.append(f"RSI={rsi:.1f} > 70 (перекупленность)")
+				if rsi > RSI_OVERBOUGHT:
+					short_conditions.append(f"RSI={rsi:.1f} > {RSI_OVERBOUGHT} (перекупленность)")
 				
 				# Быстрая EMA ниже медленной (медвежий тренд)
 				if ema_s < ema_l:
 					short_conditions.append(f"EMA_short ({ema_s:.2f}) < EMA_long ({ema_l:.2f})")
 				
 				# ADX > 20 (выраженный тренд)
-				if adx > 20:
-					short_conditions.append(f"ADX={adx:.1f} > 20 (сильный тренд)")
+				if adx > ADX_RANGING:
+					short_conditions.append(f"ADX={adx:.1f} > {ADX_RANGING} (сильный тренд)")
 				
 				# Если все условия выполнены, добавляем SHORT голоса
-				if len(short_conditions) >= 2:  # Минимум 2 из 3 условий
-					bearish += 3  # Дополнительные голоса за SHORT
-					reasons.append(f"🔴 SHORT v1.0 АКТИВЕН: {', '.join(short_conditions)} [+3]")
+				if len(short_conditions) >= SHORT_V1_MIN_CONDITIONS:  # Минимум 2 из 3 условий
+					bearish += SHORT_V1_VOTES  # Дополнительные голоса за SHORT
+					reasons.append(f"🔴 SHORT v1.0 АКТИВЕН: {', '.join(short_conditions)} [+{SHORT_V1_VOTES}]")
 				else:
-					reasons.append(f"🔴 SHORT v1.0 отключён: недостаточно условий ({len(short_conditions)}/3)")
+					reasons.append(f"🔴 SHORT v1.0 отключён: недостаточно условий ({len(short_conditions)}/{SHORT_V1_MIN_CONDITIONS+1})")
 			else:
-				reasons.append(f"🔴 SHORT v1.0 отключён: режим не BEAR или страх < 40")
+				reasons.append(f"🔴 SHORT v1.0 отключён: режим не BEAR или страх < {SHORT_FEAR_MODERATE_THRESHOLD}")
 
 		# ====================================================================
 		# Итоговое голосование с ГИБКИМИ фильтрами (3 из 5)

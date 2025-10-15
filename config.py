@@ -334,6 +334,11 @@ SHORT_POSITION_SIZE_NEUTRAL = 0.1         # > 45 (нейтрально) - уве
 SHORT_FEAR_EXTREME_THRESHOLD = 20
 SHORT_FEAR_HIGH_THRESHOLD = 35
 SHORT_FEAR_MODERATE_THRESHOLD = 45  # Увеличено с 40 до 45
+SHORT_GREED_THRESHOLD = 60  # Порог жадности для BULL режима
+SHORT_EMA_SLOPE_THRESHOLD = 0.001  # Минимальный наклон EMA для определения тренда
+SHORT_MAX_VOTES = 5  # Максимальное количество голосов за SHORT сигнал
+SHORT_V1_VOTES = 3  # Количество голосов за SHORT v1.0
+SHORT_V1_MIN_CONDITIONS = 2  # Минимальное количество условий для SHORT v1.0
 
 # Inertia buffer для последовательного страха
 SHORT_FEAR_INERTIA_THRESHOLD = 30  # Если страх < 30
