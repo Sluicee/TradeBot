@@ -244,7 +244,7 @@ class SignalGenerator:
 			
 			# Направление тренда (нормализуем к % изменения)
 			price_range = prices[-1] - prices[0]
-			percent_change = (price_range / prices[0]) * 100
+			percent_change = (price_range / prices[0]) * 100 if prices[0] > 0 else 0
 			
 			if abs(percent_change) > 1.0 and trend_strength > 0.5:  # Сильный тренд
 				trend_direction = 1 if slope > 0 else -1
@@ -702,7 +702,7 @@ class SignalGenerator:
 		# 1. Проверка: цена ниже минимума последних 24 часов на X%
 		if len(self.df) >= 24:
 			low_24h = self.df["low"].iloc[-24:].min()
-			price_vs_24h_low = (price - low_24h) / low_24h
+			price_vs_24h_low = (price - low_24h) / low_24h if low_24h > 0 else 0
 			
 			if price_vs_24h_low < -NO_BUY_IF_PRICE_BELOW_N_DAY_LOW_PERCENT:
 				falling_knife_detected = True
@@ -732,7 +732,7 @@ class SignalGenerator:
 				candle = recent_candles.iloc[idx]
 				open_price = float(candle["open"])
 				close_price = float(candle["close"])
-				candle_change = (close_price - open_price) / open_price
+				candle_change = (close_price - open_price) / open_price if open_price > 0 else 0
 				
 				if candle_change < 0:  # Красная свеча
 					red_candles += 1
@@ -751,7 +751,7 @@ class SignalGenerator:
 				candle = last_3_candles.iloc[idx]
 				open_price = float(candle["open"])
 				close_price = float(candle["close"])
-				candle_change = (close_price - open_price) / open_price
+				candle_change = (close_price - open_price) / open_price if open_price > 0 else 0
 				if candle_change < 0:
 					last_3_red += 1
 					last_3_drop += abs(candle_change)
