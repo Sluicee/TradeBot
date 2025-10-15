@@ -388,6 +388,28 @@ class HybridStrategy:
 			signal_result = self.trend_following_strategy.generate_signal()
 			signal_result["active_mode"] = "TREND_FOLLOWING"
 			signal_result["strategy"] = "HYBRID"
+			
+			# 🔴 SHORT v2.1: Проверяем медвежий тренд для SHORT сигнала
+			# Если TF режим и сигнал SELL, проверяем активацию SHORT
+			if signal_result.get("signal") == "SELL":
+				ema_short = signal_result.get("EMA_12", 0)
+				ema_long = signal_result.get("EMA_26", 0)
+				bearish_votes = signal_result.get("bearish_votes", 0)
+				bullish_votes = signal_result.get("bullish_votes", 0)
+				
+				# Медвежий тренд: EMA_short < EMA_long и bearish > bullish
+				if ema_short < ema_long and bearish_votes > bullish_votes + 2:
+					# Получаем SHORT данные из результата
+					short_score = signal_result.get("short_score", 0.0)
+					short_enabled = signal_result.get("short_enabled", False)
+					short_conditions = signal_result.get("short_conditions", [])
+					
+					# Если SHORT активен и скор достаточно высокий
+					if short_enabled and len(short_conditions) >= 2:
+						signal_result["signal"] = "SHORT"
+						signal_result["signal_emoji"] = "🔴📉"
+						reasons.append(f"🔴 SHORT ACTIVATED: Медвежий тренд в TF режиме, скор {short_score:.2f}")
+			
 			# Добавляем reasons о режиме в начало
 			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
 		
