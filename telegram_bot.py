@@ -104,34 +104,55 @@ class TelegramBot:
 				# Fallback на обычный анализ при ошибке
 		
 		# Обычный single-timeframe анализ
-		if STRATEGY_MODE == "MEAN_REVERSION":
-			return generator.generate_signal_mean_reversion()
-		elif STRATEGY_MODE == "HYBRID":
-			# Обновляем время в режиме (всегда считаем время)
-			time_diff = (datetime.now() - self.last_mode_update).total_seconds() / 3600
-			self.last_mode_time += time_diff
-			
-			result = generator.generate_signal_hybrid(
-				last_mode=self.last_mode,
-				last_mode_time=self.last_mode_time
-			)
-			
-			# Обновляем текущий режим
-			active_mode = result.get("active_mode")
-			if active_mode and active_mode in ["MEAN_REVERSION", "TREND_FOLLOWING", "TRANSITION"]:
-				if active_mode != self.last_mode:
-					# Режим изменился - сбрасываем время
-					self.last_mode = active_mode
-					self.last_mode_time = 0
-					logger.info(f"🔄 СМЕНА РЕЖИМА: {self.last_mode} → {active_mode}, время сброшено")
-				else:
-					# Режим не изменился - время продолжает накапливаться
-					logger.info(f"⏱ РЕЖИМ НЕ ИЗМЕНИЛСЯ: {active_mode}, время накапливается: {self.last_mode_time:.2f}h")
-			
-			self.last_mode_update = datetime.now()
-			return result
-		else:  # TREND_FOLLOWING (default)
-			return generator.generate_signal()
+		try:
+			if STRATEGY_MODE == "MEAN_REVERSION":
+				return generator.generate_signal_mean_reversion()
+			elif STRATEGY_MODE == "HYBRID":
+				# Обновляем время в режиме (всегда считаем время)
+				time_diff = (datetime.now() - self.last_mode_update).total_seconds() / 3600
+				self.last_mode_time += time_diff
+				
+				result = generator.generate_signal_hybrid(
+					last_mode=self.last_mode,
+					last_mode_time=self.last_mode_time
+				)
+				
+				# Обновляем текущий режим
+				active_mode = result.get("active_mode")
+				if active_mode and active_mode in ["MEAN_REVERSION", "TREND_FOLLOWING", "TRANSITION"]:
+					if active_mode != self.last_mode:
+						# Режим изменился - сбрасываем время
+						self.last_mode = active_mode
+						self.last_mode_time = 0
+						logger.info(f"🔄 СМЕНА РЕЖИМА: {self.last_mode} → {active_mode}, время сброшено")
+					else:
+						# Режим не изменился - время продолжает накапливаться
+						logger.info(f"⏱ РЕЖИМ НЕ ИЗМЕНИЛСЯ: {active_mode}, время накапливается: {self.last_mode_time:.2f}h")
+				
+				self.last_mode_update = datetime.now()
+				return result
+			else:  # TREND_FOLLOWING (default)
+				return generator.generate_signal()
+		except Exception as e:
+			logger.error(f"Ошибка генерации сигнала: {e}")
+			# Возвращаем HOLD при ошибке
+			return {
+				"signal": "HOLD",
+				"reasons": [f"⚠️ Ошибка генерации сигнала: {str(e)}"],
+				"price": float(generator.df["close"].iloc[-1]) if not generator.df.empty else 0,
+				"market_regime": "NONE",
+				"bullish_votes": 0,
+				"bearish_votes": 0,
+				"vote_delta": 0,
+				"filters_passed": 0,
+				"short_enabled": False,
+				"short_conditions": [],
+				"indicators": {
+					"RSI": "н/д",
+					"ADX": "н/д",
+					"MACD": "н/д"
+				}
+			}
 	
 	def _register_handlers(self):
 		# Основные команды

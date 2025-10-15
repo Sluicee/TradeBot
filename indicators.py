@@ -162,8 +162,23 @@ class IndicatorsCalculator:
 		if self.df.empty:
 			raise ValueError("DataFrame is empty")
 		
+		# Проверяем минимальное количество данных
+		min_required = max(200, EMA_LONG_WINDOW, RSI_WINDOW, MACD_SLOW, ADX_WINDOW)
+		if len(self.df) < min_required:
+			raise ValueError(f"Недостаточно данных для расчёта индикаторов: {len(self.df)} < {min_required}")
+		
 		last = self.df.iloc[-1]
 		price = float(last["close"])
+		
+		# Проверяем наличие обязательных индикаторов
+		required_indicators = ["EMA_short", "EMA_long", "RSI", "MACD", "MACD_signal", "MACD_hist"]
+		missing_indicators = []
+		for indicator in required_indicators:
+			if indicator not in last.index or pd.isna(last[indicator]):
+				missing_indicators.append(indicator)
+		
+		if missing_indicators:
+			raise ValueError(f"Отсутствуют индикаторы: {missing_indicators}")
 		
 		# Индикаторы
 		ema_s = float(last["EMA_short"])

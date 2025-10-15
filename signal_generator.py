@@ -574,8 +574,29 @@ class SignalGenerator:
 		if self.df.empty:
 			raise ValueError("DataFrame is empty")
 		
-		# Получаем данные индикаторов
-		indicators_data = self.indicators_calculator.get_indicators_data()
+		try:
+			# Получаем данные индикаторов
+			indicators_data = self.indicators_calculator.get_indicators_data()
+		except ValueError as e:
+			# Недостаточно данных для расчета индикаторов
+			logger.warning(f"Недостаточно данных для расчёта индикаторов: {e}")
+			return {
+				"signal": "HOLD",
+				"reasons": [f"⚠️ Недостаточно данных для расчёта индикаторов"],
+				"price": float(self.df["close"].iloc[-1]),
+				"market_regime": "NONE",
+				"bullish_votes": 0,
+				"bearish_votes": 0,
+				"vote_delta": 0,
+				"filters_passed": 0,
+				"short_enabled": False,
+				"short_conditions": [],
+				"indicators": {
+					"RSI": "н/д",
+					"ADX": "н/д",
+					"MACD": "н/д"
+				}
+			}
 		
 		# Определяем режим рынка
 		regime_data = self.market_regime_detector.detect_market_regime(indicators_data)
