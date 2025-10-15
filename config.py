@@ -274,17 +274,17 @@ MR_TRAILING_AGGRESSIVE_DISTANCE = 0.008  # 0.8% от максимума
 
 STRATEGY_HYBRID_MODE = "AUTO"  # "AUTO" (переключение по ADX), "MR_ONLY", "TF_ONLY"
 
-# Пороги ADX для переключения режимов (v5.2: оптимальный гистерезис)
-HYBRID_ADX_MR_THRESHOLD = 20  # ADX < 22 → Mean Reversion (боковик)
-HYBRID_ADX_MR_EXIT = 26  # ADX > 26 → Выход из MR в TF (гистерезис)
-HYBRID_ADX_TF_THRESHOLD = 24  # ADX > 26 → Trend Following (тренд)
-HYBRID_ADX_TF_EXIT = 22  # ADX < 22 → Выход из TF в MR (гистерезис)
-# 22 <= ADX <= 26 → переходная зона 4 пункта (оптимально)
+# Пороги ADX для переключения режимов (v5.6: расширенная переходная зона)
+HYBRID_ADX_MR_THRESHOLD = 18  # ADX < 18 → Mean Reversion (боковик)
+HYBRID_ADX_MR_EXIT = 25  # ADX > 25 → Выход из MR в TF (гистерезис)
+HYBRID_ADX_TF_THRESHOLD = 22  # ADX > 22 → Trend Following (тренд)
+HYBRID_ADX_TF_EXIT = 18  # ADX < 18 → Выход из TF в MR (гистерезис)
+# 18 <= ADX <= 22 → переходная зона 4 пункта (оптимально)
 
-HYBRID_TRANSITION_MODE = "LAST"  # "HOLD" (не входить) или "LAST" (использовать последний режим)
+HYBRID_TRANSITION_MODE = "HOLD"  # "HOLD" (не входить) или "LAST" (использовать последний режим)
 
 # Минимальное время в режиме (защита от частого переключения)
-HYBRID_MIN_TIME_IN_MODE = 0.5  # v5.3: 1 час минимум (было 2h, уменьшено для быстрой реакции)
+HYBRID_MIN_TIME_IN_MODE = 0.1  # v5.6: 6 минут минимум (быстрое переключение)
 
 # ====================================================================
 # MULTI-TIMEFRAME ANALYSIS
