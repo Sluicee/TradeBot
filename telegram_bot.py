@@ -69,7 +69,7 @@ class TelegramBot:
 		# Гибридная стратегия - отслеживание режима
 		self.last_mode = None  # "MR" или "TF"
 		self.last_mode_time = 0  # часов в текущем режиме
-		self.last_mode_update = None  # datetime последнего обновления
+		self.last_mode_update = datetime.now()  # datetime последнего обновления (инициализируем сразу!)
 
 	def _is_authorized(self, update: Update) -> bool:
 		"""Проверяет, что пользователь является владельцем бота"""
@@ -114,10 +114,9 @@ class TelegramBot:
 		if STRATEGY_MODE == "MEAN_REVERSION":
 			return generator.generate_signal_mean_reversion()
 		elif STRATEGY_MODE == "HYBRID":
-			# Обновляем время в режиме
-			if self.last_mode_update:
-				time_diff = (datetime.now() - self.last_mode_update).total_seconds() / 3600
-				self.last_mode_time += time_diff
+			# Обновляем время в режиме (всегда считаем время)
+			time_diff = (datetime.now() - self.last_mode_update).total_seconds() / 3600
+			self.last_mode_time += time_diff
 			
 			result = generator.generate_signal_hybrid(
 				last_mode=self.last_mode,
@@ -129,7 +128,7 @@ class TelegramBot:
 			if active_mode and active_mode in ["MEAN_REVERSION", "TREND_FOLLOWING"]:
 				if active_mode != self.last_mode:
 					self.last_mode = active_mode
-					self.last_mode_time = 0
+					self.last_mode_time = 0  # Сбрасываем время при смене режима
 			
 			self.last_mode_update = datetime.now()
 			return result
