@@ -1614,15 +1614,23 @@ def main():
 		if st.button("🔄 Обновить сейчас"):
 			st.rerun()
 		
-		# Автообновление через fragment
+		# Автообновление через session state
 		if auto_refresh:
-			# Используем st.empty() для неблокирующего обновления
-			placeholder = st.empty()
-			placeholder.info("🔄 Автообновление включено (60с)")
-			# Используем st.fragment для правильного автообновления
-			import time
-			time.sleep(60)
-			st.rerun()
+			# Используем session state для отслеживания времени последнего обновления
+			if 'last_refresh' not in st.session_state:
+				st.session_state.last_refresh = time.time()
+			
+			current_time = time.time()
+			time_since_refresh = current_time - st.session_state.last_refresh
+			
+			# Показываем прогресс
+			progress = min(time_since_refresh / 60, 1.0)
+			st.progress(progress, text=f"Автообновление через {int(60 - time_since_refresh)}с")
+			
+			# Обновляем каждые 60 секунд
+			if time_since_refresh >= 60:
+				st.session_state.last_refresh = current_time
+				st.rerun()
 	
 	# Загрузка состояния
 	state = load_paper_trader_state()
