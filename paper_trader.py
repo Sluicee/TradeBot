@@ -136,7 +136,8 @@ class Position:
 		signal_strength: int,
 		invest_amount: float,
 		commission: float,
-		atr: float = 0.0
+		atr: float = 0.0,
+		position_type: str = "LONG"
 	):
 		self.symbol = symbol
 		self.entry_price = entry_price
@@ -146,6 +147,7 @@ class Position:
 		self.invest_amount = invest_amount  # Сколько вложено (с комиссией)
 		self.entry_commission = commission
 		self.atr = atr
+		self.position_type = position_type  # "LONG" или "SHORT"
 		
 		# Stop-loss и Take-profit уровни (динамические на основе ATR)
 		dynamic_sl = get_dynamic_stop_loss_percent(atr, entry_price)
@@ -402,6 +404,7 @@ class PaperTrader:
 		signal_strength: int,
 		atr: float = 0.0,
 		position_size_percent: float = None,
+		position_type: str = "LONG",
 		reasons: List[str] = None,
 		active_mode: str = "UNKNOWN",
 		bullish_votes: int = 0,
@@ -455,7 +458,8 @@ class PaperTrader:
 			signal_strength=signal_strength,
 			invest_amount=invest_amount,
 			commission=commission,
-			atr=atr
+			atr=atr,
+			position_type=position_type
 		)
 		
 		# Обновляем баланс

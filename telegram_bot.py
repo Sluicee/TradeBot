@@ -778,7 +778,7 @@ class TelegramBot:
 					reasons = result.get("reasons", [])
 					position_size_percent = result.get("position_size_percent", None)
 					
-					# BUY сигнал - открываем позицию
+					# BUY сигнал - открываем позицию или закрываем SHORT
 					if signal == "BUY" and symbol not in self.paper_trader.positions:
 						can_buy = self.paper_trader.can_open_position(symbol)
 						block_reason = None if can_buy else "Лимит позиций или баланс"
@@ -815,8 +815,24 @@ class TelegramBot:
 								all_messages.append(msg)
 							self.paper_trader.save_state()
 					
-					# BUY сигнал для открытой позиции - докупание
+					# BUY сигнал для SHORT позиции - закрываем SHORT
 					elif signal == "BUY" and symbol in self.paper_trader.positions:
+						position = self.paper_trader.positions[symbol]
+						if not position.partial_closed:  # Только если не частично закрыта
+							trade_info = self.paper_trader.close_position(symbol, price, "SHORT-CLOSE")
+							if trade_info:
+								profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
+								msg = (
+									f"🟢📈 <b>ЗАКРЫЛ SHORT</b> {symbol}\n"
+									f"  Цена: {format_price(price)}\n"
+									f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
+									f"  Баланс: ${trade_info['balance_after']:.2f}"
+								)
+								all_messages.append(msg)
+								self.paper_trader.save_state()
+					
+					# BUY сигнал для открытой LONG позиции - докупание
+					elif signal == "BUY" and symbol in self.paper_trader.positions and self.paper_trader.positions[symbol].position_type == "LONG":
 						adx = result.get("ADX", 0.0)
 						trade_info = self.paper_trader.average_position(
 							symbol=symbol,
@@ -839,8 +855,8 @@ class TelegramBot:
 							all_messages.append(msg)
 							self.paper_trader.save_state()
 				
-					# SELL сигнал - закрываем позицию (если не частично закрыта)
-					elif signal == "SELL" and symbol in self.paper_trader.positions:
+					# SELL сигнал - закрываем LONG позицию (если не частично закрыта)
+					elif signal == "SELL" and symbol in self.paper_trader.positions and self.paper_trader.positions[symbol].position_type == "LONG":
 						position = self.paper_trader.positions[symbol]
 						if not position.partial_closed:  # Только если не частично закрыта
 							trade_info = self.paper_trader.close_position(symbol, price, "SELL")
@@ -850,6 +866,45 @@ class TelegramBot:
 									f"🔴 <b>ПРОДАЛ</b> {symbol}\n"
 									f"  Цена: {format_price(price)}\n"
 									f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
+									f"  Баланс: ${trade_info['balance_after']:.2f}"
+								)
+								all_messages.append(msg)
+								self.paper_trader.save_state()
+					
+					# SHORT сигнал - открываем SHORT позицию
+					elif signal == "SHORT" and symbol not in self.paper_trader.positions:
+						can_short = self.paper_trader.can_open_position(symbol)
+						block_reason = None if can_short else "Лимит позиций или баланс"
+						
+						# Диагностика SHORT сигнала
+						diagnostics.log_signal_generation(
+							symbol=symbol,
+							signal_result=result,
+							price=price,
+							can_buy=can_short,
+							block_reason=block_reason
+						)
+						
+						if can_short:
+							# Получаем размер позиции из SHORT v2.1
+							short_position_size = result.get('short_position_size', 0.1)
+							short_score = result.get('short_score', 0.0)
+							short_version = result.get('short_version', '1.0')
+							
+							trade_info = self.paper_trader.open_position(
+								symbol=symbol,
+								price=price,
+								signal_strength=signal_strength,
+								atr=atr,
+								position_size_percent=short_position_size,
+								position_type="SHORT"
+							)
+							
+							if trade_info:
+								msg = (
+									f"🔴📉 <b>SHORT v{short_version}</b> {symbol}\n"
+									f"  Цена: {format_price(price)}\n"
+									f"  Размер: {short_position_size:.1%} (скор: {short_score:.2f})\n"
 									f"  Баланс: ${trade_info['balance_after']:.2f}"
 								)
 								all_messages.append(msg)
