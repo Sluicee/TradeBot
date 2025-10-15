@@ -1878,12 +1878,12 @@ class TelegramBot:
 		# Распределение (HYBRID v5.5 использует адаптивную логику, примерный порог ~5)
 		min_buy_threshold = 5
 		ranges = [
-			(float('-inf'), -5, "Сильно bearish (<-5)"),
+			(float('-inf'), -5, "Сильно bearish (&lt;-5)"),
 			(-5, -3, "Средне bearish (-5..-3)"),
 			(-3, 0, "Слабо bearish (-3..0)"),
 			(0, 3, "Слабо bullish (0..3)"),
 			(3, min_buy_threshold, f"Средне bullish (3..{min_buy_threshold-1})"),
-			(min_buy_threshold, float('inf'), f"🎯 BUY (>={min_buy_threshold})")
+			(min_buy_threshold, float('inf'), f"🎯 BUY (&gt;={min_buy_threshold})")
 		]
 		
 		message += "<b>Распределение:</b>\n"
@@ -1901,7 +1901,7 @@ class TelegramBot:
 		message += "\n<b>💡 РЕКОМЕНДАЦИИ:</b>\n"
 		
 		if max_delta < min_buy_threshold:
-			message += f"⚠️ Max delta ({max_delta:+d}) < примерный порог BUY (~{min_buy_threshold})\n"
+			message += f"⚠️ Max delta ({max_delta:+d}) &lt; примерный порог BUY (~{min_buy_threshold})\n"
 			message += f"→ Рынок слабый, дождаться более сильных сигналов\n"
 		
 		if avg_delta < 0:
