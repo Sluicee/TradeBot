@@ -2,7 +2,9 @@ import os
 import pandas as pd
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
-from paper_trader import get_position_size_percent, get_dynamic_stop_loss_percent, PaperTrader
+from paper_trader import PaperTrader
+from position_sizing import get_position_size_percent
+from position import get_dynamic_stop_loss_percent
 import aiohttp
 import asyncio
 import json

@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
-from paper_trader import get_position_size_percent, PaperTrader
+from paper_trader import PaperTrader
+from position_sizing import get_position_size_percent
 import aiohttp
 import asyncio
 import json

@@ -389,7 +389,7 @@ class TelegramPaperTrading:
                         signals.append(res)
                     
                     # Симулируем торговлю
-                    from paper_trader import get_position_size_percent
+                    from position_sizing import get_position_size_percent
                     
                     balance = 100.0
                     position = 0.0
