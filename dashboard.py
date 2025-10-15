@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 import numpy as np
 from scipy import stats as scipy_stats
-from database import db
+from database import db, Signal, PaperTradingState
 from logger import logger
 
 # Импорты опциональные (могут не работать на всех системах)
@@ -63,7 +63,6 @@ def get_current_prices() -> Dict[str, float]:
 	"""Получает текущие цены из последних сигналов в БД"""
 	try:
 		with db.session_scope() as session:
-			from database import Signal
 			from sqlalchemy import func
 			
 			# Получаем последнюю цену для каждого символа из сигналов
@@ -348,17 +347,23 @@ def calculate_metrics(trades: List[Dict[str, Any]]) -> Dict[str, float]:
 	
 	# Sharpe Ratio (годовой)
 	if len(profit_percents) > 1:
-		returns_std = np.std(profit_percents)
-		avg_return = np.mean(profit_percents)
-		sharpe = (avg_return / returns_std) * np.sqrt(252) if returns_std > 0 else 0
+		# Фильтруем None значения
+		valid_percents = [p for p in profit_percents if p is not None]
+		if len(valid_percents) > 1:
+			returns_std = np.std(valid_percents)
+			avg_return = np.mean(valid_percents)
+			sharpe = (avg_return / returns_std) * np.sqrt(252) if returns_std > 0 else 0
+		else:
+			sharpe = 0
 	else:
 		sharpe = 0
 	
 	# Sortino Ratio
-	downside_returns = [p for p in profit_percents if p < 0]
+	downside_returns = [p for p in profit_percents if p is not None and p < 0]
 	if downside_returns and len(downside_returns) > 1:
 		downside_std = np.std(downside_returns)
-		sortino = (np.mean(profit_percents) / downside_std) * np.sqrt(252) if downside_std > 0 else 0
+		avg_return = np.mean([p for p in profit_percents if p is not None])
+		sortino = (avg_return / downside_std) * np.sqrt(252) if downside_std > 0 else 0
 	else:
 		sortino = 0
 	
@@ -682,10 +687,10 @@ def history_page(state: Dict[str, Any]):
 	types = list(set(t.get("type", "N/A") for t in trades))
 	
 	with col1:
-		filter_symbol = st.multiselect("Символ", ["Все"] + symbols, default="Все")
+		filter_symbol = st.multiselect("Символ", ["Все"] + symbols, default=["Все"])
 	
 	with col2:
-		filter_type = st.multiselect("Тип", ["Все"] + types, default="Все")
+		filter_type = st.multiselect("Тип", ["Все"] + types, default=["Все"])
 	
 	with col3:
 		filter_profit = st.selectbox("P&L", ["Все", "Прибыльные", "Убыточные"], index=0)
@@ -1026,11 +1031,9 @@ def backtests_page():
 						with st.expander("📋 Вывод бэктеста"):
 							st.code(result.stdout[-1000:] if len(result.stdout) > 1000 else result.stdout, language="text")
 					
-					st.cache_data.clear()
 					st.balloons()
 					
-					# Небольшая задержка чтобы пользователь увидел успех
-					time.sleep(1)
+					# Обновляем страницу
 					st.rerun()
 				else:
 					progress_bar.empty()
@@ -1060,7 +1063,6 @@ def backtests_page():
 				# Очистка всех бэктестов
 				count = db.clear_backtests()
 				st.success(f"✅ Удалено {count} бэктестов")
-				st.cache_data.clear()
 				st.rerun()
 			except Exception as e:
 				st.error(f"Ошибка: {e}")
@@ -1356,19 +1358,17 @@ def settings_page():
 	
 	with col1:
 		st.write("**Сброс Paper Trading**")
-		if st.button("🔄 Сбросить", type="primary"):
-			confirm = st.checkbox("Подтвердите сброс (все данные будут удалены)")
-			if confirm:
+		confirm = st.checkbox("Подтвердите сброс (все данные будут удалены)")
+		if st.button("🔄 Сбросить", type="primary") and confirm:
 				try:
 					# Сброс БД
-					from database import PaperTradingState
 					with db.session_scope() as session:
 						# Удаляем все данные
 						session.query(PaperTradingState).delete()
 						session.commit()
 					
 					st.success("✅ Paper trading сброшен!")
-					st.cache_data.clear()
+					st.rerun()
 				except Exception as e:
 					st.error(f"Ошибка: {e}")
 	
@@ -1612,11 +1612,14 @@ def main():
 		
 		# Кнопка обновления
 		if st.button("🔄 Обновить сейчас"):
-			st.cache_data.clear()
 			st.rerun()
 		
 		# Автообновление через fragment
 		if auto_refresh:
+			# Используем st.empty() для неблокирующего обновления
+			placeholder = st.empty()
+			placeholder.info("🔄 Автообновление включено (60с)")
+			# Используем st.fragment для правильного автообновления
 			import time
 			time.sleep(60)
 			st.rerun()
