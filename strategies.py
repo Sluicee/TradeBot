@@ -322,6 +322,8 @@ class HybridStrategy:
 		
 		Возвращает сигнал с указанием активного режима.
 		"""
+		# Логирование для отладки времени
+		logger.info(f"🔀 HYBRID: last_mode={last_mode}, last_mode_time={last_mode_time:.2f}h, min_time={HYBRID_MIN_TIME_IN_MODE}h")
 		if self.df.empty:
 			return {
 				"signal": "HOLD",
@@ -378,6 +380,9 @@ class HybridStrategy:
 			reasons.append(f"⏱ ЗАЩИТА ОТ ПЕРЕКЛЮЧЕНИЯ: Остаёмся в режиме {last_mode}")
 			reasons.append(f"   📊 Время в режиме: {last_mode_time:.2f}h / {HYBRID_MIN_TIME_IN_MODE}h (осталось {time_remaining:.2f}h)")
 			reasons.append(f"   🎯 Требуется минимум {HYBRID_MIN_TIME_IN_MODE}h для смены режима")
+			logger.info(f"⏱ ЗАЩИТА ОТ ПЕРЕКЛЮЧЕНИЯ: {last_mode} → {current_mode}, время: {last_mode_time:.2f}h < {HYBRID_MIN_TIME_IN_MODE}h")
+		else:
+			logger.info(f"✅ РЕЖИМ ОБНОВЛЁН: {last_mode} → {current_mode}, время: {last_mode_time:.2f}h")
 		
 		# Генерируем сигнал в зависимости от режима
 		if current_mode == "MR":
