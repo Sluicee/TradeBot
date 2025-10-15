@@ -274,12 +274,12 @@ MR_TRAILING_AGGRESSIVE_DISTANCE = 0.008  # 0.8% от максимума
 
 STRATEGY_HYBRID_MODE = "AUTO"  # "AUTO" (переключение по ADX), "MR_ONLY", "TF_ONLY"
 
-# Пороги ADX для переключения режимов (v5.8: расширенная переходная зона)
+# Пороги ADX для переключения режимов (v5.9: максимально расширенная переходная зона)
 HYBRID_ADX_MR_THRESHOLD = 15  # ADX < 15 → Mean Reversion (боковик)
-HYBRID_ADX_MR_EXIT = 25  # ADX > 25 → Выход из MR в TF (гистерезис)
-HYBRID_ADX_TF_THRESHOLD = 20  # ADX > 20 → Trend Following (тренд)
+HYBRID_ADX_MR_EXIT = 30  # ADX > 30 → Выход из MR в TF (гистерезис)
+HYBRID_ADX_TF_THRESHOLD = 25  # ADX > 25 → Trend Following (тренд)
 HYBRID_ADX_TF_EXIT = 15  # ADX < 15 → Выход из TF в MR (гистерезис)
-# 15 <= ADX <= 20 → переходная зона 5 пунктов (расширено)
+# 15 <= ADX <= 25 → переходная зона 10 пунктов (максимально расширено)
 
 HYBRID_TRANSITION_MODE = "HOLD"  # "HOLD" (не входить) или "LAST" (использовать последний режим)
 
