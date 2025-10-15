@@ -82,7 +82,7 @@ def get_current_prices() -> Dict[str, float]:
 		logger.error(f"Ошибка получения цен из БД: {e}")
 		return {}
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def load_paper_trader_state() -> Optional[Dict[str, Any]]:
 	"""Загружает состояние paper trader из БД"""
 	try:
@@ -534,7 +534,7 @@ def overview_page(state: Dict[str, Any]):
 	st.subheader("Последние сделки")
 	
 	if trades:
-		recent_trades = trades[-5:][::-1]  # Последние 5 в обратном порядке
+		recent_trades = trades[:5]  # Первые 5 (уже отсортированы по времени DESC)
 		
 		for trade in recent_trades:
 			trade_type = trade.get("type", "N/A")
