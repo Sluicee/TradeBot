@@ -1551,7 +1551,21 @@ def render_bot_status_widget():
 		st.error("❌ Не работает")
 	
 	# Последнее обновление
-	if status["last_update"]:
+	# Приоритет: время UI обновления > время БД обновления
+	ui_refresh_time = st.session_state.get('last_ui_refresh')
+	
+	if ui_refresh_time:
+		# Показываем время последнего обновления UI
+		age = (datetime.now() - ui_refresh_time).total_seconds()
+		if age < 60:
+			age_str = f"{int(age)} сек назад"
+		elif age < 3600:
+			age_str = f"{int(age/60)} мин назад"
+		else:
+			age_str = f"{int(age/3600)} ч назад"
+		st.caption(f"📝 Обновлено: {age_str}")
+	elif status["last_update"]:
+		# Показываем время обновления БД
 		age = status["state_file_age"]
 		if age < 60:
 			age_str = f"{int(age)} сек назад"
@@ -1559,7 +1573,6 @@ def render_bot_status_widget():
 			age_str = f"{int(age/60)} мин назад"
 		else:
 			age_str = f"{int(age/3600)} ч назад"
-		
 		st.caption(f"📝 Обновлено: {age_str}")
 	else:
 		st.caption("📝 Нет данных")
@@ -1612,6 +1625,8 @@ def main():
 		
 		# Кнопка обновления
 		if st.button("🔄 Обновить сейчас"):
+			# Запоминаем время обновления UI
+			st.session_state.last_ui_refresh = datetime.now()
 			st.rerun()
 		
 		# Автообновление через session state
@@ -1630,6 +1645,7 @@ def main():
 			# Обновляем каждые 60 секунд
 			if time_since_refresh >= 60:
 				st.session_state.last_refresh = current_time
+				st.session_state.last_ui_refresh = datetime.now()
 				st.rerun()
 	
 	# Загрузка состояния
