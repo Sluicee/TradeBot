@@ -186,7 +186,7 @@ class Position:
 	def check_trailing_stop(self, current_price: float) -> bool:
 		"""Проверяет срабатывание trailing stop"""
 		if self.partial_closed:
-			trailing_drop = (self.max_price - current_price) / self.max_price
+			trailing_drop = (self.max_price - current_price) / self.max_price if self.max_price > 0 else 0
 			return trailing_drop >= TRAILING_STOP_PERCENT
 		return False
 	
@@ -261,7 +261,7 @@ class Position:
 		
 		# PnL = текущая стоимость - вложенная сумма + прибыль с частичного закрытия
 		pnl = net_value - remaining_invested + self.partial_close_profit
-		pnl_percent = (pnl / total_investment) * 100
+		pnl_percent = (pnl / total_investment) * 100 if total_investment > 0 else 0
 		
 		return {
 			"pnl": pnl,
@@ -617,7 +617,7 @@ class PaperTrader:
 		total_investment = position.total_invested if position.averaging_count > 0 else position.invest_amount
 		partial_invested = total_investment * PARTIAL_CLOSE_PERCENT
 		profit = net_value - partial_invested
-		profit_percent = ((price - position.average_entry_price) / position.average_entry_price) * 100
+		profit_percent = ((price - position.average_entry_price) / position.average_entry_price) * 100 if position.average_entry_price > 0 else 0
 		
 		# Обновляем позицию
 		position.amount = keep_amount
@@ -682,7 +682,7 @@ class PaperTrader:
 		# Определение размера докупания
 		if mode == "PYRAMID_UP":
 			# Пирамидинг вверх - размер зависит от силы сигнала
-			size_multiplier = (signal_strength / SIGNAL_STRENGTH_STRONG) if signal_strength > 0 else 0.3
+			size_multiplier = (signal_strength / SIGNAL_STRENGTH_STRONG) if signal_strength > 0 and SIGNAL_STRENGTH_STRONG > 0 else 0.3
 			size_percent = AVERAGING_SIZE_PERCENT * size_multiplier * 0.6  # ~30% от исходного
 			position.pyramid_mode = True
 		else:
@@ -844,7 +844,7 @@ class PaperTrader:
 			
 		total_balance = self.balance + total_invested + total_pnl
 		total_profit = total_balance - self.initial_balance
-		total_profit_percent = (total_profit / self.initial_balance) * 100
+		total_profit_percent = (total_profit / self.initial_balance) * 100 if self.initial_balance > 0 else 0
 		
 		# Рассчитываем динамический лимит позиций
 		dynamic_max_positions = get_dynamic_max_positions(total_balance)
