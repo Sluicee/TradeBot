@@ -63,6 +63,9 @@ class TelegramFormatters:
         # Определяем режим
         market_regime = result.get('market_regime', 'NEUTRAL')
         strategy_mode = result.get('strategy', 'UNKNOWN')
+        active_mode = result.get('active_mode', 'UNKNOWN')
+        mode_time = result.get('mode_time', 0.0)
+        min_mode_time = result.get('min_mode_time', 1.0)
         
         # Проверяем MTF
         is_mtf = result.get('mtf_enabled', False)
@@ -76,7 +79,13 @@ class TelegramFormatters:
         
         # Режим стратегии
         if market_regime != 'NEUTRAL':
-            lines.append(f"🎯 Режим: <b>{market_regime}</b>")
+            # Добавляем информацию о времени в режиме
+            if active_mode in ['MEAN_REVERSION', 'TREND_FOLLOWING', 'TRANSITION']:
+                time_progress = (mode_time / min_mode_time) * 100 if min_mode_time > 0 else 0
+                lines.append(f"🎯 Режим: <b>{market_regime}</b>")
+                lines.append(f"⏱ Время в режиме: <code>{mode_time:.1f}h / {min_mode_time:.1f}h</code> ({time_progress:.0f}%)")
+            else:
+                lines.append(f"🎯 Режим: <b>{market_regime}</b>")
         
         # MTF информация
         if is_mtf:

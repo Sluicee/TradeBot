@@ -374,13 +374,19 @@ class HybridStrategy:
 		# Проверяем минимальное время в режиме (защита от частого переключения)
 		if last_mode is not None and last_mode != current_mode and last_mode_time < HYBRID_MIN_TIME_IN_MODE:
 			current_mode = last_mode
-			reasons.append(f"⏱ Остаёмся в режиме {last_mode} (прошло {last_mode_time:.1f}h < {HYBRID_MIN_TIME_IN_MODE}h)")
+			time_remaining = HYBRID_MIN_TIME_IN_MODE - last_mode_time
+			reasons.append(f"⏱ ЗАЩИТА ОТ ПЕРЕКЛЮЧЕНИЯ: Остаёмся в режиме {last_mode}")
+			reasons.append(f"   📊 Время в режиме: {last_mode_time:.2f}h / {HYBRID_MIN_TIME_IN_MODE}h (осталось {time_remaining:.2f}h)")
+			reasons.append(f"   🎯 Требуется минимум {HYBRID_MIN_TIME_IN_MODE}h для смены режима")
 		
 		# Генерируем сигнал в зависимости от режима
 		if current_mode == "MR":
 			signal_result = self.mean_reversion_strategy.generate_signal()
 			signal_result["active_mode"] = "MEAN_REVERSION"
 			signal_result["strategy"] = "HYBRID"
+			# Добавляем информацию о времени в режиме
+			signal_result["mode_time"] = last_mode_time
+			signal_result["min_mode_time"] = HYBRID_MIN_TIME_IN_MODE
 			# Добавляем reasons о режиме в начало
 			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
 		
@@ -388,6 +394,9 @@ class HybridStrategy:
 			signal_result = self.trend_following_strategy.generate_signal()
 			signal_result["active_mode"] = "TREND_FOLLOWING"
 			signal_result["strategy"] = "HYBRID"
+			# Добавляем информацию о времени в режиме
+			signal_result["mode_time"] = last_mode_time
+			signal_result["min_mode_time"] = HYBRID_MIN_TIME_IN_MODE
 			
 			# 🔴 SHORT v2.1: Проверяем медвежий тренд для SHORT сигнала
 			# Если TF режим и сигнал SELL, проверяем активацию SHORT
@@ -421,6 +430,9 @@ class HybridStrategy:
 			signal_result["signal_emoji"] = "⚠️"
 			signal_result["active_mode"] = "TRANSITION"
 			signal_result["strategy"] = "HYBRID"
+			# Добавляем информацию о времени в режиме
+			signal_result["mode_time"] = last_mode_time
+			signal_result["min_mode_time"] = HYBRID_MIN_TIME_IN_MODE
 			# Добавляем reason о переходной зоне в начало
 			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
 		
