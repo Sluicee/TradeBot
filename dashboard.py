@@ -1550,22 +1550,8 @@ def render_bot_status_widget():
 	else:
 		st.error("❌ Не работает")
 	
-	# Последнее обновление
-	# Приоритет: время UI обновления > время БД обновления
-	ui_refresh_time = st.session_state.get('last_ui_refresh')
-	
-	if ui_refresh_time:
-		# Показываем время последнего обновления UI
-		age = (datetime.now() - ui_refresh_time).total_seconds()
-		if age < 60:
-			age_str = f"{int(age)} сек назад"
-		elif age < 3600:
-			age_str = f"{int(age/60)} мин назад"
-		else:
-			age_str = f"{int(age/3600)} ч назад"
-		st.caption(f"📝 Обновлено: {age_str}")
-	elif status["last_update"]:
-		# Показываем время обновления БД
+	# Последнее обновление данных из БД
+	if status["last_update"]:
 		age = status["state_file_age"]
 		if age < 60:
 			age_str = f"{int(age)} сек назад"
@@ -1573,7 +1559,26 @@ def render_bot_status_widget():
 			age_str = f"{int(age/60)} мин назад"
 		else:
 			age_str = f"{int(age/3600)} ч назад"
-		st.caption(f"📝 Обновлено: {age_str}")
+		
+		# Добавляем индикатор свежести UI и цветовую индикацию
+		ui_refresh_time = st.session_state.get('last_ui_refresh')
+		
+		# Цветовая индикация актуальности данных
+		if age < 60:
+			color_icon = "🟢"  # Свежие данные
+		elif age < 300:
+			color_icon = "🟡"  # Данные немного устарели
+		else:
+			color_icon = "🔴"  # Данные устарели
+		
+		if ui_refresh_time:
+			ui_age = (datetime.now() - ui_refresh_time).total_seconds()
+			if ui_age < 5:  # UI обновлялся недавно
+				st.caption(f"{color_icon} Данные: {age_str} • 🔄 UI: только что")
+			else:
+				st.caption(f"{color_icon} Данные: {age_str}")
+		else:
+			st.caption(f"{color_icon} Данные: {age_str}")
 	else:
 		st.caption("📝 Нет данных")
 	
