@@ -563,6 +563,12 @@ class SignalGenerator:
 			ema_short_window, ema_long_window, rsi_window,
 			macd_fast, macd_slow, macd_signal
 		)
+		
+		# Обновляем все модули с новым DataFrame
+		self.market_regime_detector.df = self.df.copy()
+		self.mean_reversion_strategy.df = self.df.copy()
+		self.hybrid_strategy.df = self.df.copy()
+		
 		return self.df
 
 	def generate_signal(self) -> Dict[str, Any]:

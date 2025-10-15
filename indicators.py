@@ -123,7 +123,12 @@ class IndicatorsCalculator:
 		):
 			try:
 				self.df[f"ADX_{ADX_WINDOW}"] = ta.trend.adx(high, low, close, window=ADX_WINDOW)
-				logger.info(f"✅ ADX рассчитан: len(df)={len(self.df)}, ADX_WINDOW={ADX_WINDOW}")
+				# Проверяем, что ADX рассчитался корректно
+				last_adx = self.df[f"ADX_{ADX_WINDOW}"].iloc[-1]
+				if pd.isna(last_adx) or last_adx == 0:
+					logger.warning(f"⚠️ ADX рассчитан, но последнее значение некорректно: {last_adx}")
+				else:
+					logger.info(f"✅ ADX рассчитан: len(df)={len(self.df)}, ADX_WINDOW={ADX_WINDOW}, last_value={last_adx:.2f}")
 			except Exception as e:
 				logger.warning(f"❌ Ошибка расчёта ADX: {e}")
 				self.df[f"ADX_{ADX_WINDOW}"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
@@ -180,6 +185,11 @@ class IndicatorsCalculator:
 		if missing_indicators:
 			raise ValueError(f"Отсутствуют индикаторы: {missing_indicators}")
 		
+		# Дополнительная проверка ADX
+		adx_value = last.get(f"ADX_{ADX_WINDOW}", 0)
+		if pd.isna(adx_value) or adx_value == 0:
+			logger.warning(f"⚠️ ADX значение некорректно: {adx_value}")
+		
 		# Индикаторы
 		ema_s = float(last["EMA_short"])
 		ema_l = float(last["EMA_long"])
@@ -196,6 +206,9 @@ class IndicatorsCalculator:
 		stoch_k = float(last.get("Stoch_K", 0))
 		stoch_d = float(last.get("Stoch_D", 0))
 		atr = float(last.get(f"ATR_{ATR_WINDOW}", 0))
+		
+		# Отладочная информация
+		logger.debug(f"📊 Индикаторы: RSI={rsi:.2f}, ADX={adx:.2f}, MACD={macd:.4f}, ATR={atr:.4f}")
 		
 		# Объём
 		volume = float(last["volume"])
