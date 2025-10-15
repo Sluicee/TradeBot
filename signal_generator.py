@@ -956,10 +956,10 @@ class SignalGenerator:
 		else:
 			# Переходная зона
 			if HYBRID_TRANSITION_MODE == "HOLD":
-				current_mode = "HOLD"
-				reasons.append(f"⏸ ADX={adx:.1f} в переходной зоне [{HYBRID_ADX_MR_THRESHOLD}, {HYBRID_ADX_TF_THRESHOLD}] → HOLD")
+				current_mode = "TRANSITION"  # Исправлено: должно быть TRANSITION, не HOLD
+				reasons.append(f"⏸ ADX={adx:.1f} в переходной зоне [{HYBRID_ADX_MR_THRESHOLD}, {HYBRID_ADX_TF_THRESHOLD}] → TRANSITION")
 			else:  # LAST
-				current_mode = last_mode if last_mode else "HOLD"
+				current_mode = last_mode if last_mode else "TRANSITION"  # Исправлено: TRANSITION по умолчанию
 				reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
 		
 		# Проверяем минимальное время в режиме (защита от частого переключения)
