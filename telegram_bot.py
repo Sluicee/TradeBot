@@ -125,7 +125,7 @@ class TelegramBot:
 			
 			# Обновляем текущий режим
 			active_mode = result.get("active_mode")
-			if active_mode and active_mode in ["MEAN_REVERSION", "TREND_FOLLOWING"]:
+			if active_mode and active_mode in ["MEAN_REVERSION", "TREND_FOLLOWING", "TRANSITION"]:
 				if active_mode != self.last_mode:
 					self.last_mode = active_mode
 					self.last_mode_time = 0  # Сбрасываем время при смене режима

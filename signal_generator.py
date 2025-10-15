@@ -963,7 +963,7 @@ class SignalGenerator:
 				reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
 		
 		# Проверяем минимальное время в режиме (защита от частого переключения)
-		if last_mode and last_mode != current_mode and last_mode_time < HYBRID_MIN_TIME_IN_MODE:
+		if last_mode is not None and last_mode != current_mode and last_mode_time < HYBRID_MIN_TIME_IN_MODE:
 			current_mode = last_mode
 			reasons.append(f"⏱ Остаёмся в режиме {last_mode} (прошло {last_mode_time:.1f}h < {HYBRID_MIN_TIME_IN_MODE}h)")
 		
