@@ -50,9 +50,17 @@ class Position:
 		
 		# Stop-loss и Take-profit уровни (динамические на основе ATR)
 		dynamic_sl = get_dynamic_stop_loss_percent(atr, entry_price)
-		self.stop_loss_price = entry_price * (1 - dynamic_sl)
-		self.stop_loss_percent = dynamic_sl
-		self.take_profit_price = entry_price * (1 + TAKE_PROFIT_PERCENT)
+		
+		if position_type == "SHORT":
+			# Для SHORT: SL выше входа, TP ниже входа
+			self.stop_loss_price = entry_price * (1 + dynamic_sl)  # Выше входа
+			self.stop_loss_percent = dynamic_sl
+			self.take_profit_price = entry_price * (1 - TAKE_PROFIT_PERCENT)  # Ниже входа
+		else:
+			# Для LONG: SL ниже входа, TP выше входа
+			self.stop_loss_price = entry_price * (1 - dynamic_sl)  # Ниже входа
+			self.stop_loss_percent = dynamic_sl
+			self.take_profit_price = entry_price * (1 + TAKE_PROFIT_PERCENT)  # Выше входа
 		
 		# Флаги и состояние
 		self.partial_closed = False
@@ -69,26 +77,48 @@ class Position:
 		
 	def update_max_price(self, current_price: float):
 		"""Обновляет максимальную цену для trailing stop"""
-		if current_price > self.max_price:
-			self.max_price = current_price
+		if self.position_type == "SHORT":
+			# Для SHORT: обновляем максимальную цену (самую высокую цену)
+			if current_price > self.max_price:
+				self.max_price = current_price
+		else:
+			# Для LONG: обновляем максимальную цену (самую высокую цену)
+			if current_price > self.max_price:
+				self.max_price = current_price
 			
 	def check_stop_loss(self, current_price: float) -> bool:
 		"""Проверяет срабатывание стоп-лосса"""
 		if not self.partial_closed:
-			return current_price <= self.stop_loss_price
+			if self.position_type == "SHORT":
+				# Для SHORT: срабатывает если цена поднялась выше SL
+				return current_price >= self.stop_loss_price
+			else:
+				# Для LONG: срабатывает если цена упала ниже SL
+				return current_price <= self.stop_loss_price
 		return False
 		
 	def check_take_profit(self, current_price: float) -> bool:
 		"""Проверяет срабатывание тейк-профита (для частичного закрытия)"""
 		if not self.partial_closed:
-			return current_price >= self.take_profit_price
+			if self.position_type == "SHORT":
+				# Для SHORT: срабатывает если цена упала ниже TP
+				return current_price <= self.take_profit_price
+			else:
+				# Для LONG: срабатывает если цена поднялась выше TP
+				return current_price >= self.take_profit_price
 		return False
 		
 	def check_trailing_stop(self, current_price: float) -> bool:
 		"""Проверяет срабатывание trailing stop"""
 		if self.partial_closed:
-			trailing_drop = (self.max_price - current_price) / self.max_price if self.max_price > 0 else 0
-			return trailing_drop >= TRAILING_STOP_PERCENT
+			if self.position_type == "SHORT":
+				# Для SHORT: trailing stop срабатывает при росте цены
+				trailing_rise = (current_price - self.max_price) / self.max_price if self.max_price > 0 else 0
+				return trailing_rise >= TRAILING_STOP_PERCENT
+			else:
+				# Для LONG: trailing stop срабатывает при падении цены
+				trailing_drop = (self.max_price - current_price) / self.max_price if self.max_price > 0 else 0
+				return trailing_drop >= TRAILING_STOP_PERCENT
 		return False
 	
 	def check_time_exit(self, max_hours: int = None) -> bool:
