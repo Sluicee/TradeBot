@@ -418,17 +418,26 @@ class HybridStrategy:
 				bullish_votes = signal_result.get("bullish_votes", 0)
 				
 				# Медвежий тренд: EMA_short < EMA_long и bearish > bullish
-				if ema_short < ema_long and bearish_votes > bullish_votes + 2:
+				if ema_short < ema_long and bearish_votes > bullish_votes + 1:
 					# Получаем SHORT данные из результата
 					short_score = signal_result.get("short_score", 0.0)
 					short_enabled = signal_result.get("short_enabled", False)
 					short_conditions = signal_result.get("short_conditions", [])
+					
+					# Логирование для отладки SHORT
+					logger.info(f"🔴 SHORT CHECK: EMA_short={ema_short:.2f} < EMA_long={ema_long:.2f}, "
+							   f"bearish={bearish_votes} > bullish={bullish_votes}+1, "
+							   f"short_enabled={short_enabled}, conditions={len(short_conditions)}, "
+							   f"short_score={short_score:.2f}")
 					
 					# Если SHORT активен и скор достаточно высокий
 					if short_enabled and len(short_conditions) >= 2:
 						signal_result["signal"] = "SHORT"
 						signal_result["signal_emoji"] = "🔴📉"
 						reasons.append(f"🔴 SHORT ACTIVATED: Медвежий тренд в TF режиме, скор {short_score:.2f}")
+						logger.info(f"🔴 SHORT ACTIVATED: {short_conditions}")
+					else:
+						logger.info(f"🔴 SHORT BLOCKED: enabled={short_enabled}, conditions={len(short_conditions)}")
 			
 			# Добавляем reasons о режиме в начало
 			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
