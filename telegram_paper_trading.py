@@ -155,8 +155,11 @@ class TelegramPaperTrading:
             emoji = "🟢" if pnl_info['pnl'] > 0 else "🔴" if pnl_info['pnl'] < 0 else "⚪"
             partial_mark = " [частично]" if pos['partial_closed'] else ""
             
+            position_type = pos.get('position_type', 'LONG')
+            position_type_text = f" ({position_type})" if position_type == "SHORT" else ""
+            
             positions_text += (
-                f"  {emoji} <b>{symbol}</b>{partial_mark}\n"
+                f"  {emoji} <b>{symbol}</b>{position_type_text}{partial_mark}\n"
                 f"    Вход: {self.formatters.format_price(pos['entry_price'])} → Сейчас: {self.formatters.format_price(current_price)}\n"
                 f"    PnL: ${pnl_info['pnl']:+.2f} ({pnl_info['pnl_percent']:+.2f}%)\n"
                 f"    SL: {self.formatters.format_price(pos['stop_loss'])} | TP: {self.formatters.format_price(pos['take_profit'])}\n\n"
@@ -280,6 +283,9 @@ class TelegramPaperTrading:
             if trade_type == "BUY":
                 emoji = "🟢"
                 details = f"  Купил {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  Вложено: ${trade['invest_amount']:.2f}"
+            elif trade_type == "SHORT":
+                emoji = "🔴"
+                details = f"  Продал в шорт {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  Вложено: ${trade['invest_amount']:.2f}"
             elif trade_type in ["SELL", "MANUAL-CLOSE"]:
                 emoji = "🔴"
                 profit_emoji = "📈" if trade['profit'] >= 0 else "📉"

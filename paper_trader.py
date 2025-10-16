@@ -174,7 +174,7 @@ class PaperTrader:
 		
 		# Добавляем в историю
 		trade_info = {
-			"type": "BUY",
+			"type": "SHORT" if position_type == "SHORT" else "BUY",
 			"symbol": symbol,
 			"price": price,
 			"amount": amount,
@@ -591,7 +591,8 @@ class PaperTrader:
 				"take_profit": pos.take_profit_price,
 				"partial_closed": pos.partial_closed,
 				"pnl": pnl_info["pnl"],
-				"pnl_percent": pnl_info["pnl_percent"]
+				"pnl_percent": pnl_info["pnl_percent"],
+				"position_type": getattr(pos, 'position_type', 'LONG')
 			})
 			
 		total_balance = self.balance + total_invested + total_pnl
