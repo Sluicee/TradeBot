@@ -515,44 +515,6 @@ class TelegramBot:
 								all_messages.append(msg)
 								self.paper_trader.save_state()
 					
-					# SHORT сигнал - открываем SHORT позицию
-					elif signal == "SHORT" and symbol not in self.paper_trader.positions:
-						can_short = self.paper_trader.can_open_position(symbol)
-						block_reason = None if can_short else "Лимит позиций или баланс"
-						
-						# Диагностика SHORT сигнала
-						diagnostics.log_signal_generation(
-							symbol=symbol,
-							signal_result=result,
-							price=price,
-							can_buy=can_short,
-							block_reason=block_reason
-						)
-						
-						if can_short:
-							# Получаем размер позиции из SHORT v2.1
-							short_position_size = result.get('short_position_size', 0.1)
-							short_score = result.get('short_score', 0.0)
-							short_version = result.get('short_version', '1.0')
-							
-							trade_info = self.paper_trader.open_position(
-								symbol=symbol,
-								price=price,
-								signal_strength=signal_strength,
-								atr=atr,
-								position_size_percent=short_position_size,
-								position_type="SHORT"
-							)
-							
-							if trade_info:
-								msg = (
-									f"🔴📉 <b>SHORT v{short_version}</b> {symbol}\n"
-									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
-									f"  Размер: {short_position_size:.1%} (скор: {short_score:.2f})\n"
-									f"  Баланс: ${trade_info['balance_after']:.2f}"
-								)
-								all_messages.append(msg)
-								self.paper_trader.save_state()
 					
 					# HOLD/SELL - логируем для диагностики (если нет позиции)
 					else:

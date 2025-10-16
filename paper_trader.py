@@ -140,13 +140,8 @@ class PaperTrader:
 		commission = invest_amount * COMMISSION_RATE
 		self.stats["total_commission"] += commission
 		
-		# Покупаем монеты (для LONG) или занимаем (для SHORT)
-		if position_type == "SHORT":
-			# Для SHORT: занимаем монеты (продаем в шорт)
-			amount = (invest_amount - commission) / price
-		else:
-			# Для LONG: покупаем монеты
-			amount = (invest_amount - commission) / price
+		# Покупаем монеты
+		amount = (invest_amount - commission) / price
 		
 		# Создаем позицию с ATR для динамического SL
 		position = Position(
@@ -162,19 +157,15 @@ class PaperTrader:
 		)
 		
 		# Обновляем баланс
-		if position_type == "SHORT":
-			# Для SHORT: получаем деньги от продажи в шорт
-			self.balance += invest_amount - commission
-		else:
-			# Для LONG: тратим деньги на покупку
-			self.balance -= invest_amount
+		# Тратим деньги на покупку
+		self.balance -= invest_amount
 		
 		# Сохраняем позицию
 		self.positions[symbol] = position
 		
 		# Добавляем в историю
 		trade_info = {
-			"type": "SHORT" if position_type == "SHORT" else "BUY",
+			"type": "BUY",
 			"symbol": symbol,
 			"price": price,
 			"amount": amount,
@@ -222,25 +213,14 @@ class PaperTrader:
 		
 		logger.info(f"[CLOSE_POSITION] 📊 Вход: ${position.entry_price:.4f}, Количество: {position.amount:.6f}")
 		
-		# Продаем все монеты (для LONG) или покупаем обратно (для SHORT)
-		if position.position_type == "SHORT":
-			# Для SHORT: покупаем обратно монеты, которые мы продали в шорт
-			buy_value = position.amount * price
-			commission = buy_value * COMMISSION_RATE
-			self.stats["total_commission"] += commission
-			net_value = buy_value + commission  # Платим за покупку + комиссия
-			
-			# Обновляем баланс (тратим деньги на покупку обратно)
-			self.balance -= net_value
-		else:
-			# Для LONG: продаем монеты
-			sell_value = position.amount * price
-			commission = sell_value * COMMISSION_RATE
-			self.stats["total_commission"] += commission
-			net_value = sell_value - commission
-			
-			# Обновляем баланс (получаем деньги от продажи)
-			self.balance += net_value
+		# Продаем все монеты
+		sell_value = position.amount * price
+		commission = sell_value * COMMISSION_RATE
+		self.stats["total_commission"] += commission
+		net_value = sell_value - commission
+		
+		# Обновляем баланс (получаем деньги от продажи)
+		self.balance += net_value
 		
 		# Рассчитываем прибыль
 		# Используем total_invested для усредненных позиций
@@ -252,16 +232,9 @@ class PaperTrader:
 		else:
 			remaining_invested = total_investment
 		
-		if position.position_type == "SHORT":
-			# Для SHORT: прибыль = (цена входа - цена закрытия) * количество
-			# Мы продали по entry_price, покупаем обратно по price
-			price_diff = position.entry_price - price  # Положительно, если цена упала
-			profit = (price_diff * position.amount) - commission + position.partial_close_profit
-			profit_percent = (price_diff / position.entry_price) * 100 if position.entry_price > 0 else 0
-		else:
-			# Для LONG: обычный расчет
-			profit = net_value - remaining_invested + position.partial_close_profit
-			profit_percent = (profit / total_investment) * 100
+		# Для LONG: обычный расчет
+		profit = net_value - remaining_invested + position.partial_close_profit
+		profit_percent = (profit / total_investment) * 100
 		
 		# Обновляем статистику
 		if profit > 0:
@@ -329,36 +302,20 @@ class PaperTrader:
 		close_amount = position.amount * PARTIAL_CLOSE_PERCENT
 		keep_amount = position.amount - close_amount
 		
-		# Продаем (для LONG) или покупаем обратно (для SHORT)
-		if position.position_type == "SHORT":
-			# Для SHORT: покупаем обратно часть монет
-			buy_value = close_amount * price
-			commission = buy_value * COMMISSION_RATE
-			self.stats["total_commission"] += commission
-			net_value = buy_value + commission  # Платим за покупку + комиссия
-			
-			# Обновляем баланс (тратим деньги на покупку обратно)
-			self.balance -= net_value
-			
-			# Рассчитываем прибыль для SHORT
-			price_diff = position.entry_price - price  # Положительно, если цена упала
-			profit = (price_diff * close_amount) - commission
-			profit_percent = (price_diff / position.entry_price) * 100 if position.entry_price > 0 else 0
-		else:
-			# Для LONG: продаем часть монет
-			sell_value = close_amount * price
-			commission = sell_value * COMMISSION_RATE
-			self.stats["total_commission"] += commission
-			net_value = sell_value - commission
-			
-			# Обновляем баланс (получаем деньги от продажи)
-			self.balance += net_value
-			
-			# Рассчитываем прибыль для LONG
-			total_investment = position.total_invested if position.averaging_count > 0 else position.invest_amount
-			partial_invested = total_investment * PARTIAL_CLOSE_PERCENT
-			profit = net_value - partial_invested
-			profit_percent = ((price - position.average_entry_price) / position.average_entry_price) * 100 if position.average_entry_price > 0 else 0
+		# Продаем часть монет
+		sell_value = close_amount * price
+		commission = sell_value * COMMISSION_RATE
+		self.stats["total_commission"] += commission
+		net_value = sell_value - commission
+		
+		# Обновляем баланс (получаем деньги от продажи)
+		self.balance += net_value
+		
+		# Рассчитываем прибыль для LONG
+		total_investment = position.total_invested if position.averaging_count > 0 else position.invest_amount
+		partial_invested = total_investment * PARTIAL_CLOSE_PERCENT
+		profit = net_value - partial_invested
+		profit_percent = ((price - position.average_entry_price) / position.average_entry_price) * 100 if position.average_entry_price > 0 else 0
 		
 		# Обновляем позицию
 		position.amount = keep_amount
@@ -448,13 +405,8 @@ class PaperTrader:
 		commission = new_invest * COMMISSION_RATE
 		self.stats["total_commission"] += commission
 		
-		# Покупаем дополнительные монеты (для LONG) или занимаем (для SHORT)
-		if position.position_type == "SHORT":
-			# Для SHORT: занимаем дополнительные монеты (продаем в шорт)
-			new_amount = (new_invest - commission) / price
-		else:
-			# Для LONG: покупаем дополнительные монеты
-			new_amount = (new_invest - commission) / price
+		# Покупаем дополнительные монеты
+		new_amount = (new_invest - commission) / price
 		
 		# Обновляем позицию
 		old_amount = position.amount
@@ -490,12 +442,8 @@ class PaperTrader:
 		position.averaging_entries.append(averaging_entry)
 		
 		# Обновляем баланс
-		if position.position_type == "SHORT":
-			# Для SHORT: получаем деньги от дополнительной продажи в шорт
-			self.balance += new_invest - commission
-		else:
-			# Для LONG: тратим деньги на дополнительную покупку
-			self.balance -= new_invest
+		# Тратим деньги на дополнительную покупку
+		self.balance -= new_invest
 		
 		# Добавляем в историю
 		trade_info = {
