@@ -178,11 +178,6 @@ class Position:
 		"""Возвращает текущую прибыль/убыток"""
 		from config import COMMISSION_RATE
 		
-		current_value = self.amount * current_price
-		# Учитываем комиссию на выход
-		exit_commission = current_value * COMMISSION_RATE
-		net_value = current_value - exit_commission
-		
 		# Используем total_invested для усредненных позиций
 		total_investment = self.total_invested if self.averaging_count > 0 else self.invest_amount
 		
@@ -192,14 +187,41 @@ class Position:
 		else:
 			remaining_invested = total_investment
 		
-		# PnL = текущая стоимость - вложенная сумма + прибыль с частичного закрытия
-		pnl = net_value - remaining_invested + self.partial_close_profit
+		if self.position_type == "SHORT":
+			# Для SHORT: прибыль = (цена входа - текущая цена) × количество
+			# Если цена упала (current_price < entry_price) → прибыль
+			# Если цена выросла (current_price > entry_price) → убыток
+			price_diff = self.entry_price - current_price
+			gross_pnl = price_diff * self.amount
+			
+			# Учитываем комиссию на выход
+			exit_value = self.amount * current_price
+			exit_commission = exit_value * COMMISSION_RATE
+			
+			# PnL = валовая прибыль - комиссия на выход + прибыль с частичного закрытия
+			pnl = gross_pnl - exit_commission + self.partial_close_profit
+		else:
+			# Для LONG: обычный расчет
+			current_value = self.amount * current_price
+			# Учитываем комиссию на выход
+			exit_commission = current_value * COMMISSION_RATE
+			net_value = current_value - exit_commission
+			
+			# PnL = текущая стоимость - вложенная сумма + прибыль с частичного закрытия
+			pnl = net_value - remaining_invested + self.partial_close_profit
+		
 		pnl_percent = (pnl / total_investment) * 100 if total_investment > 0 else 0
+		
+		# Определяем current_value в зависимости от типа позиции
+		if self.position_type == "SHORT":
+			current_value = self.amount * current_price  # Текущая стоимость для SHORT
+		else:
+			current_value = net_value  # Для LONG используем net_value
 		
 		return {
 			"pnl": pnl,
 			"pnl_percent": pnl_percent,
-			"current_value": net_value,
+			"current_value": current_value,
 			"invested": self.invest_amount
 		}
 		
