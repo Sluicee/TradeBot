@@ -164,6 +164,7 @@ class TelegramHandlers:
             "• /paper_candidates — показать кандидатов на сделку\n"
             "• /paper_force_buy [SYMBOL] — принудительная покупка\n"
             "• /paper_force_sell [SYMBOL] — принудительная продажа\n"
+            "• /paper_force_short [SYMBOL] — принудительный SHORT\n"
             "• /paper_reset — сбросить баланс и историю\n\n"
             "<b>Аналитика:</b>\n"
             "• /kelly_info — информация о Kelly Criterion\n"
@@ -407,6 +408,9 @@ class TelegramHandlers:
     
     async def paper_force_sell(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await self.paper_trading.paper_force_sell(update, context)
+    
+    async def paper_force_short(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        return await self.paper_trading.paper_force_short(update, context)
 
     # -------------------------
     # Аналитические команды (делегируем в отдельный модуль)

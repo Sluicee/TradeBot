@@ -179,6 +179,7 @@ class TelegramBot:
 		self.application.add_handler(CommandHandler("paper_candidates", self.handlers.paper_candidates))
 		self.application.add_handler(CommandHandler("paper_force_buy", self.handlers.paper_force_buy))
 		self.application.add_handler(CommandHandler("paper_force_sell", self.handlers.paper_force_sell))
+		self.application.add_handler(CommandHandler("paper_force_short", self.handlers.paper_force_short))
 		
 		# Kelly Criterion и Averaging
 		self.application.add_handler(CommandHandler("kelly_info", self.handlers.kelly_info))
