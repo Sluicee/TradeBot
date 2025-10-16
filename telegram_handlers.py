@@ -207,8 +207,7 @@ class TelegramHandlers:
         try:
             async with aiohttp.ClientSession() as session:
                 provider = DataProvider(session)
-                klines = await provider.fetch_klines(symbol=symbol, interval=interval, limit=500)
-                df = provider.klines_to_dataframe(klines)
+                df = await provider.fetch_klines(symbol=symbol, interval=interval, limit=500)
 
                 if df.empty:
                     await msg.edit_text("Не удалось получить данные от ByBIT.")
@@ -225,7 +224,13 @@ class TelegramHandlers:
                         strategy=STRATEGY_MODE
                     )
                 else:
-                    result = self.bot._generate_signal_with_strategy(generator, symbol=symbol)
+                    # Используем прямое обращение к генератору сигналов
+                    if STRATEGY_MODE == "MEAN_REVERSION":
+                        result = generator.generate_signal_mean_reversion()
+                    elif STRATEGY_MODE == "HYBRID":
+                        result = generator.generate_signal_hybrid()
+                    else:  # TREND_FOLLOWING (default)
+                        result = generator.generate_signal()
 
             text = self.formatters.format_analysis(result, symbol, interval)
             await msg.edit_text(text, parse_mode="HTML")
