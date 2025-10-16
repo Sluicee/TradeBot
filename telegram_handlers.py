@@ -13,7 +13,7 @@ from config import (
     DEFAULT_SYMBOL, DEFAULT_INTERVAL, POLL_INTERVAL, POLL_INTERVAL_MIN, POLL_INTERVAL_MAX,
     VOLATILITY_WINDOW, VOLATILITY_THRESHOLD, POLL_VOLATILITY_HIGH_THRESHOLD, 
     POLL_VOLATILITY_LOW_THRESHOLD, VOLATILITY_ALERT_COOLDOWN, ADX_WINDOW,
-    STRATEGY_MODE, USE_MULTI_TIMEFRAME, MTF_TIMEFRAMES
+    STRATEGY_MODE, USE_MULTI_TIMEFRAME, MTF_TIMEFRAMES, USE_STATISTICAL_MODELS
 )
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
@@ -213,7 +213,7 @@ class TelegramHandlers:
                     await msg.edit_text("Не удалось получить данные от ByBIT.")
                     return
 
-                generator = SignalGenerator(df)
+                generator = SignalGenerator(df, use_statistical_models=USE_STATISTICAL_MODELS)
                 generator.compute_indicators()
                 
                 # Если MTF включен - используем MTF анализ напрямую
@@ -263,7 +263,7 @@ class TelegramHandlers:
                     return
                 
                 # Генерируем MTF сигнал напрямую (async) - ВНУТРИ async with!
-                generator = SignalGenerator(df)
+                generator = SignalGenerator(df, use_statistical_models=USE_STATISTICAL_MODELS)
                 generator.compute_indicators()
                 result = await generator.generate_signal_multi_timeframe(
                     data_provider=provider,

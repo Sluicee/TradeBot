@@ -181,7 +181,7 @@ PARTIAL_TP_REMAINING_TP = 0.03  # TP для оставшихся 50%: +4%
 # ====================================================================
 
 # Включить статистические модели (Bayesian, Z-score, Markov)
-USE_STATISTICAL_MODELS = False  # По умолчанию выключено (требует обучения)
+USE_STATISTICAL_MODELS = True  # По умолчанию выключено (требует обучения)
 
 # Bayesian Decision Layer
 BAYESIAN_MIN_PROBABILITY = 0.55  # Минимальная вероятность успеха для входа (55%)

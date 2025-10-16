@@ -35,7 +35,10 @@ class Position:
 		signal_strength: int,
 		invest_amount: float,
 		commission: float,
-		atr: float = 0.0
+		atr: float = 0.0,
+		rsi: float = 50.0,
+		adx: float = 0.0,
+		market_regime: str = "NEUTRAL"
 	):
 		self.symbol = symbol
 		self.entry_price = entry_price
@@ -45,6 +48,11 @@ class Position:
 		self.invest_amount = invest_amount  # Сколько вложено (с комиссией)
 		self.entry_commission = commission
 		self.atr = atr
+		
+		# Индикаторы для статистических моделей
+		self.rsi = rsi
+		self.adx = adx
+		self.market_regime = market_regime
 		
 		# Stop-loss и Take-profit уровни (динамические на основе ATR)
 		dynamic_sl = get_dynamic_stop_loss_percent(atr, entry_price)

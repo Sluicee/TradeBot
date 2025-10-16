@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 from config import (
     INITIAL_BALANCE, STRATEGY_MODE, USE_MULTI_TIMEFRAME, ADX_WINDOW,
     COMMISSION_RATE, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT, 
-    PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT
+    PARTIAL_CLOSE_PERCENT, TRAILING_STOP_PERCENT, USE_STATISTICAL_MODELS
 )
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
@@ -373,7 +373,7 @@ class TelegramPaperTrading:
                         continue
                     
                     # Симулируем как в backtest.py
-                    generator = SignalGenerator(df)
+                    generator = SignalGenerator(df, use_statistical_models=USE_STATISTICAL_MODELS)
                     generator.compute_indicators()
                     
                     signals = []
@@ -384,7 +384,7 @@ class TelegramPaperTrading:
                         if len(sub_df) < min_window:
                             signals.append({"signal": "HOLD", "price": sub_df["close"].iloc[-1]})
                             continue
-                        gen = SignalGenerator(sub_df)
+                        gen = SignalGenerator(sub_df, use_statistical_models=USE_STATISTICAL_MODELS)
                         gen.compute_indicators()
                         res = self.bot._generate_signal_with_strategy(gen)
                         signals.append(res)
@@ -557,7 +557,7 @@ class TelegramPaperTrading:
                     await msg.edit_text("⚠️ Нет данных")
                     return
                 
-                generator = SignalGenerator(df)
+                generator = SignalGenerator(df, use_statistical_models=USE_STATISTICAL_MODELS)
                 generator.compute_indicators()
                 result = self.bot._generate_signal_with_strategy(generator, symbol=symbol)
                 

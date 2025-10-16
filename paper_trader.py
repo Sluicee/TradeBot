@@ -18,6 +18,14 @@ from position import Position, get_dynamic_stop_loss_percent
 from correlation import check_correlation_risk
 from position_sizing import get_position_size_percent, calculate_kelly_fraction
 
+# Статистические модели
+try:
+	from bayesian_db import BayesianDecisionLayerDB
+	STATISTICAL_MODELS_AVAILABLE = True
+except ImportError:
+	STATISTICAL_MODELS_AVAILABLE = False
+	logger.warning("Статистические модели не доступны")
+
 
 class PaperTrader:
 	"""Система виртуальной торговли"""
@@ -42,6 +50,44 @@ class PaperTrader:
 		self.is_running = False
 		self.start_time = None
 		
+		# Статистические модели для обучения
+		self.bayesian = None
+		if STATISTICAL_MODELS_AVAILABLE:
+			self.bayesian = BayesianDecisionLayerDB()
+			# Мигрируем данные из JSON если есть
+			self.bayesian.migrate_from_json()
+			logger.info("Статистические модели инициализированы с поддержкой БД")
+		
+	def _get_signal_signature(self, trade_info: Dict[str, Any] = None, position: Position = None) -> str:
+		"""Создает сигнатуру сигнала для Bayesian модели"""
+		if not self.bayesian:
+			return ""
+		
+		# Создаем данные сигнала
+		signal_data = {
+			"RSI": 50,
+			"EMA_short": 0,
+			"EMA_long": 0,
+			"ADX": 0,
+			"market_regime": "NEUTRAL",
+			"MACD_hist": 0
+		}
+		
+		# Приоритет: данные из позиции, затем из trade_info
+		if position:
+			signal_data["RSI"] = position.rsi
+			signal_data["ADX"] = position.adx
+			signal_data["market_regime"] = position.market_regime
+		elif trade_info:
+			if "rsi" in trade_info:
+				signal_data["RSI"] = trade_info["rsi"]
+			if "adx" in trade_info:
+				signal_data["ADX"] = trade_info["adx"]
+			if "market_regime" in trade_info:
+				signal_data["market_regime"] = trade_info["market_regime"]
+		
+		return self.bayesian.get_signal_signature(signal_data)
+	
 	def start(self):
 		"""Запускает paper trading"""
 		self.is_running = True
@@ -101,7 +147,10 @@ class PaperTrader:
 		reasons: List[str] = None,
 		active_mode: str = "UNKNOWN",
 		bullish_votes: int = 0,
-		bearish_votes: int = 0
+		bearish_votes: int = 0,
+		rsi: float = 50.0,
+		adx: float = 0.0,
+		market_regime: str = "NEUTRAL"
 	) -> Optional[Dict[str, Any]]:
 		"""Открывает позицию"""
 		logger.info(f"\n{'='*60}")
@@ -151,7 +200,10 @@ class PaperTrader:
 			signal_strength=signal_strength,
 			invest_amount=invest_amount,
 			commission=commission,
-			atr=atr
+			atr=atr,
+			rsi=rsi,
+			adx=adx,
+			market_regime=market_regime
 		)
 		
 		# Обновляем баланс
@@ -187,6 +239,13 @@ class PaperTrader:
 			db.add_trade(trade_info)
 		except Exception as e:
 			logger.error(f"[OPEN_POSITION] ❌ Ошибка сохранения сделки в БД: {e}")
+		
+		# Записываем сигнал для обучения Bayesian модели
+		if self.bayesian:
+			signal_signature = self._get_signal_signature(position=position)
+			if signal_signature:
+				self.bayesian.record_signal(signal_signature, "BUY", price)
+				logger.info(f"[OPEN_POSITION] 📊 Записан сигнал для обучения: {signal_signature[:50]}...")
 		
 		logger.info(f"[OPEN_POSITION] ✅ {symbol}: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) | SL: {position.stop_loss_percent*100:.1f}% | TP: {TAKE_PROFIT_PERCENT*100:.1f}%")
 		
@@ -272,6 +331,13 @@ class PaperTrader:
 		# Win Rate
 		total_closed = self.stats["winning_trades"] + self.stats["losing_trades"]
 		win_rate = (self.stats["winning_trades"] / total_closed * 100) if total_closed > 0 else 0
+		
+		# Завершаем сигнал для обучения Bayesian модели (ПЕРЕД удалением позиции)
+		if self.bayesian:
+			signal_signature = self._get_signal_signature(position=position)
+			if signal_signature:
+				self.bayesian.complete_signal(signal_signature, price, position.entry_price)
+				logger.info(f"[CLOSE_POSITION] 📊 Завершен сигнал для обучения: {signal_signature[:50]}... (P&L: {profit_percent:+.1f}%)")
 		
 		# Удаляем позицию
 		del self.positions[symbol]

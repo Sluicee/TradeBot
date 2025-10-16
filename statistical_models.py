@@ -209,7 +209,7 @@ class BayesianDecisionLayer:
 		if not self.stats["signals"]:
 			return "Статистика пуста"
 		
-		lines = ["📊 СТАТИСТИКА СИГНАЛОВ:\n"]
+		lines = ["СТАТИСТИКА СИГНАЛОВ:\n"]
 		
 		# Сортируем по количеству сигналов
 		sorted_sigs = sorted(
@@ -560,22 +560,22 @@ class EnsembleDecisionMaker:
 		should_take_bayesian, bayesian_prob, bayesian_reason = self.bayesian.should_take_signal(
 			signal_signature, min_probability
 		)
-		reasons.append(f"🎯 Bayesian: {bayesian_reason}")
+		reasons.append(f"Bayesian: {bayesian_reason}")
 		
 		# 2. Z-Score Analysis
 		zscore_result = self.zscore.generate_signal(df)
-		reasons.append(f"📊 {zscore_result['reason']}")
+		reasons.append(f"Z-Score: {zscore_result['reason']}")
 		
 		# 3. Regime Detection
 		regime_result = self.regime.detect_regime(df)
-		reasons.append(f"🔄 {regime_result['reason']}")
+		reasons.append(f"Regime: {regime_result['reason']}")
 		
 		# 4. Проверяем, подходит ли режим для сигнала
 		original_signal_type = original_signal.get("signal", "HOLD")
 		should_trade_regime, regime_trade_reason = self.regime.should_trade_in_regime(
 			regime_result["regime"], original_signal_type
 		)
-		reasons.append(f"✓ Режим: {regime_trade_reason}")
+		reasons.append(f"Режим: {regime_trade_reason}")
 		
 		# 5. Weighted Voting
 		buy_score = 0
@@ -621,8 +621,8 @@ class EnsembleDecisionMaker:
 			final_signal = "HOLD"
 			confidence = hold_score
 		
-		reasons.append(f"\n💡 Финальные оценки: BUY={buy_score:.2f}, SELL={sell_score:.2f}, HOLD={hold_score:.2f}")
-		reasons.append(f"✅ Решение: {final_signal} (confidence={confidence:.2%})")
+		reasons.append(f"\nФинальные оценки: BUY={buy_score:.2f}, SELL={sell_score:.2f}, HOLD={hold_score:.2f}")
+		reasons.append(f"Решение: {final_signal} (confidence={confidence:.2%})")
 		
 		return {
 			"final_signal": final_signal,

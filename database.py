@@ -180,6 +180,43 @@ class Signal(Base):
 	)
 
 
+class BayesianSignalStats(Base):
+	"""Статистика сигналов для Bayesian модели"""
+	__tablename__ = "bayesian_signal_stats"
+	
+	id = Column(Integer, primary_key=True)
+	signal_signature = Column(String(200), nullable=False, unique=True, index=True)
+	total_signals = Column(Integer, default=0)
+	profitable_signals = Column(Integer, default=0)
+	losing_signals = Column(Integer, default=0)
+	total_profit = Column(Float, default=0.0)
+	total_loss = Column(Float, default=0.0)
+	avg_profit = Column(Float, default=0.0)
+	avg_loss = Column(Float, default=0.0)
+	created_at = Column(DateTime, default=datetime.now)
+	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+	
+	__table_args__ = (
+		Index('idx_bayesian_signature', 'signal_signature'),
+	)
+
+
+class BayesianPendingSignal(Base):
+	"""Ожидающие завершения сигналы"""
+	__tablename__ = "bayesian_pending_signals"
+	
+	id = Column(Integer, primary_key=True)
+	signal_signature = Column(String(200), nullable=False, index=True)
+	signal_type = Column(String(10), nullable=False)  # BUY, SELL
+	entry_price = Column(Float, nullable=False)
+	created_at = Column(DateTime, default=datetime.now, index=True)
+	
+	__table_args__ = (
+		Index('idx_pending_signature', 'signal_signature'),
+		Index('idx_pending_created', 'created_at'),
+	)
+
+
 class Backtest(Base):
 	"""Результаты бэктестов"""
 	__tablename__ = "backtests"
@@ -780,6 +817,112 @@ class DatabaseManager:
 			backtests_count = session.query(Backtest).delete()
 			session.commit()
 			return backtests_count
+	
+	# ================================================================
+	# BAYESIAN STATISTICS
+	# ================================================================
+	
+	def get_bayesian_stats(self, signal_signature: str) -> Optional[Dict[str, Any]]:
+		"""Получить статистику сигнала"""
+		with self.session_scope() as session:
+			stats = session.query(BayesianSignalStats).filter_by(signal_signature=signal_signature).first()
+			if not stats:
+				return None
+			
+			return {
+				"signal_signature": stats.signal_signature,
+				"total": stats.total_signals,
+				"profitable": stats.profitable_signals,
+				"losing": stats.losing_signals,
+				"total_profit": stats.total_profit,
+				"total_loss": stats.total_loss,
+				"avg_profit": stats.avg_profit,
+				"avg_loss": stats.avg_loss,
+				"created_at": stats.created_at.isoformat() if stats.created_at else None,
+				"updated_at": stats.updated_at.isoformat() if stats.updated_at else None
+			}
+	
+	def update_bayesian_stats(self, signal_signature: str, stats_data: Dict[str, Any]):
+		"""Обновить статистику сигнала"""
+		with self.session_scope() as session:
+			stats = session.query(BayesianSignalStats).filter_by(signal_signature=signal_signature).first()
+			
+			if stats:
+				# Обновляем существующую запись
+				for key, value in stats_data.items():
+					if hasattr(stats, key):
+						setattr(stats, key, value)
+				stats.updated_at = datetime.now()
+			else:
+				# Создаем новую запись
+				stats_data["signal_signature"] = signal_signature
+				stats = BayesianSignalStats(**stats_data)
+				session.add(stats)
+			
+			session.commit()
+	
+	def add_pending_signal(self, signal_signature: str, signal_type: str, entry_price: float) -> int:
+		"""Добавить ожидающий сигнал"""
+		with self.session_scope() as session:
+			pending = BayesianPendingSignal(
+				signal_signature=signal_signature,
+				signal_type=signal_type,
+				entry_price=entry_price
+			)
+			session.add(pending)
+			session.commit()
+			return pending.id
+	
+	def remove_pending_signal(self, signal_signature: str, entry_price: float):
+		"""Удалить ожидающий сигнал"""
+		with self.session_scope() as session:
+			# Удаляем по сигнатуре и цене входа (точное совпадение)
+			session.query(BayesianPendingSignal).filter_by(
+				signal_signature=signal_signature,
+				entry_price=entry_price
+			).delete()
+			session.commit()
+	
+	def get_pending_signals(self, signal_signature: str) -> List[Dict[str, Any]]:
+		"""Получить все ожидающие сигналы для сигнатуры"""
+		with self.session_scope() as session:
+			pending = session.query(BayesianPendingSignal).filter_by(signal_signature=signal_signature).all()
+			return [
+				{
+					"id": p.id,
+					"signal_type": p.signal_type,
+					"entry_price": p.entry_price,
+					"created_at": p.created_at.isoformat() if p.created_at else None
+				}
+				for p in pending
+			]
+	
+	def get_all_bayesian_stats(self) -> List[Dict[str, Any]]:
+		"""Получить всю статистику Bayesian модели"""
+		with self.session_scope() as session:
+			stats = session.query(BayesianSignalStats).all()
+			return [
+				{
+					"signal_signature": s.signal_signature,
+					"total": s.total_signals,
+					"profitable": s.profitable_signals,
+					"losing": s.losing_signals,
+					"total_profit": s.total_profit,
+					"total_loss": s.total_loss,
+					"avg_profit": s.avg_profit,
+					"avg_loss": s.avg_loss,
+					"created_at": s.created_at.isoformat() if s.created_at else None,
+					"updated_at": s.updated_at.isoformat() if s.updated_at else None
+				}
+				for s in stats
+			]
+	
+	def clear_bayesian_stats(self):
+		"""Очистить всю Bayesian статистику"""
+		with self.session_scope() as session:
+			session.query(BayesianPendingSignal).delete()
+			session.query(BayesianSignalStats).delete()
+			session.commit()
 
 
 # Глобальный экземпляр

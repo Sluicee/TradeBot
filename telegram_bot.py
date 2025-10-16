@@ -12,7 +12,8 @@ from config import (
 	VOLATILITY_WINDOW, VOLATILITY_THRESHOLD,
 	POLL_VOLATILITY_HIGH_THRESHOLD, POLL_VOLATILITY_LOW_THRESHOLD, VOLATILITY_ALERT_COOLDOWN,
 	INITIAL_BALANCE, STRATEGY_MODE, ADX_WINDOW,
-	MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION
+	MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION,
+	USE_STATISTICAL_MODELS
 )
 from signal_logger import log_signal
 from data_provider import DataProvider
@@ -347,7 +348,7 @@ class TelegramBot:
 							logger.warning("Нет данных для %s, пропускаем", symbol)
 							continue
 
-						generator = SignalGenerator(df)
+						generator = SignalGenerator(df, use_statistical_models=USE_STATISTICAL_MODELS)
 						generator.compute_indicators()
 						result = self._generate_signal_with_strategy(generator, symbol=symbol)
 						signal = result["signal"]
