@@ -130,6 +130,7 @@ class TelegramBot:
 						# Режим не изменился - время продолжает накапливаться
 						logger.info(f"⏱ РЕЖИМ НЕ ИЗМЕНИЛСЯ: {active_mode}, время накапливается: {self.last_mode_time:.2f}h")
 				
+				# Обновляем время последнего обновления
 				self.last_mode_update = datetime.now()
 				return result
 			else:  # TREND_FOLLOWING (default)

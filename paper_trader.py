@@ -183,8 +183,7 @@ class PaperTrader:
 			"signal_strength": signal_strength,
 			"time": position.entry_time,
 			"balance_after": self.balance,
-			# v5.5 метаданные
-			"active_mode": active_mode,
+			# v5.5 метаданные (убираем active_mode - нет в БД)
 			"bullish_votes": bullish_votes,
 			"bearish_votes": bearish_votes,
 			"votes_delta": bullish_votes - bearish_votes,
