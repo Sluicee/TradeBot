@@ -343,5 +343,5 @@ class SignalGenerator:
 		
 		Делегирует мультитаймфрейм анализ соответствующему модулю.
 		"""
-		mtf_analyzer = MultiTimeframeAnalyzer(lambda df=None: SignalGenerator(df or self.df, self.use_statistical_models))
+		mtf_analyzer = MultiTimeframeAnalyzer(lambda df=None: SignalGenerator(df if df is not None else self.df, self.use_statistical_models))
 		return await mtf_analyzer.generate_signal_multi_timeframe(data_provider, symbol, strategy)
