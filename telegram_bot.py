@@ -11,7 +11,8 @@ from config import (
 	POLL_INTERVAL, POLL_INTERVAL_MIN, POLL_INTERVAL_MAX,
 	VOLATILITY_WINDOW, VOLATILITY_THRESHOLD,
 	POLL_VOLATILITY_HIGH_THRESHOLD, POLL_VOLATILITY_LOW_THRESHOLD, VOLATILITY_ALERT_COOLDOWN,
-	INITIAL_BALANCE, STRATEGY_MODE, ADX_WINDOW
+	INITIAL_BALANCE, STRATEGY_MODE, ADX_WINDOW,
+	MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION
 )
 from signal_logger import log_signal
 from data_provider import DataProvider
@@ -119,7 +120,7 @@ class TelegramBot:
 				
 				# Обновляем текущий режим
 				active_mode = result.get("active_mode")
-				if active_mode and active_mode in ["MEAN_REVERSION", "TREND_FOLLOWING", "TRANSITION"]:
+				if active_mode and active_mode in [MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION]:
 					if active_mode != self.last_mode:
 						# Режим изменился - сбрасываем время
 						old_mode = self.last_mode
@@ -180,7 +181,6 @@ class TelegramBot:
 		self.application.add_handler(CommandHandler("paper_candidates", self.handlers.paper_candidates))
 		self.application.add_handler(CommandHandler("paper_force_buy", self.handlers.paper_force_buy))
 		self.application.add_handler(CommandHandler("paper_force_sell", self.handlers.paper_force_sell))
-		self.application.add_handler(CommandHandler("paper_force_short", self.handlers.paper_force_short))
 		
 		# Kelly Criterion и Averaging
 		self.application.add_handler(CommandHandler("kelly_info", self.handlers.kelly_info))
@@ -422,7 +422,7 @@ class TelegramBot:
 					reasons = result.get("reasons", [])
 					position_size_percent = result.get("position_size_percent", None)
 					
-					# BUY сигнал - открываем позицию или закрываем SHORT
+					# BUY сигнал - открываем позицию
 					if signal == "BUY" and symbol not in self.paper_trader.positions:
 						can_buy = self.paper_trader.can_open_position(symbol)
 						block_reason = None if can_buy else "Лимит позиций или баланс"
@@ -459,24 +459,8 @@ class TelegramBot:
 								all_messages.append(msg)
 							self.paper_trader.save_state()
 					
-					# BUY сигнал для SHORT позиции - закрываем SHORT
-					elif signal == "BUY" and symbol in self.paper_trader.positions:
-						position = self.paper_trader.positions[symbol]
-						if not position.partial_closed:  # Только если не частично закрыта
-							trade_info = self.paper_trader.close_position(symbol, price, "SHORT-CLOSE")
-							if trade_info:
-								profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
-								msg = (
-									f"🟢📈 <b>ЗАКРЫЛ SHORT</b> {symbol}\n"
-									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
-									f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
-									f"  Баланс: ${trade_info['balance_after']:.2f}"
-								)
-								all_messages.append(msg)
-								self.paper_trader.save_state()
-					
 					# BUY сигнал для открытой LONG позиции - докупание
-					elif signal == "BUY" and symbol in self.paper_trader.positions and self.paper_trader.positions[symbol].position_type == "LONG":
+					elif signal == "BUY" and symbol in self.paper_trader.positions:
 						adx = result.get("ADX", 0.0)
 						trade_info = self.paper_trader.average_position(
 							symbol=symbol,
@@ -500,7 +484,7 @@ class TelegramBot:
 							self.paper_trader.save_state()
 				
 					# SELL сигнал - закрываем LONG позицию (если не частично закрыта)
-					elif signal == "SELL" and symbol in self.paper_trader.positions and self.paper_trader.positions[symbol].position_type == "LONG":
+					elif signal == "SELL" and symbol in self.paper_trader.positions:
 						position = self.paper_trader.positions[symbol]
 						if not position.partial_closed:  # Только если не частично закрыта
 							trade_info = self.paper_trader.close_position(symbol, price, "SELL")

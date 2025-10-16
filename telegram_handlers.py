@@ -39,59 +39,6 @@ class TelegramHandlers:
             return True
         return update.effective_chat.id == self.bot.owner_chat_id
     
-    def _generate_signal_with_strategy(self, generator: SignalGenerator, symbol: str = None, use_mtf: bool = None) -> dict:
-        """
-        Генерирует сигнал в зависимости от выбранной стратегии (STRATEGY_MODE)
-        
-        Args:
-            generator: SignalGenerator с загруженными данными
-            symbol: торговая пара (нужна для MTF анализа)
-            use_mtf: использовать multi-timeframe анализ (если None, берётся из USE_MULTI_TIMEFRAME)
-        """
-        # Определяем, использовать ли MTF
-        if use_mtf is None:
-            use_mtf = USE_MULTI_TIMEFRAME
-        
-        # Если MTF включен и символ указан - используем MTF анализ
-        if use_mtf and symbol and hasattr(self.bot, 'data_provider'):
-            try:
-                # MTF анализ - асинхронный
-                loop = asyncio.get_event_loop()
-                return loop.run_until_complete(
-                    generator.generate_signal_multi_timeframe(
-                        data_provider=self.bot.data_provider,
-                        symbol=symbol,
-                        strategy=STRATEGY_MODE
-                    )
-                )
-            except Exception as e:
-                logger.error(f"Ошибка MTF анализа: {e}, fallback на single TF")
-                # Fallback на обычный анализ при ошибке
-        
-        # Обычный single-timeframe анализ
-        if STRATEGY_MODE == "MEAN_REVERSION":
-            return generator.generate_signal_mean_reversion()
-        elif STRATEGY_MODE == "HYBRID":
-            # Обновляем время в режиме (всегда считаем время)
-            time_diff = (datetime.now() - self.bot.last_mode_update).total_seconds() / 3600
-            self.bot.last_mode_time += time_diff
-            
-            result = generator.generate_signal_hybrid(
-                last_mode=self.bot.last_mode,
-                last_mode_time=self.bot.last_mode_time
-            )
-            
-            # Обновляем текущий режим
-            active_mode = result.get("active_mode")
-            if active_mode and active_mode in ["MEAN_REVERSION", "TREND_FOLLOWING", "TRANSITION"]:
-                if active_mode != self.bot.last_mode:
-                    self.bot.last_mode = active_mode
-                    self.bot.last_mode_time = 0  # Сбрасываем время при смене режима
-            
-            self.bot.last_mode_update = datetime.now()
-            return result
-        else:  # TREND_FOLLOWING (default)
-            return generator.generate_signal()
     
     # -------------------------
     # Основные команды
@@ -164,7 +111,6 @@ class TelegramHandlers:
             "• /paper_candidates — показать кандидатов на сделку\n"
             "• /paper_force_buy [SYMBOL] — принудительная покупка\n"
             "• /paper_force_sell [SYMBOL] — принудительная продажа\n"
-            "• /paper_force_short [SYMBOL] — принудительный SHORT\n"
             "• /paper_reset — сбросить баланс и историю\n\n"
             "<b>Аналитика:</b>\n"
             "• /kelly_info — информация о Kelly Criterion\n"
@@ -279,7 +225,7 @@ class TelegramHandlers:
                         strategy=STRATEGY_MODE
                     )
                 else:
-                    result = self._generate_signal_with_strategy(generator, symbol=symbol)
+                    result = self.bot._generate_signal_with_strategy(generator, symbol=symbol)
 
             text = self.formatters.format_analysis(result, symbol, interval)
             await msg.edit_text(text, parse_mode="HTML")

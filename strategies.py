@@ -19,7 +19,9 @@ from config import (
 	STRATEGY_HYBRID_MODE, HYBRID_ADX_MR_THRESHOLD, HYBRID_ADX_TF_THRESHOLD,
 	HYBRID_TRANSITION_MODE, HYBRID_MIN_TIME_IN_MODE,
 	# Индикаторы
-	STOCH_OVERSOLD, STOCH_OVERBOUGHT, ADX_WINDOW, ATR_WINDOW
+	STOCH_OVERSOLD, STOCH_OVERBOUGHT, ADX_WINDOW, ATR_WINDOW,
+	# Константы режимов
+	MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION
 )
 
 class MeanReversionStrategy:
@@ -189,7 +191,7 @@ class MeanReversionStrategy:
 				# Адаптивный размер позиции
 				if is_strong_oversold:
 					position_size_percent = MR_POSITION_SIZE_STRONG
-					reasons.append(f"✅ STRONG BUY: RSI={rsi:.1f} (<20), Z-score={zscore:.2f} (<-2.5) → позиция 70%")
+					reasons.append(f"✅ STRONG BUY: RSI={rsi:.1f} (<20), Z-score={zscore:.2f} (<{MR_ZSCORE_STRONG_BUY}) → позиция 70%")
 				elif rsi < 25 and zscore < -2.0:
 					position_size_percent = MR_POSITION_SIZE_MEDIUM
 					reasons.append(f"✅ MEDIUM BUY: RSI={rsi:.1f} (<25), Z-score={zscore:.2f} (<-2.0) → позиция 50%")
@@ -294,9 +296,9 @@ class HybridStrategy:
 	🔀 ГИБРИДНАЯ СТРАТЕГИЯ (MR + TF с переключением по ADX)
 	
 	Логика:
-	- ADX < 20 → Mean Reversion (боковой рынок)
-	- ADX > 25 → Trend Following (трендовый рынок)
-	- 20 <= ADX <= 25 → переходная зона (HOLD или последний режим)
+	- ADX < 12 → Mean Reversion (боковой рынок)
+	- ADX > 30 → Trend Following (трендовый рынок)
+	- 12 <= ADX <= 30 → переходная зона (HOLD или последний режим)
 	"""
 	
 	def __init__(self, df: pd.DataFrame, trend_following_strategy, mean_reversion_strategy):
@@ -370,17 +372,17 @@ class HybridStrategy:
 		else:
 			# Переходная зона
 			if HYBRID_TRANSITION_MODE == "HOLD":
-				current_mode = "TRANSITION"  # Исправлено: должно быть TRANSITION, не HOLD
+				current_mode = MODE_TRANSITION
 				reasons.append(f"⏸ ADX={adx:.1f} в переходной зоне [{HYBRID_ADX_MR_THRESHOLD}, {HYBRID_ADX_TF_THRESHOLD}] → TRANSITION")
 			else:  # LAST
-				current_mode = last_mode if last_mode else "TRANSITION"  # Исправлено: TRANSITION по умолчанию
+				current_mode = last_mode if last_mode else MODE_TRANSITION
 				reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
 		
 		# Проверяем минимальное время в режиме (защита от частого переключения)
 		# ИСКЛЮЧЕНИЕ: TRANSITION режим может переключаться в любой момент
 		if (last_mode is not None and last_mode != current_mode and 
 			last_mode_time < HYBRID_MIN_TIME_IN_MODE and 
-			last_mode != "TRANSITION"):
+			last_mode != MODE_TRANSITION):
 			current_mode = last_mode
 			time_remaining = HYBRID_MIN_TIME_IN_MODE - last_mode_time
 			reasons.append(f"⏱ ЗАЩИТА ОТ ПЕРЕКЛЮЧЕНИЯ: Остаёмся в режиме {last_mode}")
@@ -393,7 +395,7 @@ class HybridStrategy:
 		# Генерируем сигнал в зависимости от режима
 		if current_mode == "MR":
 			signal_result = self.mean_reversion_strategy.generate_signal()
-			signal_result["active_mode"] = "MEAN_REVERSION"
+			signal_result["active_mode"] = MODE_MEAN_REVERSION
 			signal_result["strategy"] = "HYBRID"
 			# Добавляем информацию о времени в режиме
 			signal_result["mode_time"] = last_mode_time
@@ -404,7 +406,7 @@ class HybridStrategy:
 		
 		elif current_mode == "TF":
 			signal_result = self.trend_following_strategy.generate_signal()
-			signal_result["active_mode"] = "TREND_FOLLOWING"
+			signal_result["active_mode"] = MODE_TREND_FOLLOWING
 			signal_result["strategy"] = "HYBRID"
 			# Добавляем информацию о времени в режиме
 			signal_result["mode_time"] = last_mode_time
@@ -420,7 +422,7 @@ class HybridStrategy:
 			signal_result = self.trend_following_strategy.generate_signal()
 			signal_result["signal"] = "HOLD"  # Принудительно HOLD в переходной зоне
 			signal_result["signal_emoji"] = "⚠️"
-			signal_result["active_mode"] = "TRANSITION"
+			signal_result["active_mode"] = MODE_TRANSITION
 			signal_result["strategy"] = "HYBRID"
 			# Добавляем информацию о времени в режиме
 			signal_result["mode_time"] = last_mode_time

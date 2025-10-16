@@ -35,8 +35,7 @@ class Position:
 		signal_strength: int,
 		invest_amount: float,
 		commission: float,
-		atr: float = 0.0,
-		position_type: str = "LONG"
+		atr: float = 0.0
 	):
 		self.symbol = symbol
 		self.entry_price = entry_price
@@ -46,21 +45,14 @@ class Position:
 		self.invest_amount = invest_amount  # Сколько вложено (с комиссией)
 		self.entry_commission = commission
 		self.atr = atr
-		self.position_type = position_type  # "LONG" или "SHORT"
 		
 		# Stop-loss и Take-profit уровни (динамические на основе ATR)
 		dynamic_sl = get_dynamic_stop_loss_percent(atr, entry_price)
 		
-		if position_type == "SHORT":
-			# Для SHORT: SL выше входа, TP ниже входа
-			self.stop_loss_price = entry_price * (1 + dynamic_sl)  # Выше входа
-			self.stop_loss_percent = dynamic_sl
-			self.take_profit_price = entry_price * (1 - TAKE_PROFIT_PERCENT)  # Ниже входа
-		else:
-			# Для LONG: SL ниже входа, TP выше входа
-			self.stop_loss_price = entry_price * (1 - dynamic_sl)  # Ниже входа
-			self.stop_loss_percent = dynamic_sl
-			self.take_profit_price = entry_price * (1 + TAKE_PROFIT_PERCENT)  # Выше входа
+		# Для LONG: SL ниже входа, TP выше входа
+		self.stop_loss_price = entry_price * (1 - dynamic_sl)  # Ниже входа
+		self.stop_loss_percent = dynamic_sl
+		self.take_profit_price = entry_price * (1 + TAKE_PROFIT_PERCENT)  # Выше входа
 		
 		# Флаги и состояние
 		self.partial_closed = False
@@ -77,48 +69,30 @@ class Position:
 		
 	def update_max_price(self, current_price: float):
 		"""Обновляет максимальную цену для trailing stop"""
-		if self.position_type == "SHORT":
-			# Для SHORT: обновляем максимальную цену (самую высокую цену)
-			if current_price > self.max_price:
-				self.max_price = current_price
-		else:
-			# Для LONG: обновляем максимальную цену (самую высокую цену)
-			if current_price > self.max_price:
-				self.max_price = current_price
+		# Для LONG: обновляем максимальную цену (самую высокую цену)
+		if current_price > self.max_price:
+			self.max_price = current_price
 			
 	def check_stop_loss(self, current_price: float) -> bool:
 		"""Проверяет срабатывание стоп-лосса"""
 		if not self.partial_closed:
-			if self.position_type == "SHORT":
-				# Для SHORT: срабатывает если цена поднялась выше SL
-				return current_price >= self.stop_loss_price
-			else:
-				# Для LONG: срабатывает если цена упала ниже SL
-				return current_price <= self.stop_loss_price
+			# Для LONG: срабатывает если цена упала ниже SL
+			return current_price <= self.stop_loss_price
 		return False
 		
 	def check_take_profit(self, current_price: float) -> bool:
 		"""Проверяет срабатывание тейк-профита (для частичного закрытия)"""
 		if not self.partial_closed:
-			if self.position_type == "SHORT":
-				# Для SHORT: срабатывает если цена упала ниже TP
-				return current_price <= self.take_profit_price
-			else:
-				# Для LONG: срабатывает если цена поднялась выше TP
-				return current_price >= self.take_profit_price
+			# Для LONG: срабатывает если цена поднялась выше TP
+			return current_price >= self.take_profit_price
 		return False
 		
 	def check_trailing_stop(self, current_price: float) -> bool:
 		"""Проверяет срабатывание trailing stop"""
 		if self.partial_closed:
-			if self.position_type == "SHORT":
-				# Для SHORT: trailing stop срабатывает при росте цены
-				trailing_rise = (current_price - self.max_price) / self.max_price if self.max_price > 0 else 0
-				return trailing_rise >= TRAILING_STOP_PERCENT
-			else:
-				# Для LONG: trailing stop срабатывает при падении цены
-				trailing_drop = (self.max_price - current_price) / self.max_price if self.max_price > 0 else 0
-				return trailing_drop >= TRAILING_STOP_PERCENT
+			# Для LONG: trailing stop срабатывает при падении цены
+			trailing_drop = (self.max_price - current_price) / self.max_price if self.max_price > 0 else 0
+			return trailing_drop >= TRAILING_STOP_PERCENT
 		return False
 	
 	def check_time_exit(self, max_hours: int = None) -> bool:
@@ -187,36 +161,19 @@ class Position:
 		else:
 			remaining_invested = total_investment
 		
-		if self.position_type == "SHORT":
-			# Для SHORT: прибыль = (цена входа - текущая цена) × количество
-			# Если цена упала (current_price < entry_price) → прибыль
-			# Если цена выросла (current_price > entry_price) → убыток
-			price_diff = self.entry_price - current_price
-			gross_pnl = price_diff * self.amount
-			
-			# Учитываем комиссию на выход
-			exit_value = self.amount * current_price
-			exit_commission = exit_value * COMMISSION_RATE
-			
-			# PnL = валовая прибыль - комиссия на выход + прибыль с частичного закрытия
-			pnl = gross_pnl - exit_commission + self.partial_close_profit
-		else:
-			# Для LONG: обычный расчет
-			current_value = self.amount * current_price
-			# Учитываем комиссию на выход
-			exit_commission = current_value * COMMISSION_RATE
-			net_value = current_value - exit_commission
-			
-			# PnL = текущая стоимость - вложенная сумма + прибыль с частичного закрытия
-			pnl = net_value - remaining_invested + self.partial_close_profit
+		# Для LONG: обычный расчет
+		current_value = self.amount * current_price
+		# Учитываем комиссию на выход
+		exit_commission = current_value * COMMISSION_RATE
+		net_value = current_value - exit_commission
+		
+		# PnL = текущая стоимость - вложенная сумма + прибыль с частичного закрытия
+		pnl = net_value - remaining_invested + self.partial_close_profit
 		
 		pnl_percent = (pnl / total_investment) * 100 if total_investment > 0 else 0
 		
-		# Определяем current_value в зависимости от типа позиции
-		if self.position_type == "SHORT":
-			current_value = self.amount * current_price  # Текущая стоимость для SHORT
-		else:
-			current_value = net_value  # Для LONG используем net_value
+		# Для LONG используем net_value
+		current_value = net_value
 		
 		return {
 			"pnl": pnl,

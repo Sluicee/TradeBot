@@ -155,11 +155,9 @@ class TelegramPaperTrading:
             emoji = "🟢" if pnl_info['pnl'] > 0 else "🔴" if pnl_info['pnl'] < 0 else "⚪"
             partial_mark = " [частично]" if pos['partial_closed'] else ""
             
-            position_type = pos.get('position_type', 'LONG')
-            position_type_text = f" ({position_type})" if position_type == "SHORT" else ""
             
             positions_text += (
-                f"  {emoji} <b>{symbol}</b>{position_type_text}{partial_mark}\n"
+                f"  {emoji} <b>{symbol}</b>{partial_mark}\n"
                 f"    Вход: {self.formatters.format_price(pos['entry_price'])} → Сейчас: {self.formatters.format_price(current_price)}\n"
                 f"    PnL: ${pnl_info['pnl']:+.2f} ({pnl_info['pnl_percent']:+.2f}%)\n"
                 f"    SL: {self.formatters.format_price(pos['stop_loss'])} | TP: {self.formatters.format_price(pos['take_profit'])}\n\n"
@@ -283,17 +281,10 @@ class TelegramPaperTrading:
             if trade_type == "BUY":
                 emoji = "🟢"
                 details = f"  Купил {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  Вложено: ${trade['invest_amount']:.2f}"
-            elif trade_type == "SHORT":
-                emoji = "🔴"
-                details = f"  Продал в шорт {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  Вложено: ${trade['invest_amount']:.2f}"
             elif trade_type in ["SELL", "MANUAL-CLOSE"]:
                 emoji = "🔴"
                 profit_emoji = "📈" if trade['profit'] >= 0 else "📉"
                 details = f"  Продал {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  {profit_emoji} Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
-            elif trade_type == "SHORT-CLOSE":
-                emoji = "🟢"
-                profit_emoji = "📈" if trade['profit'] >= 0 else "📉"
-                details = f"  Закрыл шорт {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  {profit_emoji} Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
             elif trade_type == "STOP-LOSS":
                 emoji = "🛑"
                 details = f"  Стоп-лосс {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  📉 Убыток: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
@@ -744,28 +735,16 @@ class TelegramPaperTrading:
             price = float(df['close'].iloc[-1])
             position = self.bot.paper_trader.positions[symbol]
             
-            # Определяем тип позиции для правильного сообщения
-            position_type = getattr(position, 'position_type', 'LONG')
-            
             trade_info = self.bot.paper_trader.close_position(symbol, price, "FORCE-SELL")
             
             if trade_info:
                 self.bot.paper_trader.save_state()
                 
-                # Определяем эмодзи и текст в зависимости от типа позиции
-                if position_type == "SHORT":
-                    emoji = "🔴📉"
-                    action_text = "ПРИНУДИТЕЛЬНОЕ ЗАКРЫТИЕ SHORT"
-                else:
-                    emoji = "🔴📉"
-                    action_text = "ПРИНУДИТЕЛЬНАЯ ПРОДАЖА"
-                
                 profit_emoji = "💚" if trade_info['profit'] > 0 else "💔"
                 
                 text = (
-                    f"<b>{emoji} {action_text}</b>\n\n"
+                    f"<b>🔴📉 ПРИНУДИТЕЛЬНАЯ ПРОДАЖА</b>\n\n"
                     f"Символ: {symbol}\n"
-                    f"Тип: {position_type}\n"
                     f"Цена: {self.formatters.format_price(price)}\n"
                     f"{profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
                     f"Баланс: ${trade_info['balance_after']:.2f}\n\n"
@@ -780,75 +759,3 @@ class TelegramPaperTrading:
             logger.error(f"Ошибка force_sell для {symbol}: {e}")
             await update.message.reply_text(f"❌ Ошибка: {e}")
     
-    async def paper_force_short(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Принудительно открывает SHORT позицию для тестирования"""
-        if not self._is_authorized(update):
-            await update.message.reply_text("🚫 Доступ запрещен")
-            return
-        
-        if not self.bot.paper_trader.is_running:
-            await update.message.reply_text("⚠️ Paper Trading не запущен. Используйте /paper_start")
-            return
-        
-        if not context.args:
-            await update.message.reply_text("⚠️ Использование: /paper_force_short SYMBOL")
-            return
-        
-        symbol = context.args[0].upper()
-        
-        if symbol in self.bot.paper_trader.positions:
-            await update.message.reply_text(f"⚠️ Позиция по {symbol} уже открыта")
-            return
-        
-        if not self.bot.paper_trader.can_open_position(symbol):
-            await update.message.reply_text(f"⚠️ Невозможно открыть позицию (лимит или нет баланса)")
-            return
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                provider = DataProvider(session)
-                klines = await provider.fetch_klines(symbol=symbol, interval=self.bot.default_interval, limit=500)
-                df = provider.klines_to_dataframe(klines)
-                
-                if df.empty:
-                    await update.message.reply_text("⚠️ Нет данных для получения цены")
-                    return
-                
-            # Генерируем сигнал чтобы получить ATR
-            generator = SignalGenerator(df)
-            generator.compute_indicators()
-            result = self.bot._generate_signal_with_strategy(generator, symbol=symbol)
-            
-            price = float(df['close'].iloc[-1])
-            signal_strength = 5  # Средняя сила для теста
-            atr = result.get("ATR", 0.0)
-            
-            # Открываем SHORT позицию
-            trade_info = self.bot.paper_trader.open_position(
-                symbol=symbol, 
-                price=price, 
-                signal_strength=signal_strength, 
-                atr=atr,
-                position_type="SHORT"  # Ключевое отличие - SHORT позиция
-            )
-            
-            if trade_info:
-                self.bot.paper_trader.save_state()
-                
-                text = (
-                    f"<b>🔴 ПРИНУДИТЕЛЬНЫЙ SHORT</b>\n\n"
-                    f"Символ: {symbol}\n"
-                    f"Тип: SHORT\n"
-                    f"Цена: {self.formatters.format_price(price)}\n"
-                    f"Вложено: ${trade_info['invest_amount']:.2f}\n"
-                    f"Баланс: ${trade_info['balance_after']:.2f}\n\n"
-                    f"⚠️ Это тестовая SHORT сделка!\n"
-                    f"Проверьте /paper_status"
-                )
-                await update.message.reply_text(text, parse_mode="HTML")
-            else:
-                await update.message.reply_text("❌ Не удалось открыть SHORT позицию")
-                    
-        except Exception as e:
-            logger.error(f"Ошибка force_short для {symbol}: {e}")
-            await update.message.reply_text(f"❌ Ошибка: {e}")

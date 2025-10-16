@@ -3,7 +3,8 @@ import pandas as pd
 from typing import Dict, Any, Optional
 from logger import logger
 from config import (
-	USE_MULTI_TIMEFRAME, MTF_TIMEFRAMES, MTF_WEIGHTS, MTF_MIN_AGREEMENT, MTF_FULL_ALIGNMENT_BONUS
+	USE_MULTI_TIMEFRAME, MTF_TIMEFRAMES, MTF_WEIGHTS, MTF_MIN_AGREEMENT, MTF_FULL_ALIGNMENT_BONUS,
+	MTF_PRIMARY_TIMEFRAME
 )
 
 class MultiTimeframeAnalyzer:
@@ -263,7 +264,7 @@ class MultiTimeframeAnalyzer:
 		# ====================================================================
 		
 		# Берём данные из основного таймфрейма (обычно 1h)
-		main_tf = '1h' if '1h' in timeframe_signals else MTF_TIMEFRAMES[0]
+		main_tf = MTF_PRIMARY_TIMEFRAME if MTF_PRIMARY_TIMEFRAME in timeframe_signals else MTF_TIMEFRAMES[0]
 		main_data = timeframe_signals.get(main_tf, {})
 		
 		# Расчёт итоговой силы сигнала (для адаптивного размера позиции)

@@ -98,7 +98,6 @@ class PaperTrader:
 		signal_strength: int,
 		atr: float = 0.0,
 		position_size_percent: float = None,
-		position_type: str = "LONG",
 		reasons: List[str] = None,
 		active_mode: str = "UNKNOWN",
 		bullish_votes: int = 0,
@@ -152,8 +151,7 @@ class PaperTrader:
 			signal_strength=signal_strength,
 			invest_amount=invest_amount,
 			commission=commission,
-			atr=atr,
-			position_type=position_type
+			atr=atr
 		)
 		
 		# Обновляем баланс
@@ -380,7 +378,7 @@ class PaperTrader:
 		# Определение размера докупания
 		if mode == "PYRAMID_UP":
 			# Пирамидинг вверх - размер зависит от силы сигнала
-			size_multiplier = (signal_strength / SIGNAL_STRENGTH_STRONG) if signal_strength > 0 and SIGNAL_STRENGTH_STRONG > 0 else 0.3
+			size_multiplier = (signal_strength / SIGNAL_STRENGTH_STRONG) if signal_strength > 0 and SIGNAL_STRENGTH_STRONG > 0 else 0.5
 			size_percent = AVERAGING_SIZE_PERCENT * size_multiplier * 0.6  # ~30% от исходного
 			position.pyramid_mode = True
 		else:
@@ -539,7 +537,6 @@ class PaperTrader:
 				"partial_closed": pos.partial_closed,
 				"pnl": pnl_info["pnl"],
 				"pnl_percent": pnl_info["pnl_percent"],
-				"position_type": getattr(pos, 'position_type', 'LONG')
 			})
 			
 		total_balance = self.balance + total_invested + total_pnl

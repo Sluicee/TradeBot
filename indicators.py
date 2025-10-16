@@ -70,17 +70,17 @@ class IndicatorsCalculator:
 		
 		# Используем значения из config с адаптацией, если не переданы явно
 		if ema_short_window is None:
-			ema_short_window = max(5, int(EMA_SHORT_WINDOW * volatility_factor))
+			ema_short_window = max(8, int(EMA_SHORT_WINDOW * volatility_factor))
 		if ema_long_window is None:
-			ema_long_window = max(10, int(EMA_LONG_WINDOW * volatility_factor))
+			ema_long_window = max(20, int(EMA_LONG_WINDOW * volatility_factor))
 		if rsi_window is None:
-			rsi_window = max(7, int(RSI_WINDOW * volatility_factor))
+			rsi_window = max(10, int(RSI_WINDOW * volatility_factor))
 		if macd_fast is None:
-			macd_fast = max(8, int(MACD_FAST * volatility_factor))
+			macd_fast = max(10, int(MACD_FAST * volatility_factor))
 		if macd_slow is None:
-			macd_slow = max(16, int(MACD_SLOW * volatility_factor))
+			macd_slow = max(20, int(MACD_SLOW * volatility_factor))
 		if macd_signal is None:
-			macd_signal = max(5, int(MACD_SIGNAL * volatility_factor))
+			macd_signal = max(7, int(MACD_SIGNAL * volatility_factor))
 		
 		close = self.df["close"].astype(float)
 		high = self.df["high"].astype(float)

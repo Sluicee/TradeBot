@@ -105,8 +105,8 @@ def calculate_kelly_fraction(trades_history: List[Dict[str, Any]], atr_percent: 
 	# Применяем консервативную дробь Kelly (например, 25%)
 	kelly *= KELLY_FRACTION
 	
-	# Нормализация по волатильности: уменьшаем размер при высокой волатильности
-	volatility_adjustment = 1 / (1 + atr_percent / 2)
+	# Нормализация по волатильности: более агрессивное снижение при высокой волатильности
+	volatility_adjustment = 1 / (1 + (atr_percent / 2) ** 1.2)
 	kelly *= volatility_adjustment
 	
 	# Ограничиваем диапазон 0.5-1.5 (не более 50% уменьшение и 50% увеличение)
