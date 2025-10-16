@@ -92,7 +92,8 @@ class ShortMechanics:
 		- False: SHORT отключён
 		"""
 		regime = self.get_market_regime(df, fear_greed_index)
-		return regime == "BEAR" and fear_greed_index < SHORT_FEAR_MODERATE_THRESHOLD
+		# SHORT активируется в медвежьем режиме (BEAR) или при страхе в любом режиме
+		return (regime == "BEAR" or fear_greed_index < SHORT_FEAR_MODERATE_THRESHOLD)
 
 	def get_fear_greed_index(self, df) -> int:
 		"""
