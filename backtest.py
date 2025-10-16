@@ -3,7 +3,7 @@ import pandas as pd
 from data_provider import DataProvider
 from signal_generator import SignalGenerator
 from paper_trader import PaperTrader
-from position_sizing import get_position_size_percent
+from position_sizing import get_position_size_percent, calculate_kelly_fraction
 from position import get_dynamic_stop_loss_percent
 import aiohttp
 import asyncio
@@ -99,7 +99,7 @@ def simulate_averaging(
 async def run_backtest(
 	symbol: str, 
 	interval: str = "15m", 
-	period_hours: int = 24, 
+	period_hours: int = 90, 
 	start_balance: float = None,
 	use_statistical_models: bool = False,
 	enable_kelly: bool = None,
@@ -267,7 +267,7 @@ async def run_backtest(
 				kelly_multiplier = 1.0
 				if kelly_tracker:
 					atr_percent = (atr / price) * 100 if atr > 0 and price > 0 else 1.5
-					kelly_multiplier = kelly_tracker.calculate_kelly_fraction(symbol, atr_percent)
+					kelly_multiplier = calculate_kelly_fraction(kelly_tracker.trades_history, atr_percent)
 				
 				# Динамический размер позиции с учётом волатильности и Kelly
 				position_size_percent = get_position_size_percent(signal_strength, atr, price, kelly_multiplier)
@@ -394,15 +394,11 @@ async def run_backtest(
 		timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 		output_file = os.path.join(output_dir, f"backtest_{symbol}_{interval}_{timestamp}.json")
 
-		with open(output_file, "w", encoding="utf-8") as f:
-			json.dump(signals, f, ensure_ascii=False, indent=2, default=str)
-
-		print(f"Результаты сохранены в {output_file}")
-		
-		return {
+		# Создаем объект с результатами бэктеста
+		backtest_result = {
 			"symbol": symbol,
 			"start_balance": start_balance,
-			"final_balance": total_balance,
+			"end_balance": total_balance,
 			"profit": profit,
 			"profit_percent": profit_percent,
 			"total_commission": total_commission,
@@ -411,8 +407,17 @@ async def run_backtest(
 			"partial_tp_triggers": partial_close_triggers,
 			"trailing_stop_triggers": trailing_stop_triggers,
 			"win_rate": win_rate if 'win_rate' in locals() else 0,
-			"use_statistical_models": use_statistical_models
+			"use_statistical_models": use_statistical_models,
+			"trades": trades,
+			"signals": signals
 		}
+
+		with open(output_file, "w", encoding="utf-8") as f:
+			json.dump(backtest_result, f, ensure_ascii=False, indent=2, default=str)
+
+		print(f"Результаты сохранены в {output_file}")
+		
+		return backtest_result
 
 
 async def run_backtest_multiple(symbols: list, interval: str = "15m", period_hours: int = 24, start_balance: float = None, use_statistical_models: bool = False):
