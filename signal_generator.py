@@ -51,19 +51,18 @@ class SignalGenerator:
 				bayesian_weight=0.4, zscore_weight=0.3, regime_weight=0.3
 			)
 
-	def get_market_regime(self, df: pd.DataFrame, fear_greed_index: int = 50) -> str:
+	def get_market_regime(self, df: pd.DataFrame) -> str:
 		"""
 		🎯 ОПРЕДЕЛЕНИЕ РЫНОЧНОГО РЕЖИМА
 		
-		Анализирует EMA200, ADX и индекс страха для определения режима рынка.
+		Анализирует EMA200 и ADX для определения режима рынка.
 		
 		Параметры:
 		- df: DataFrame с данными
-		- fear_greed_index: индекс страха/жадности (0-100)
 		
 		Возвращает:
-		- "BEAR": медвежий рынок (EMA200 падает, ADX>20, страх<{SHORT_FEAR_MODERATE_THRESHOLD})
-		- "BULL": бычий рынок (EMA200 растёт, страх>60)
+		- "BEAR": медвежий рынок (EMA200 падает)
+		- "BULL": бычий рынок (EMA200 растёт)
 		- "NEUTRAL": нейтральный режим
 		"""
 		if len(df) < 200:
@@ -87,9 +86,9 @@ class SignalGenerator:
 				adx_value = adx.iloc[-1]
 			
 			# Логика определения режима (упрощённая)
-			if slope < -0.001 and fear_greed_index < 45:  # Более мягкие условия
+			if slope < -0.001:  # EMA200 падает
 				return "BEAR"
-			elif slope > 0.001 and fear_greed_index > 60:
+			elif slope > 0.001:  # EMA200 растёт
 				return "BULL"
 			else:
 				return "NEUTRAL"
@@ -189,9 +188,9 @@ class SignalGenerator:
 			signal_emoji = "🟢"
 			reasons.append(f"✅ BUY: Голосов {bullish} vs {bearish}, фильтров {buy_filters_passed}/{min_filters}")
 		elif bearish - bullish >= vote_threshold and sell_filters_passed >= min_filters:
-			signal = "SELL"
-			signal_emoji = "🔴"
-			reasons.append(f"✅ SELL: Голосов {bearish} vs {bullish}, фильтров {sell_filters_passed}/{min_filters}")
+				signal = "SELL"
+				signal_emoji = "🔴"
+				reasons.append(f"✅ SELL: Голосов {bearish} vs {bullish}, фильтров {sell_filters_passed}/{min_filters}")
 		else:
 			reasons.append(f"⏸ HOLD: Бычьи {bullish} vs Медвежьи {bearish}, фильтров BUY:{buy_filters_passed} SELL:{sell_filters_passed}, режим: {market_regime}")
 
