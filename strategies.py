@@ -377,7 +377,10 @@ class HybridStrategy:
 				reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
 		
 		# Проверяем минимальное время в режиме (защита от частого переключения)
-		if last_mode is not None and last_mode != current_mode and last_mode_time < HYBRID_MIN_TIME_IN_MODE:
+		# ИСКЛЮЧЕНИЕ: TRANSITION режим может переключаться в любой момент
+		if (last_mode is not None and last_mode != current_mode and 
+			last_mode_time < HYBRID_MIN_TIME_IN_MODE and 
+			last_mode != "TRANSITION"):
 			current_mode = last_mode
 			time_remaining = HYBRID_MIN_TIME_IN_MODE - last_mode_time
 			reasons.append(f"⏱ ЗАЩИТА ОТ ПЕРЕКЛЮЧЕНИЯ: Остаёмся в режиме {last_mode}")
