@@ -407,3 +407,63 @@ def get_dynamic_max_positions(total_balance: float) -> int:
 	
 	# Ограничиваем абсолютным максимумом
 	return min(max_positions, MAX_DYNAMIC_POSITIONS_LIMIT)
+
+# ====================================================================
+# SHORT-МЕХАНИКА v2.2 - ADAPTIVE MARKET SENTIMENT SHORT
+# ====================================================================
+
+# Обновление версии
+SHORT_VERSION = "2.2"  # Обновленная версия
+
+# Адаптивные пороги страха по фазам рынка
+SHORT_FEAR_EXTREME = 20      # Экстремальный страх
+SHORT_FEAR_HIGH = 35         # Высокий страх  
+SHORT_FEAR_MODERATE = 45     # Умеренный страх
+SHORT_FEAR_NEUTRAL = 55      # Нейтральный
+SHORT_FEAR_GREED = 70        # Жадность
+
+# Market Sentiment пороги
+SHORT_SENTIMENT_BEARISH = -3     # Сильно медвежий
+SHORT_SENTIMENT_NEGATIVE = -1    # Медвежий
+SHORT_SENTIMENT_NEUTRAL = 0      # Нейтральный
+SHORT_SENTIMENT_POSITIVE = 1     # Бычий
+
+# ADX для подтверждения тренда
+SHORT_ADX_TREND_STRONG = 25      # Сильный тренд
+SHORT_ADX_TREND_MODERATE = 20    # Умеренный тренд
+SHORT_ADX_TREND_WEAK = 15        # Слабый тренд
+
+# Волатильность
+SHORT_VOLATILITY_HIGH = 1.5      # Высокая волатильность
+SHORT_VOLATILITY_MODERATE = 1.2  # Умеренная волатильность
+
+# Минимальные пороги активации
+SHORT_MIN_SCORE_BASIC = 0.4      # Базовый порог
+SHORT_MIN_SCORE_STRONG = 0.6     # Сильный сигнал
+SHORT_MIN_SCORE_EXTREME = 0.8    # Экстремальный сигнал
+
+# Новые компоненты v2.2
+SHORT_SENTIMENT_WEIGHT = 0.15     # Market Sentiment Index
+SHORT_ADX_WEIGHT = 0.10          # ADX подтверждение тренда
+SHORT_PIVOT_WEIGHT = 0.05        # Pivot Points для разворота
+
+# Адаптивные веса по фазам рынка
+SHORT_WEIGHTS_EXTREME_FEAR = {
+	'fear': 0.35, 'funding': 0.20, 'liquidation': 0.25,
+	'rsi': 0.10, 'ema': 0.05, 'volatility': 0.05
+}
+SHORT_WEIGHTS_HIGH_FEAR = {
+	'fear': 0.30, 'funding': 0.15, 'liquidation': 0.20,
+	'rsi': 0.15, 'ema': 0.10, 'volatility': 0.10
+}
+SHORT_WEIGHTS_MODERATE_FEAR = {
+	'fear': 0.25, 'funding': 0.15, 'liquidation': 0.20,
+	'rsi': 0.20, 'ema': 0.10, 'volatility': 0.10
+}
+SHORT_WEIGHTS_NEUTRAL = {
+	'fear': 0.20, 'funding': 0.10, 'liquidation': 0.15,
+	'rsi': 0.25, 'ema': 0.15, 'volatility': 0.15
+}
+
+# Бонусы v2.2
+SHORT_TREND_CONFIRMATION_BONUS = 0.1  # Подтверждение тренда

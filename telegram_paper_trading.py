@@ -700,3 +700,72 @@ class TelegramPaperTrading:
         except Exception as e:
             logger.error(f"Ошибка force_buy для {symbol}: {e}")
             await update.message.reply_text(f"❌ Ошибка: {e}")
+    
+    async def paper_force_sell(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Принудительно закрывает позицию для тестирования"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("🚫 Доступ запрещен")
+            return
+        
+        if not self.bot.paper_trader.is_running:
+            await update.message.reply_text("⚠️ Paper Trading не запущен. Используйте /paper_start")
+            return
+        
+        if not context.args:
+            await update.message.reply_text("⚠️ Использование: /paper_force_sell SYMBOL")
+            return
+        
+        symbol = context.args[0].upper()
+        
+        if symbol not in self.bot.paper_trader.positions:
+            await update.message.reply_text(f"⚠️ Позиция по {symbol} не найдена")
+            return
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                provider = DataProvider(session)
+                klines = await provider.fetch_klines(symbol=symbol, interval=self.bot.default_interval, limit=500)
+                df = provider.klines_to_dataframe(klines)
+                
+                if df.empty:
+                    await update.message.reply_text("⚠️ Нет данных для получения цены")
+                    return
+                
+            price = float(df['close'].iloc[-1])
+            position = self.bot.paper_trader.positions[symbol]
+            
+            # Определяем тип позиции для правильного сообщения
+            position_type = getattr(position, 'position_type', 'LONG')
+            
+            trade_info = self.bot.paper_trader.close_position(symbol, price, "FORCE-SELL")
+            
+            if trade_info:
+                self.bot.paper_trader.save_state()
+                
+                # Определяем эмодзи и текст в зависимости от типа позиции
+                if position_type == "SHORT":
+                    emoji = "🔴📉"
+                    action_text = "ПРИНУДИТЕЛЬНОЕ ЗАКРЫТИЕ SHORT"
+                else:
+                    emoji = "🔴📉"
+                    action_text = "ПРИНУДИТЕЛЬНАЯ ПРОДАЖА"
+                
+                profit_emoji = "💚" if trade_info['profit'] > 0 else "💔"
+                
+                text = (
+                    f"<b>{emoji} {action_text}</b>\n\n"
+                    f"Символ: {symbol}\n"
+                    f"Тип: {position_type}\n"
+                    f"Цена: {self.formatters.format_price(price)}\n"
+                    f"{profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
+                    f"Баланс: ${trade_info['balance_after']:.2f}\n\n"
+                    f"⚠️ Это тестовая сделка!\n"
+                    f"Проверьте /paper_status"
+                )
+                await update.message.reply_text(text, parse_mode="HTML")
+            else:
+                await update.message.reply_text("❌ Не удалось закрыть позицию")
+                    
+        except Exception as e:
+            logger.error(f"Ошибка force_sell для {symbol}: {e}")
+            await update.message.reply_text(f"❌ Ошибка: {e}")
