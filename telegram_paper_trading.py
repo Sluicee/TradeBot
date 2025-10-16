@@ -290,6 +290,10 @@ class TelegramPaperTrading:
                 emoji = "🔴"
                 profit_emoji = "📈" if trade['profit'] >= 0 else "📉"
                 details = f"  Продал {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  {profit_emoji} Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
+            elif trade_type == "SHORT-CLOSE":
+                emoji = "🟢"
+                profit_emoji = "📈" if trade['profit'] >= 0 else "📉"
+                details = f"  Закрыл шорт {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  {profit_emoji} Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
             elif trade_type == "STOP-LOSS":
                 emoji = "🛑"
                 details = f"  Стоп-лосс {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  📉 Убыток: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)"
