@@ -122,9 +122,10 @@ class TelegramBot:
 				if active_mode and active_mode in ["MEAN_REVERSION", "TREND_FOLLOWING", "TRANSITION"]:
 					if active_mode != self.last_mode:
 						# Режим изменился - сбрасываем время
+						old_mode = self.last_mode
 						self.last_mode = active_mode
 						self.last_mode_time = 0
-						logger.info(f"🔄 СМЕНА РЕЖИМА: {self.last_mode} → {active_mode}, время сброшено")
+						logger.info(f"🔄 СМЕНА РЕЖИМА: {old_mode} → {active_mode}, время сброшено")
 					else:
 						# Режим не изменился - время продолжает накапливаться
 						logger.info(f"⏱ РЕЖИМ НЕ ИЗМЕНИЛСЯ: {active_mode}, время накапливается: {self.last_mode_time:.2f}h")
