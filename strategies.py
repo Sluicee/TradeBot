@@ -417,11 +417,26 @@ class HybridStrategy:
 			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
 		
 		else:  # HOLD или TRANSITION
-			# Если переходная зона, всё равно генерируем полный сигнал для аналитики
-			# но переопределяем его на HOLD
+			# Если переходная зона, генерируем сигнал и проверяем силу
 			signal_result = self.trend_following_strategy.generate_signal()
-			signal_result["signal"] = "HOLD"  # Принудительно HOLD в переходной зоне
-			signal_result["signal_emoji"] = "⚠️"
+			
+			# В TRANSITION режиме разрешаем BUY только при очень сильных сигналах
+			original_signal = signal_result.get("signal", "HOLD")
+			bullish_votes = signal_result.get("bullish_votes", 0)
+			bearish_votes = signal_result.get("bearish_votes", 0)
+			votes_delta = bullish_votes - bearish_votes
+			
+			# Разрешаем BUY в TRANSITION только при очень сильном bullish сигнале (Delta >= 6)
+			if original_signal == "BUY" and votes_delta >= 6:
+				signal_result["signal"] = "BUY"  # Разрешаем сильный BUY в TRANSITION
+				signal_result["signal_emoji"] = "🟢"
+				reasons.append(f"🎯 TRANSITION: разрешён сильный BUY (Delta={votes_delta:+d})")
+			else:
+				signal_result["signal"] = "HOLD"  # Слабые сигналы блокируем
+				signal_result["signal_emoji"] = "⚠️"
+				if original_signal == "BUY":
+					reasons.append(f"⏸ TRANSITION: блокирован слабый BUY (Delta={votes_delta:+d} < 6)")
+			
 			signal_result["active_mode"] = MODE_TRANSITION
 			signal_result["strategy"] = "HYBRID"
 			# Добавляем информацию о времени в режиме
