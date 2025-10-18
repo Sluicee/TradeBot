@@ -21,7 +21,9 @@ from config import (
 	# Индикаторы
 	STOCH_OVERSOLD, STOCH_OVERBOUGHT, ADX_WINDOW, ATR_WINDOW,
 	# Константы режимов
-	MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION
+	MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION,
+	# Пороги голосования
+	VOTE_THRESHOLD_TRANSITIONING
 )
 
 class MeanReversionStrategy:
@@ -430,18 +432,18 @@ class HybridStrategy:
 			# Детальное логирование для отладки TRANSITION режима
 			logger.info(f"🔍 TRANSITION DEBUG: original_signal={original_signal}, bullish={bullish_votes}, bearish={bearish_votes}, delta={votes_delta:+d}")
 			
-			# Разрешаем BUY в TRANSITION при очень сильном bullish сигнале (Delta >= 6)
+			# Разрешаем BUY в TRANSITION при сильном bullish сигнале (Delta >= VOTE_THRESHOLD_TRANSITIONING)
 			# НЕЗАВИСИМО от того, что генерирует TF стратегия
-			if votes_delta >= 6:
+			if votes_delta >= VOTE_THRESHOLD_TRANSITIONING:
 				signal_result["signal"] = "BUY"  # Разрешаем сильный BUY в TRANSITION
 				signal_result["signal_emoji"] = "🟢"
-				reasons.append(f"🎯 TRANSITION: принудительный BUY (Delta={votes_delta:+d} >= 6)")
-				logger.info(f"✅ TRANSITION BUY: принудительный BUY (Delta={votes_delta:+d} >= 6)")
+				reasons.append(f"🎯 TRANSITION: принудительный BUY (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_TRANSITIONING})")
+				logger.info(f"✅ TRANSITION BUY: принудительный BUY (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_TRANSITIONING})")
 			else:
 				signal_result["signal"] = "HOLD"  # Слабые сигналы блокируем
 				signal_result["signal_emoji"] = "⚠️"
-				reasons.append(f"⏸ TRANSITION: слабый сигнал (Delta={votes_delta:+d} < 6)")
-				logger.info(f"❌ TRANSITION HOLD: слабый сигнал (Delta={votes_delta:+d} < 6)")
+				reasons.append(f"⏸ TRANSITION: слабый сигнал (Delta={votes_delta:+d} < {VOTE_THRESHOLD_TRANSITIONING})")
+				logger.info(f"❌ TRANSITION HOLD: слабый сигнал (Delta={votes_delta:+d} < {VOTE_THRESHOLD_TRANSITIONING})")
 			
 			signal_result["active_mode"] = MODE_TRANSITION
 			signal_result["strategy"] = "HYBRID"
