@@ -55,10 +55,10 @@ class TelegramBot:
 		self.paper_trader = PaperTrader()  # Использует INITIAL_BALANCE из config
 		self.paper_trader.load_state()
 		
-		# Гибридная стратегия - отслеживание режима
-		self.last_mode = None  # "MR" или "TF"
-		self.last_mode_time = 0  # часов в текущем режиме
-		self.last_mode_update = datetime.now()  # datetime последнего обновления (инициализируем сразу!)
+		# Гибридная стратегия - отслеживание режима по символам
+		self.symbol_modes: dict[str, str] = {}  # symbol -> "MR", "TF", "TRANSITION"
+		self.symbol_mode_times: dict[str, float] = {}  # symbol -> время в режиме (часы)
+		self.symbol_mode_updates: dict[str, datetime] = {}  # symbol -> время последнего обновления
 		
 		# Инициализируем обработчики команд ПЕРЕД регистрацией
 		self.handlers = TelegramHandlers(self)
@@ -110,30 +110,37 @@ class TelegramBot:
 			if STRATEGY_MODE == "MEAN_REVERSION":
 				return generator.generate_signal_mean_reversion()
 			elif STRATEGY_MODE == "HYBRID":
-				# Обновляем время в режиме (всегда считаем время)
-				time_diff = (datetime.now() - self.last_mode_update).total_seconds() / 3600
-				self.last_mode_time += time_diff
+				# Получаем режим для конкретного символа
+				symbol = symbol or self.default_symbol
+				last_mode = self.symbol_modes.get(symbol)
+				last_mode_time = self.symbol_mode_times.get(symbol, 0)
+				
+				# Обновляем время в режиме для этого символа
+				if symbol in self.symbol_mode_updates:
+					time_diff = (datetime.now() - self.symbol_mode_updates[symbol]).total_seconds() / 3600
+					last_mode_time += time_diff
+					self.symbol_mode_times[symbol] = last_mode_time
 				
 				result = generator.generate_signal_hybrid(
-					last_mode=self.last_mode,
-					last_mode_time=self.last_mode_time
+					last_mode=last_mode,
+					last_mode_time=last_mode_time
 				)
 				
-				# Обновляем текущий режим
+				# Обновляем режим для этого символа
 				active_mode = result.get("active_mode")
 				if active_mode and active_mode in [MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION]:
-					if active_mode != self.last_mode:
+					if active_mode != last_mode:
 						# Режим изменился - сбрасываем время
-						old_mode = self.last_mode
-						self.last_mode = active_mode
-						self.last_mode_time = 0
-						logger.info(f"🔄 СМЕНА РЕЖИМА: {old_mode} → {active_mode}, время сброшено")
+						old_mode = last_mode
+						self.symbol_modes[symbol] = active_mode
+						self.symbol_mode_times[symbol] = 0
+						logger.info(f"🔄 СМЕНА РЕЖИМА {symbol}: {old_mode} → {active_mode}, время сброшено")
 					else:
 						# Режим не изменился - время продолжает накапливаться
-						logger.info(f"⏱ РЕЖИМ НЕ ИЗМЕНИЛСЯ: {active_mode}, время накапливается: {self.last_mode_time:.2f}h")
+						logger.info(f"⏱ РЕЖИМ НЕ ИЗМЕНИЛСЯ {symbol}: {active_mode}, время накапливается: {last_mode_time:.2f}h")
 				
-				# Обновляем время последнего обновления
-				self.last_mode_update = datetime.now()
+				# Обновляем время последнего обновления для этого символа
+				self.symbol_mode_updates[symbol] = datetime.now()
 				return result
 			else:  # TREND_FOLLOWING (default)
 				return generator.generate_signal()
