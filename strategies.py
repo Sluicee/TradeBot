@@ -430,20 +430,18 @@ class HybridStrategy:
 			# Детальное логирование для отладки TRANSITION режима
 			logger.info(f"🔍 TRANSITION DEBUG: original_signal={original_signal}, bullish={bullish_votes}, bearish={bearish_votes}, delta={votes_delta:+d}")
 			
-			# Разрешаем BUY в TRANSITION только при очень сильном bullish сигнале (Delta >= 6)
-			if original_signal == "BUY" and votes_delta >= 6:
+			# Разрешаем BUY в TRANSITION при очень сильном bullish сигнале (Delta >= 6)
+			# НЕЗАВИСИМО от того, что генерирует TF стратегия
+			if votes_delta >= 6:
 				signal_result["signal"] = "BUY"  # Разрешаем сильный BUY в TRANSITION
 				signal_result["signal_emoji"] = "🟢"
-				reasons.append(f"🎯 TRANSITION: разрешён сильный BUY (Delta={votes_delta:+d})")
-				logger.info(f"✅ TRANSITION BUY: разрешён сильный BUY (Delta={votes_delta:+d})")
+				reasons.append(f"🎯 TRANSITION: принудительный BUY (Delta={votes_delta:+d} >= 6)")
+				logger.info(f"✅ TRANSITION BUY: принудительный BUY (Delta={votes_delta:+d} >= 6)")
 			else:
 				signal_result["signal"] = "HOLD"  # Слабые сигналы блокируем
 				signal_result["signal_emoji"] = "⚠️"
-				if original_signal == "BUY":
-					reasons.append(f"⏸ TRANSITION: блокирован слабый BUY (Delta={votes_delta:+d} < 6)")
-					logger.info(f"❌ TRANSITION BLOCK: блокирован слабый BUY (Delta={votes_delta:+d} < 6)")
-				else:
-					logger.info(f"⏸ TRANSITION HOLD: original_signal={original_signal}, не BUY")
+				reasons.append(f"⏸ TRANSITION: слабый сигнал (Delta={votes_delta:+d} < 6)")
+				logger.info(f"❌ TRANSITION HOLD: слабый сигнал (Delta={votes_delta:+d} < 6)")
 			
 			signal_result["active_mode"] = MODE_TRANSITION
 			signal_result["strategy"] = "HYBRID"
