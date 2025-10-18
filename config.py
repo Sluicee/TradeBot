@@ -86,10 +86,10 @@ RANGING_OSCILLATOR_WEIGHT = 2  # Вес осцилляторов во флэте
 TRANSITIONING_TREND_WEIGHT = 2  # Вес трендовых индикаторов при переходе
 TRANSITIONING_OSCILLATOR_WEIGHT = 2  # Вес осцилляторов при переходе
 
-# Пороги голосования для генерации сигнала
-VOTE_THRESHOLD_TRENDING = 2  # Порог в трендовом рынке
-VOTE_THRESHOLD_RANGING = 4  # Порог во флэте
-VOTE_THRESHOLD_TRANSITIONING = 3  # Порог при переходе
+# Пороги голосования для генерации сигнала (v5.6 - оптимизированы для стабильности)
+VOTE_THRESHOLD_TRENDING = 3  # Порог в трендовом рынке (было 2)
+VOTE_THRESHOLD_RANGING = 5   # Порог во флэте (было 4)
+VOTE_THRESHOLD_TRANSITIONING = 5  # Порог при переходе (было 3)
 
 # Минимальное количество пройденных фильтров для сигнала
 MIN_FILTERS = 3  # Из 5 возможных фильтров
@@ -284,7 +284,7 @@ HYBRID_ADX_TF_EXIT = 12  # ADX < 12 → Выход из TF в MR (гистере
 HYBRID_TRANSITION_MODE = "HOLD"  # "HOLD" (не входить) или "LAST" (использовать последний режим)
 
 # Минимальное время в режиме (защита от частого переключения)
-HYBRID_MIN_TIME_IN_MODE = 0.1  # v5.6: 6 минут минимум (гибкое переключение)
+HYBRID_MIN_TIME_IN_MODE = 0.5  # v5.6: 30 минут минимум (стабильное переключение)
 
 # ====================================================================
 # MULTI-TIMEFRAME ANALYSIS
