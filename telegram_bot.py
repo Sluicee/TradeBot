@@ -450,10 +450,13 @@ class TelegramBot:
 								bearish_votes=bearish_votes
 							)
 							if trade_info:
+								# Безопасная обработка position_size_percent
+								position_size_display = f"{position_size_percent*100:.0f}%" if position_size_percent is not None else "N/A"
+								
 								msg = (
 									f"🟢 <b>КУПИЛ</b> {symbol} ({active_mode})\n"
 									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
-									f"  Вложено: ${trade_info['invest_amount']:.2f} ({position_size_percent*100:.0f}%)\n"
+									f"  Вложено: ${trade_info['invest_amount']:.2f} ({position_size_display})\n"
 									f"  Голоса: +{bullish_votes}/-{bearish_votes} (Δ{bullish_votes-bearish_votes:+d})\n"
 									f"  Баланс: ${trade_info['balance_after']:.2f}"
 								)

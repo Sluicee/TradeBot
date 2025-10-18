@@ -126,6 +126,13 @@ class TradeHistory(Base):
 	# Метаданные
 	extra_data = Column(JSON)  # Дополнительные данные
 	
+	# v5.5 сигнальные метаданные
+	bullish_votes = Column(Integer, default=0)
+	bearish_votes = Column(Integer, default=0)
+	votes_delta = Column(Integer, default=0)
+	position_size_percent = Column(Float)
+	reasons = Column(JSON)  # Список причин сигнала
+	
 	__table_args__ = (
 		Index('idx_trade_symbol_time', 'symbol', 'time'),
 		Index('idx_trade_type', 'type'),
