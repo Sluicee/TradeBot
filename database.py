@@ -514,7 +514,18 @@ class DatabaseManager:
 			if "time" in trade_data and isinstance(trade_data["time"], str):
 				trade_data["time"] = datetime.fromisoformat(trade_data["time"])
 			
-			trade = TradeHistory(**trade_data)
+			# Фильтруем только существующие поля для обратной совместимости
+			valid_fields = {
+				'type', 'symbol', 'price', 'amount', 'time', 'invest_amount', 
+				'commission', 'signal_strength', 'balance_after', 'sell_value', 
+				'profit', 'profit_percent', 'holding_time', 'closed_percent', 
+				'reason', 'averaging_count', 'average_entry_price', 'extra_data',
+				'bullish_votes', 'bearish_votes', 'votes_delta', 'position_size_percent', 'reasons'
+			}
+			
+			filtered_data = {k: v for k, v in trade_data.items() if k in valid_fields}
+			
+			trade = TradeHistory(**filtered_data)
 			session.add(trade)
 			session.commit()
 	
@@ -556,7 +567,13 @@ class DatabaseManager:
 					"reason": t.reason,
 					"averaging_count": t.averaging_count,
 					"average_entry_price": t.average_entry_price,
-					"extra_data": t.extra_data
+					"extra_data": t.extra_data,
+					# v5.5 новые поля (с безопасным доступом)
+					"bullish_votes": getattr(t, 'bullish_votes', 0),
+					"bearish_votes": getattr(t, 'bearish_votes', 0),
+					"votes_delta": getattr(t, 'votes_delta', 0),
+					"position_size_percent": getattr(t, 'position_size_percent', None),
+					"reasons": getattr(t, 'reasons', None)
 				}
 				for t in trades
 			]
