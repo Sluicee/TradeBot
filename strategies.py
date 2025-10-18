@@ -17,6 +17,7 @@ from config import (
 	USE_DYNAMIC_TP_FOR_MR, MR_ATR_TP_MULTIPLIER, MR_ATR_TP_MIN, MR_ATR_TP_MAX,
 	# Гибридная стратегия
 	STRATEGY_HYBRID_MODE, HYBRID_ADX_MR_THRESHOLD, HYBRID_ADX_TF_THRESHOLD,
+	HYBRID_ADX_MR_EXIT, HYBRID_ADX_TF_EXIT,
 	HYBRID_TRANSITION_MODE, HYBRID_MIN_TIME_IN_MODE,
 	# Индикаторы
 	STOCH_OVERSOLD, STOCH_OVERBOUGHT, ADX_WINDOW, ATR_WINDOW,
@@ -363,6 +364,7 @@ class HybridStrategy:
 			}
 		
 		# Определяем текущий режим на основе ADX
+		# Используем гистерезис для стабильности переключений
 		if adx < HYBRID_ADX_MR_THRESHOLD:
 			current_mode = "MR"
 			reasons.append(f"📊 ADX={adx:.1f} < {HYBRID_ADX_MR_THRESHOLD} → MEAN REVERSION режим")
@@ -370,19 +372,28 @@ class HybridStrategy:
 			current_mode = "TF"
 			reasons.append(f"📊 ADX={adx:.1f} > {HYBRID_ADX_TF_THRESHOLD} → TREND FOLLOWING режим")
 		else:
-			# Переходная зона
-			if HYBRID_TRANSITION_MODE == "HOLD":
-				current_mode = MODE_TRANSITION
-				reasons.append(f"⏸ ADX={adx:.1f} в переходной зоне [{HYBRID_ADX_MR_THRESHOLD}, {HYBRID_ADX_TF_THRESHOLD}] → TRANSITION")
-			else:  # LAST
-				current_mode = last_mode if last_mode else MODE_TRANSITION
-				reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
+			# Переходная зона - используем гистерезис
+			if last_mode == "MR" and adx < HYBRID_ADX_MR_EXIT:
+				current_mode = "MR"  # Остаёмся в MR до выхода
+				reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне, остаёмся в MR (выход при ADX>{HYBRID_ADX_MR_EXIT})")
+			elif last_mode == "TF" and adx > HYBRID_ADX_TF_EXIT:
+				current_mode = "TF"  # Остаёмся в TF до выхода
+				reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне, остаёмся в TF (выход при ADX<{HYBRID_ADX_TF_EXIT})")
+			else:
+				# Переходная зона - используем настройку
+				if HYBRID_TRANSITION_MODE == "HOLD":
+					current_mode = MODE_TRANSITION
+					reasons.append(f"⏸ ADX={adx:.1f} в переходной зоне [{HYBRID_ADX_MR_THRESHOLD}, {HYBRID_ADX_TF_THRESHOLD}] → TRANSITION")
+				else:  # LAST
+					current_mode = last_mode if last_mode else MODE_TRANSITION
+					reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
 		
 		# Проверяем минимальное время в режиме (защита от частого переключения)
 		# ИСКЛЮЧЕНИЕ: TRANSITION режим может переключаться в любой момент
+		# НО: защищаем от частого переключения TF ↔ TRANSITION
 		if (last_mode is not None and last_mode != current_mode and 
 			last_mode_time < HYBRID_MIN_TIME_IN_MODE and 
-			last_mode != MODE_TRANSITION):
+			last_mode != MODE_TRANSITION and current_mode != MODE_TRANSITION):
 			current_mode = last_mode
 			time_remaining = HYBRID_MIN_TIME_IN_MODE - last_mode_time
 			reasons.append(f"⏱ ЗАЩИТА ОТ ПЕРЕКЛЮЧЕНИЯ: Остаёмся в режиме {last_mode}")
