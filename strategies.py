@@ -23,7 +23,7 @@ from config import (
 	# Константы режимов
 	MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION,
 	# Пороги голосования
-	VOTE_THRESHOLD_TRANSITIONING
+	VOTE_THRESHOLD_TRANSITIONING, VOTE_THRESHOLD_TRENDING, VOTE_THRESHOLD_RANGING
 )
 
 class MeanReversionStrategy:
@@ -397,6 +397,22 @@ class HybridStrategy:
 		# Генерируем сигнал в зависимости от режима
 		if current_mode == "MR":
 			signal_result = self.mean_reversion_strategy.generate_signal()
+			
+			# Проверяем порог голосования для MR режима
+			bullish_votes = signal_result.get("bullish_votes", 0)
+			bearish_votes = signal_result.get("bearish_votes", 0)
+			votes_delta = bullish_votes - bearish_votes
+			
+			# Если MR стратегия генерирует BUY, проверяем порог
+			if signal_result.get("signal") == "BUY" and votes_delta < VOTE_THRESHOLD_RANGING:
+				signal_result["signal"] = "HOLD"
+				signal_result["signal_emoji"] = "⚠️"
+				reasons.append(f"⏸ MR: слабый сигнал (Delta={votes_delta:+d} < {VOTE_THRESHOLD_RANGING})")
+				logger.info(f"❌ MR BLOCK: слабый сигнал (Delta={votes_delta:+d} < {VOTE_THRESHOLD_RANGING})")
+			elif signal_result.get("signal") == "BUY":
+				reasons.append(f"✅ MR: сильный сигнал (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_RANGING})")
+				logger.info(f"✅ MR BUY: сильный сигнал (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_RANGING})")
+			
 			signal_result["active_mode"] = MODE_MEAN_REVERSION
 			signal_result["strategy"] = "HYBRID"
 			# Добавляем информацию о времени в режиме
@@ -408,12 +424,27 @@ class HybridStrategy:
 		
 		elif current_mode == "TF":
 			signal_result = self.trend_following_strategy.generate_signal()
+			
+			# Проверяем порог голосования для TF режима
+			bullish_votes = signal_result.get("bullish_votes", 0)
+			bearish_votes = signal_result.get("bearish_votes", 0)
+			votes_delta = bullish_votes - bearish_votes
+			
+			# Если TF стратегия генерирует BUY, проверяем порог
+			if signal_result.get("signal") == "BUY" and votes_delta < VOTE_THRESHOLD_TRENDING:
+				signal_result["signal"] = "HOLD"
+				signal_result["signal_emoji"] = "⚠️"
+				reasons.append(f"⏸ TF: слабый сигнал (Delta={votes_delta:+d} < {VOTE_THRESHOLD_TRENDING})")
+				logger.info(f"❌ TF BLOCK: слабый сигнал (Delta={votes_delta:+d} < {VOTE_THRESHOLD_TRENDING})")
+			elif signal_result.get("signal") == "BUY":
+				reasons.append(f"✅ TF: сильный сигнал (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_TRENDING})")
+				logger.info(f"✅ TF BUY: сильный сигнал (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_TRENDING})")
+			
 			signal_result["active_mode"] = MODE_TREND_FOLLOWING
 			signal_result["strategy"] = "HYBRID"
 			# Добавляем информацию о времени в режиме
 			signal_result["mode_time"] = last_mode_time
 			signal_result["min_mode_time"] = HYBRID_MIN_TIME_IN_MODE
-			
 			
 			# Добавляем reasons о режиме в начало
 			signal_result["reasons"] = reasons + signal_result.get("reasons", [])
