@@ -284,6 +284,35 @@ class TelegramBot:
 		return interval
 
 	# -------------------------
+	# Отправка сообщений с retry
+	# -------------------------
+	async def _send_telegram_message_with_retry(self, message: str, max_retries: int = 3):
+		"""Отправка сообщения в Telegram с retry логикой"""
+		import asyncio
+		from telegram.error import TimedOut, NetworkError
+		
+		for attempt in range(max_retries):
+			try:
+				await self.application.bot.send_message(
+					chat_id=self.chat_id, 
+					text=message, 
+					parse_mode="HTML"
+				)
+				logger.info("Сообщение успешно отправлено (попытка %d)", attempt + 1)
+				return
+			except (TimedOut, NetworkError) as e:
+				if attempt < max_retries - 1:
+					wait_time = 2 ** attempt  # Экспоненциальный backoff: 1s, 2s, 4s
+					logger.warning("Ошибка отправки (попытка %d/%d): %s. Повтор через %ds", 
+						attempt + 1, max_retries, e, wait_time)
+					await asyncio.sleep(wait_time)
+				else:
+					logger.error("Не удалось отправить сообщение после %d попыток: %s", max_retries, e)
+			except Exception as e:
+				logger.error("Неожиданная ошибка отправки сообщения: %s", e)
+				break
+
+	# -------------------------
 	# Фоновая задача
 	# -------------------------
 	async def _background_task(self):
@@ -525,8 +554,7 @@ class TelegramBot:
 			# Отправляем все накопленные сообщения одним батчем
 			if all_messages:
 				combined_message = "\n\n".join(all_messages)
-				await self.application.bot.send_message(chat_id=self.chat_id, text=combined_message, parse_mode="HTML")
-				logger.info("Отправлено %d изменений", len(all_messages))
+				await self._send_telegram_message_with_retry(combined_message)
 			
 			# Адаптивный интервал на основе волатильности
 			if volatilities:
