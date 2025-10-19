@@ -52,8 +52,8 @@ MACD_SIGNAL = 9
 
 # ADX (сила тренда)
 ADX_WINDOW = 14
-ADX_TRENDING = 30  # Порог сильного тренда
-ADX_RANGING = 20  # Порог флэта (ADX < 20)
+ADX_TRENDING = 25
+ADX_RANGING = 15
 ADX_STRONG = 25  # Порог для фильтра сильного тренда (ADX >= 25)
 ADX_MODERATE = 20  # Минимальный порог тренда (ADX >= 20) - отличается от RANGING по направлению
 
@@ -77,8 +77,8 @@ VOLUME_LOW_RATIO = 0.7  # Низкий объем (70%)
 # ====================================================================
 
 # Веса индикаторов в зависимости от режима рынка
-TRENDING_TREND_WEIGHT = 3  # Вес трендовых индикаторов в тренде
-TRENDING_OSCILLATOR_WEIGHT = 1  # Вес осцилляторов в тренде
+TRENDING_TREND_WEIGHT = 2  # Вес трендовых индикаторов в тренде
+TRENDING_OSCILLATOR_WEIGHT = 2  # Вес осцилляторов в тренде
 
 RANGING_TREND_WEIGHT = 1  # Вес трендовых индикаторов во флэте
 RANGING_OSCILLATOR_WEIGHT = 2  # Вес осцилляторов во флэте
@@ -87,12 +87,12 @@ TRANSITIONING_TREND_WEIGHT = 2  # Вес трендовых индикаторо
 TRANSITIONING_OSCILLATOR_WEIGHT = 2  # Вес осцилляторов при переходе
 
 # Пороги голосования для генерации сигнала (v5.6 - оптимизированы для стабильности)
-VOTE_THRESHOLD_TRENDING = 3  # Порог в трендовом рынке (было 2)
-VOTE_THRESHOLD_RANGING = 5   # Порог во флэте (было 4)
-VOTE_THRESHOLD_TRANSITIONING = 5  # Порог при переходе (было 3)
+VOTE_THRESHOLD_TRENDING = 1
+VOTE_THRESHOLD_RANGING = 3
+VOTE_THRESHOLD_TRANSITIONING = 4
 
 # Минимальное количество пройденных фильтров для сигнала
-MIN_FILTERS = 3  # Из 5 возможных фильтров
+MIN_FILTERS = 2  # Из 5 возможных фильтров
 
 # ====================================================================
 # PAPER TRADING & BACKTEST
@@ -275,9 +275,9 @@ MR_TRAILING_AGGRESSIVE_DISTANCE = 0.008  # 0.8% от максимума
 STRATEGY_HYBRID_MODE = "AUTO"  # "AUTO" (переключение по ADX), "MR_ONLY", "TF_ONLY"
 
 # Пороги ADX для переключения режимов (v5.9: максимально расширенная переходная зона)
-HYBRID_ADX_MR_THRESHOLD = 12  # ADX < 12 → Mean Reversion (боковик)
+HYBRID_ADX_MR_THRESHOLD = 10  # ADX < 12 → Mean Reversion (боковик)
 HYBRID_ADX_MR_EXIT = 35  # ADX > 35 → Выход из MR в TF (гистерезис)
-HYBRID_ADX_TF_THRESHOLD = 30  # ADX > 30 → Trend Following (тренд)
+HYBRID_ADX_TF_THRESHOLD = 25  # ADX > 30 → Trend Following (тренд)
 HYBRID_ADX_TF_EXIT = 12  # ADX < 12 → Выход из TF в MR (гистерезис)
 # 12 <= ADX <= 30 → переходная зона 18 пунктов (максимально расширено)
 
