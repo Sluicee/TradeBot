@@ -15,6 +15,8 @@ from config import (
 	USE_DYNAMIC_SL_FOR_MR, MR_ATR_SL_MULTIPLIER, MR_ATR_SL_MIN, MR_ATR_SL_MAX,
 	ADAPTIVE_SL_ON_RISK, ADAPTIVE_SL_MULTIPLIER,
 	USE_DYNAMIC_TP_FOR_MR, MR_ATR_TP_MULTIPLIER, MR_ATR_TP_MIN, MR_ATR_TP_MAX,
+	# R:R контроль
+	MIN_RR_RATIO, ENFORCE_MIN_RR,
 	# Гибридная стратегия
 	STRATEGY_HYBRID_MODE, HYBRID_ADX_MR_THRESHOLD, HYBRID_ADX_TF_THRESHOLD,
 	HYBRID_TRANSITION_MODE, HYBRID_MIN_TIME_IN_MODE,
@@ -231,7 +233,40 @@ class MeanReversionStrategy:
 					atr_percent = (atr / price) * 100
 					dynamic_tp = (atr / price) * MR_ATR_TP_MULTIPLIER
 					dynamic_tp = max(MR_ATR_TP_MIN, min(dynamic_tp, MR_ATR_TP_MAX))
-					reasons.append(f"🎯 Динамический TP: {dynamic_tp*100:.2f}% (ATR × {MR_ATR_TP_MULTIPLIER}, R:R={MR_ATR_TP_MULTIPLIER/MR_ATR_SL_MULTIPLIER:.1f})")
+					
+					# НОВОЕ: Проверка и корректировка R:R
+					if ENFORCE_MIN_RR and dynamic_sl is not None:
+						current_rr = dynamic_tp / dynamic_sl if dynamic_sl > 0 else 0
+						if current_rr < MIN_RR_RATIO:
+							# Корректируем TP для обеспечения минимального R:R
+							dynamic_tp = dynamic_sl * MIN_RR_RATIO
+							# Проверяем, что не превышаем максимум
+							if dynamic_tp > MR_ATR_TP_MAX:
+								# Если не помещается в максимум, корректируем SL
+								dynamic_sl = dynamic_tp / MIN_RR_RATIO
+								if dynamic_sl < MR_ATR_SL_MIN:
+									# Если SL стал слишком маленьким, блокируем вход
+									reasons.append(f"🚫 R:R контроль: SL={dynamic_sl*100:.2f}% < {MR_ATR_SL_MIN*100:.1f}% → блокируем вход")
+									signal = "HOLD"
+									signal_emoji = "⚠️"
+									# Выходим из метода
+									return {
+										"signal": signal,
+										"signal_emoji": signal_emoji,
+										"position_size_percent": 0,
+										"confidence": 0,
+										"reasons": reasons,
+										"dynamic_sl": None,
+										"dynamic_tp": None,
+										"strategy": "MEAN_REVERSION",
+										"bullish_votes": 0,
+										"bearish_votes": 0
+									}
+							reasons.append(f"🎯 R:R контроль: TP скорректирован до {dynamic_tp*100:.2f}% (R:R={MIN_RR_RATIO:.2f})")
+						else:
+							reasons.append(f"🎯 Динамический TP: {dynamic_tp*100:.2f}% (ATR × {MR_ATR_TP_MULTIPLIER}, R:R={current_rr:.2f})")
+					else:
+						reasons.append(f"🎯 Динамический TP: {dynamic_tp*100:.2f}% (ATR × {MR_ATR_TP_MULTIPLIER}, R:R={MR_ATR_TP_MULTIPLIER/MR_ATR_SL_MULTIPLIER:.1f})")
 			else:
 				signal = "HOLD"
 				reasons.append(f"⏸ HOLD: RSI и Z-score перепроданы, но ADX={adx:.1f} > {MR_ADX_MAX} (сильный тренд) → пропускаем")
@@ -364,21 +399,40 @@ class HybridStrategy:
 				"bearish_votes": 0
 			}
 		
-		# Определяем текущий режим на основе ADX
-		if adx < HYBRID_ADX_MR_THRESHOLD:
-			current_mode = "MR"
-			reasons.append(f"📊 ADX={adx:.1f} < {HYBRID_ADX_MR_THRESHOLD} → MEAN REVERSION режим")
-		elif adx > HYBRID_ADX_TF_THRESHOLD:
-			current_mode = "TF"
-			reasons.append(f"📊 ADX={adx:.1f} > {HYBRID_ADX_TF_THRESHOLD} → TREND FOLLOWING режим")
+		# Определяем текущий режим на основе ADX с гистерезисом
+		# Гистерезис предотвращает частые переключения при ADX около порогов
+		if last_mode == "MR":
+			# В MR режиме: выходим только при ADX > MR_EXIT (20)
+			if adx > HYBRID_ADX_MR_EXIT:
+				current_mode = "TF"
+				reasons.append(f"📊 ADX={adx:.1f} > {HYBRID_ADX_MR_EXIT} → выход из MR в TF")
+			else:
+				current_mode = "MR"
+				reasons.append(f"📊 ADX={adx:.1f} ≤ {HYBRID_ADX_MR_EXIT} → остаемся в MR")
+		elif last_mode == "TF":
+			# В TF режиме: выходим только при ADX < TF_EXIT (15)
+			if adx < HYBRID_ADX_TF_EXIT:
+				current_mode = "MR"
+				reasons.append(f"📊 ADX={adx:.1f} < {HYBRID_ADX_TF_EXIT} → выход из TF в MR")
+			else:
+				current_mode = "TF"
+				reasons.append(f"📊 ADX={adx:.1f} ≥ {HYBRID_ADX_TF_EXIT} → остаемся в TF")
 		else:
-			# Переходная зона
-			if HYBRID_TRANSITION_MODE == "HOLD":
-				current_mode = MODE_TRANSITION
-				reasons.append(f"⏸ ADX={adx:.1f} в переходной зоне [{HYBRID_ADX_MR_THRESHOLD}, {HYBRID_ADX_TF_THRESHOLD}] → TRANSITION")
-			else:  # LAST
-				current_mode = last_mode if last_mode else MODE_TRANSITION
-				reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
+			# Первый запуск или TRANSITION: используем базовые пороги
+			if adx < HYBRID_ADX_MR_THRESHOLD:
+				current_mode = "MR"
+				reasons.append(f"📊 ADX={adx:.1f} < {HYBRID_ADX_MR_THRESHOLD} → MEAN REVERSION режим")
+			elif adx > HYBRID_ADX_TF_THRESHOLD:
+				current_mode = "TF"
+				reasons.append(f"📊 ADX={adx:.1f} > {HYBRID_ADX_TF_THRESHOLD} → TREND FOLLOWING режим")
+			else:
+				# Переходная зона
+				if HYBRID_TRANSITION_MODE == "HOLD":
+					current_mode = MODE_TRANSITION
+					reasons.append(f"⏸ ADX={adx:.1f} в переходной зоне [{HYBRID_ADX_MR_THRESHOLD}, {HYBRID_ADX_TF_THRESHOLD}] → TRANSITION")
+				else:  # LAST
+					current_mode = last_mode if last_mode else MODE_TRANSITION
+					reasons.append(f"🔄 ADX={adx:.1f} в переходной зоне → используем последний режим ({current_mode})")
 		
 		# Проверяем минимальное время в режиме (защита от частого переключения)
 		# ИСКЛЮЧЕНИЕ: TRANSITION режим может переключаться в любой момент

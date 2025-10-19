@@ -1,5 +1,6 @@
 from typing import Dict, Any
 from logger import logger
+from config import ENABLE_BTC_CORRELATION_CHECK, MAX_BTC_CORRELATED_POSITIONS
 
 # Группы коррелированных активов (упрощенно)
 CORRELATION_GROUPS = {
@@ -25,6 +26,31 @@ def check_correlation_risk(new_symbol: str, existing_positions: Dict[str, Any]) 
 	"""
 	if not existing_positions:
 		return True
+	
+	# НОВОЕ: Проверка BTC-корреляции для всех альткоинов
+	if ENABLE_BTC_CORRELATION_CHECK:
+		btc_symbols = ["BTCUSDT", "BTCUSD", "BTCBUSD"]
+		has_btc_position = any(pos_symbol in btc_symbols for pos_symbol in existing_positions.keys())
+		
+		# Если есть позиция в BTC и пытаемся открыть альткоин - проверяем корреляцию
+		if has_btc_position and new_symbol not in btc_symbols:
+			# Проверяем, не является ли новый символ сильно коррелированным с BTC
+			high_btc_correlation_symbols = [
+				# Мажорные альткоины с высокой корреляцией с BTC
+				"ETHUSDT", "ETHUSD", "ETHBUSD", "ETHBTC",
+				"BNBUSDT", "BNBUSD", "BNBBUSD",
+				"SOLUSDT", "SOLUSD", "SOLBUSD",
+				"XRPUSDT", "XRPUSD", "XRPBUSD",
+				"ADAUSDT", "ADAUSD", "ADABUSD",
+				# L1 блокчейны
+				"AVAXUSDT", "ATOMUSDT", "DOTUSDT", "NEARUSDT", "APTUSDT",
+				# DeFi токены
+				"UNIUSDT", "AAVEUSDT", "LINKUSDT", "MKRUSDT"
+			]
+			
+			if new_symbol in high_btc_correlation_symbols:
+				logger.warning(f"[CORRELATION] ❌ {new_symbol}: высокая корреляция с BTC (уже есть позиция в BTC)")
+				return False
 	
 	# Находим группу нового символа
 	new_group = None

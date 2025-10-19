@@ -4,7 +4,8 @@ from config import (
 	SIGNAL_STRENGTH_STRONG, SIGNAL_STRENGTH_MEDIUM,
 	VOLATILITY_HIGH_THRESHOLD, VOLATILITY_LOW_THRESHOLD, VOLATILITY_ADJUSTMENT_MAX,
 	# Kelly Criterion
-	USE_KELLY_CRITERION, KELLY_FRACTION, MIN_TRADES_FOR_KELLY, KELLY_LOOKBACK_WINDOW
+	USE_KELLY_CRITERION, KELLY_FRACTION, MIN_TRADES_FOR_KELLY, KELLY_LOOKBACK_WINDOW,
+	KELLY_NEGATIVE_MULTIPLIER
 )
 
 
@@ -101,6 +102,12 @@ def calculate_kelly_fraction(trades_history: List[Dict[str, Any]], atr_percent: 
 		return 1.0
 	
 	kelly = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+	
+	# НОВОЕ: Проверка на отрицательный Kelly
+	if kelly <= 0:
+		# Отрицательный Kelly означает убыточную стратегию
+		# Возвращаем минимальный множитель для консервативного подхода
+		return KELLY_NEGATIVE_MULTIPLIER
 	
 	# Применяем консервативную дробь Kelly (например, 25%)
 	kelly *= KELLY_FRACTION

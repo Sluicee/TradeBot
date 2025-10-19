@@ -9,6 +9,8 @@ from config import (
 	AVERAGING_TIME_THRESHOLD_HOURS, MAX_TOTAL_RISK_MULTIPLIER,
 	ENABLE_PYRAMID_UP, PYRAMID_ADX_THRESHOLD, AVERAGING_SIZE_PERCENT,
 	SIGNAL_STRENGTH_STRONG,
+	MAX_POSITION_DRAWDOWN_PERCENT, MAX_AVERAGING_DRAWDOWN_PERCENT,
+	STRATEGY_TYPE_TF, STRATEGY_TYPE_MR, STRATEGY_TYPE_HYBRID,
 	# Dynamic Positions
 	get_dynamic_max_positions
 )
@@ -150,7 +152,8 @@ class PaperTrader:
 		bearish_votes: int = 0,
 		rsi: float = 50.0,
 		adx: float = 0.0,
-		market_regime: str = "NEUTRAL"
+		market_regime: str = "NEUTRAL",
+		strategy_type: str = STRATEGY_TYPE_TF
 	) -> Optional[Dict[str, Any]]:
 		"""Открывает позицию"""
 		logger.info(f"\n{'='*60}")
@@ -203,7 +206,8 @@ class PaperTrader:
 			atr=atr,
 			rsi=rsi,
 			adx=adx,
-			market_regime=market_regime
+			market_regime=market_regime,
+			strategy_type=strategy_type
 		)
 		
 		# Обновляем баланс
@@ -465,6 +469,17 @@ class PaperTrader:
 		if new_invest > self.balance:
 			return None
 		
+		# НОВОЕ: Проверка общего drawdown портфеля
+		total_invested = sum(pos.total_invested for pos in self.positions.values())
+		total_balance = self.balance + total_invested
+		# Рассчитываем общий P&L портфеля (упрощенно - только текущая позиция)
+		position_pnl = position.get_pnl(price)["pnl"]
+		portfolio_drawdown = abs(position_pnl) / total_balance if position_pnl < 0 and total_balance > 0 else 0
+		
+		if portfolio_drawdown > MAX_AVERAGING_DRAWDOWN_PERCENT:
+			logger.warning(f"[AVERAGING] ❌ {symbol}: общий drawdown {portfolio_drawdown*100:.1f}% > {MAX_AVERAGING_DRAWDOWN_PERCENT*100:.1f}%")
+			return None
+		
 		# Комиссия на докупание
 		commission = new_invest * COMMISSION_RATE
 		self.stats["total_commission"] += commission
@@ -536,7 +551,7 @@ class PaperTrader:
 		
 		return trade_info
 		
-	def check_positions(self, prices: Dict[str, float]) -> List[Dict[str, Any]]:
+	def check_positions(self, prices: Dict[str, float], strategy_type: str = None) -> List[Dict[str, Any]]:
 		"""Проверяет все позиции на стоп-лоссы, тейк-профиты и время удержания"""
 		actions = []
 		
@@ -546,38 +561,45 @@ class PaperTrader:
 		for symbol, position in list(self.positions.items()):
 			if symbol not in prices:
 				continue
-				
-			current_price = prices[symbol]
 			
-			# Обновляем максимальную цену
-			position.update_max_price(current_price)
-			
-			# 1. Проверяем время удержания
-			if position.check_time_exit():
-				trade_info = self.close_position(symbol, current_price, "TIME-EXIT")
-				if trade_info:
-					actions.append(trade_info)
-				continue
-			
-			# 2. Проверяем trailing stop (если позиция частично закрыта)
-			if position.check_trailing_stop(current_price):
-				trade_info = self.close_position(symbol, current_price, "TRAILING-STOP")
-				if trade_info:
-					actions.append(trade_info)
-				continue
+			# НОВОЕ: Изолируем ошибки каждой позиции
+			try:
+				current_price = prices[symbol]
 				
-			# 3. Проверяем стоп-лосс
-			if position.check_stop_loss(current_price):
-				trade_info = self.close_position(symbol, current_price, "STOP-LOSS")
-				if trade_info:
-					actions.append(trade_info)
-				continue
+				# Обновляем максимальную цену
+				position.update_max_price(current_price)
 				
-			# 4. Проверяем тейк-профит (частичное закрытие)
-			if position.check_take_profit(current_price):
-				trade_info = self.partial_close_position(symbol, current_price)
-				if trade_info:
-					actions.append(trade_info)
+				# 1. Проверяем время удержания
+				if position.check_time_exit():
+					trade_info = self.close_position(symbol, current_price, "TIME-EXIT")
+					if trade_info:
+						actions.append(trade_info)
+					continue
+				
+				# 2. Проверяем trailing stop (если позиция частично закрыта)
+				if position.check_trailing_stop(current_price):
+					trade_info = self.close_position(symbol, current_price, "TRAILING-STOP")
+					if trade_info:
+						actions.append(trade_info)
+					continue
+					
+				# 3. Проверяем стоп-лосс
+				if position.check_stop_loss(current_price):
+					trade_info = self.close_position(symbol, current_price, "STOP-LOSS")
+					if trade_info:
+						actions.append(trade_info)
+					continue
+					
+				# 4. Проверяем тейк-профит (частичное закрытие)
+				if position.check_take_profit(current_price):
+					trade_info = self.partial_close_position(symbol, current_price)
+					if trade_info:
+						actions.append(trade_info)
+					continue
+					
+			except Exception as e:
+				# Изолируем ошибки отдельных позиций
+				logger.error(f"[CHECK_POSITIONS] ❌ Ошибка при проверке позиции {symbol}: {e}")
 				continue
 		
 		return actions

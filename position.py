@@ -2,10 +2,12 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from config import (
 	STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT, PARTIAL_CLOSE_PERCENT, 
-	TRAILING_STOP_PERCENT, MAX_HOLDING_HOURS,
+	TRAILING_STOP_PERCENT, MAX_HOLDING_HOURS, MR_MAX_HOLDING_HOURS,
 	DYNAMIC_SL_ATR_MULTIPLIER, DYNAMIC_SL_MIN, DYNAMIC_SL_MAX,
 	ENABLE_AVERAGING, MAX_AVERAGING_ATTEMPTS, AVERAGING_PRICE_DROP_PERCENT,
-	AVERAGING_TIME_THRESHOLD_HOURS, ENABLE_PYRAMID_UP, PYRAMID_ADX_THRESHOLD
+	AVERAGING_TIME_THRESHOLD_HOURS, ENABLE_PYRAMID_UP, PYRAMID_ADX_THRESHOLD,
+	MAX_POSITION_DRAWDOWN_PERCENT, MAX_AVERAGING_DRAWDOWN_PERCENT,
+	STRATEGY_TYPE_MR, STRATEGY_TYPE_TF, STRATEGY_TYPE_HYBRID
 )
 
 
@@ -38,7 +40,8 @@ class Position:
 		atr: float = 0.0,
 		rsi: float = 50.0,
 		adx: float = 0.0,
-		market_regime: str = "NEUTRAL"
+		market_regime: str = "NEUTRAL",
+		strategy_type: str = STRATEGY_TYPE_TF
 	):
 		self.symbol = symbol
 		self.entry_price = entry_price
@@ -53,6 +56,7 @@ class Position:
 		self.rsi = rsi
 		self.adx = adx
 		self.market_regime = market_regime
+		self.strategy_type = strategy_type
 		
 		# Stop-loss и Take-profit уровни (динамические на основе ATR)
 		dynamic_sl = get_dynamic_stop_loss_percent(atr, entry_price)
@@ -103,13 +107,19 @@ class Position:
 			return trailing_drop >= TRAILING_STOP_PERCENT
 		return False
 	
-	def check_time_exit(self, max_hours: int = None) -> bool:
+	def check_time_exit(self, max_hours: int = None, strategy_type: str = None) -> bool:
 		"""
 		Проверяет, не слишком ли долго удерживается позиция.
 		Если позиция висит >max_hours без движения - выходим принудительно.
 		"""
 		if max_hours is None:
-			max_hours = MAX_HOLDING_HOURS
+			# НОВОЕ: Выбираем max_hours на основе типа стратегии
+			strategy = strategy_type or self.strategy_type
+			if strategy == STRATEGY_TYPE_MR:
+				max_hours = MR_MAX_HOLDING_HOURS  # 24 часа для MR
+			else:
+				max_hours = MAX_HOLDING_HOURS  # 72 часа для TF/HYBRID
+		
 		try:
 			entry_dt = datetime.fromisoformat(self.entry_time)
 			now_dt = datetime.now()
@@ -129,6 +139,14 @@ class Position:
 		# Проверка лимита докупаний
 		if self.averaging_count >= MAX_AVERAGING_ATTEMPTS:
 			return False, "MAX_ATTEMPTS"
+		
+		# НОВОЕ: Проверка drawdown позиции
+		pnl_info = self.get_pnl(current_price)
+		current_drawdown = abs(pnl_info["pnl_percent"]) if pnl_info["pnl_percent"] < 0 else 0
+		
+		# Блокируем докупание при большом drawdown
+		if current_drawdown > MAX_POSITION_DRAWDOWN_PERCENT * 100:  # Конвертируем в проценты
+			return False, f"DRAWDOWN_TOO_HIGH_{current_drawdown:.1f}%"
 		
 		# Определяем режим на основе ADX
 		if ENABLE_PYRAMID_UP and adx > PYRAMID_ADX_THRESHOLD:

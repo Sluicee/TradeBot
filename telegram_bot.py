@@ -3,6 +3,7 @@ import asyncio
 import json
 import html
 import math
+import threading
 from datetime import datetime
 from telegram import Update, __version__ as tg_version
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -32,6 +33,9 @@ class TelegramBot:
 		self.default_symbol = default_symbol
 		self.default_interval = default_interval
 		self.tracked_symbols: set[str] = set()
+		
+		# НОВОЕ: Lock для предотвращения race condition в paper_trader операциях
+		self.paper_trader_lock = threading.Lock()
 		
 		# Устанавливаем владельца из переменной окружения
 		if OWNER_CHAT_ID:
@@ -350,8 +354,9 @@ class TelegramBot:
 						except Exception as e:
 							logger.error(f"Ошибка получения цены для позиции {symbol}: {e}")
 					
-					# Проверяем стоп-лоссы и тейк-профиты
-					actions = self.paper_trader.check_positions(current_prices)
+					# Проверяем стоп-лоссы и тейк-профиты (с lock)
+					with self.paper_trader_lock:
+						actions = self.paper_trader.check_positions(current_prices)
 					for action in actions:
 						trade_type = action['type']
 						symbol = action['symbol']
@@ -443,37 +448,39 @@ class TelegramBot:
 			if self.paper_trader.is_running:
 				from signal_diagnostics import diagnostics
 				
-				for symbol, result in trading_signals.items():
-					signal = result["signal"]
-					price = current_prices.get(symbol)
-					
-					if price is None:
-						continue
-					
-					# Получаем метаданные сигнала (v5.5 HYBRID)
-					signal_strength = abs(result.get("bullish_votes", 0) - result.get("bearish_votes", 0))
-					atr = result.get("ATR", 0.0)
-					bullish_votes = result.get("bullish_votes", 0)
-					bearish_votes = result.get("bearish_votes", 0)
-					active_mode = result.get("active_mode", "UNKNOWN")
-					reasons = result.get("reasons", [])
-					position_size_percent = result.get("position_size_percent", None)
-					
-					# BUY сигнал - открываем позицию
-					if signal == "BUY" and symbol not in self.paper_trader.positions:
-						can_buy = self.paper_trader.can_open_position(symbol)
-						block_reason = None if can_buy else "Лимит позиций или баланс"
+				# НОВОЕ: Обрабатываем все сигналы под lock для предотвращения race condition
+				with self.paper_trader_lock:
+					for symbol, result in trading_signals.items():
+						signal = result["signal"]
+						price = current_prices.get(symbol)
 						
-						# Диагностика сигнала
-						diagnostics.log_signal_generation(
-							symbol=symbol,
-							signal_result=result,
-							price=price,
-							can_buy=can_buy,
-							block_reason=block_reason
-						)
+						if price is None:
+							continue
 						
-						if can_buy:
+						# Получаем метаданные сигнала (v5.5 HYBRID)
+						signal_strength = abs(result.get("bullish_votes", 0) - result.get("bearish_votes", 0))
+						atr = result.get("ATR", 0.0)
+						bullish_votes = result.get("bullish_votes", 0)
+						bearish_votes = result.get("bearish_votes", 0)
+						active_mode = result.get("active_mode", "UNKNOWN")
+						reasons = result.get("reasons", [])
+						position_size_percent = result.get("position_size_percent", None)
+						
+						# BUY сигнал - открываем позицию
+						if signal == "BUY" and symbol not in self.paper_trader.positions:
+								can_buy = self.paper_trader.can_open_position(symbol)
+							block_reason = None if can_buy else "Лимит позиций или баланс"
+							
+							# Диагностика сигнала
+							diagnostics.log_signal_generation(
+								symbol=symbol,
+								signal_result=result,
+								price=price,
+								can_buy=can_buy,
+								block_reason=block_reason
+							)
+							
+							if can_buy:
 							trade_info = self.paper_trader.open_position(
 								symbol=symbol,
 								price=price,
