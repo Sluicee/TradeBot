@@ -468,7 +468,7 @@ class TelegramBot:
 						
 						# BUY сигнал - открываем позицию
 						if signal == "BUY" and symbol not in self.paper_trader.positions:
-								can_buy = self.paper_trader.can_open_position(symbol)
+							can_buy = self.paper_trader.can_open_position(symbol)
 							block_reason = None if can_buy else "Лимит позиций или баланс"
 							
 							# Диагностика сигнала
@@ -481,82 +481,82 @@ class TelegramBot:
 							)
 							
 							if can_buy:
-							trade_info = self.paper_trader.open_position(
+								trade_info = self.paper_trader.open_position(
+									symbol=symbol,
+									price=price,
+									signal_strength=signal_strength,
+									atr=atr,
+									position_size_percent=position_size_percent,
+									reasons=reasons,
+									active_mode=active_mode,
+									bullish_votes=bullish_votes,
+									bearish_votes=bearish_votes
+								)
+								if trade_info:
+									# Безопасная обработка position_size_percent
+									position_size_display = f"{position_size_percent*100:.0f}%" if position_size_percent is not None else "N/A"
+									
+									msg = (
+										f"🟢 <b>КУПИЛ</b> {symbol} ({active_mode})\n"
+										f"  Цена: {self.handlers.formatters.format_price(price)}\n"
+										f"  Вложено: ${trade_info['invest_amount']:.2f} ({position_size_display})\n"
+										f"  Голоса: +{bullish_votes}/-{bearish_votes} (Δ{bullish_votes-bearish_votes:+d})\n"
+										f"  Баланс: ${trade_info['balance_after']:.2f}"
+									)
+									all_messages.append(msg)
+								self.paper_trader.save_state()
+					
+						# BUY сигнал для открытой LONG позиции - докупание
+						elif signal == "BUY" and symbol in self.paper_trader.positions:
+							adx = result.get("ADX", 0.0)
+							trade_info = self.paper_trader.average_position(
 								symbol=symbol,
 								price=price,
 								signal_strength=signal_strength,
+								adx=adx,
 								atr=atr,
-								position_size_percent=position_size_percent,
-								reasons=reasons,
-								active_mode=active_mode,
-								bullish_votes=bullish_votes,
-								bearish_votes=bearish_votes
+								reason="SIGNAL"
 							)
 							if trade_info:
-								# Безопасная обработка position_size_percent
-								position_size_display = f"{position_size_percent*100:.0f}%" if position_size_percent is not None else "N/A"
-								
+								mode = trade_info.get("type", "AVERAGE")
 								msg = (
-									f"🟢 <b>КУПИЛ</b> {symbol} ({active_mode})\n"
+									f"🟡 <b>ДОКУПИЛ</b> {symbol} ({mode})\n"
 									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
-									f"  Вложено: ${trade_info['invest_amount']:.2f} ({position_size_display})\n"
-									f"  Голоса: +{bullish_votes}/-{bearish_votes} (Δ{bullish_votes-bearish_votes:+d})\n"
-									f"  Баланс: ${trade_info['balance_after']:.2f}"
-								)
-								all_messages.append(msg)
-							self.paper_trader.save_state()
-					
-					# BUY сигнал для открытой LONG позиции - докупание
-					elif signal == "BUY" and symbol in self.paper_trader.positions:
-						adx = result.get("ADX", 0.0)
-						trade_info = self.paper_trader.average_position(
-							symbol=symbol,
-							price=price,
-							signal_strength=signal_strength,
-							adx=adx,
-							atr=atr,
-							reason="SIGNAL"
-						)
-						if trade_info:
-							mode = trade_info.get("type", "AVERAGE")
-							msg = (
-								f"🟡 <b>ДОКУПИЛ</b> {symbol} ({mode})\n"
-								f"  Цена: {self.handlers.formatters.format_price(price)}\n"
-								f"  Докуплено: ${trade_info['invest_amount']:.2f}\n"
-								f"  Попытка #{trade_info['averaging_count']}\n"
-								f"  Средняя цена: {self.handlers.formatters.format_price(trade_info['average_entry_price'])}\n"
-								f"  Баланс: ${trade_info['balance_after']:.2f}"
-							)
-							all_messages.append(msg)
-							self.paper_trader.save_state()
-				
-					# SELL сигнал - закрываем LONG позицию (если не частично закрыта)
-					elif signal == "SELL" and symbol in self.paper_trader.positions:
-						position = self.paper_trader.positions[symbol]
-						if not position.partial_closed:  # Только если не частично закрыта
-							trade_info = self.paper_trader.close_position(symbol, price, "SELL")
-							if trade_info:
-								profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
-								msg = (
-									f"🔴 <b>ПРОДАЛ</b> {symbol}\n"
-									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
-									f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
+									f"  Докуплено: ${trade_info['invest_amount']:.2f}\n"
+									f"  Попытка #{trade_info['averaging_count']}\n"
+									f"  Средняя цена: {self.handlers.formatters.format_price(trade_info['average_entry_price'])}\n"
 									f"  Баланс: ${trade_info['balance_after']:.2f}"
 								)
 								all_messages.append(msg)
 								self.paper_trader.save_state()
+				
+						# SELL сигнал - закрываем LONG позицию (если не частично закрыта)
+						elif signal == "SELL" and symbol in self.paper_trader.positions:
+							position = self.paper_trader.positions[symbol]
+							if not position.partial_closed:  # Только если не частично закрыта
+								trade_info = self.paper_trader.close_position(symbol, price, "SELL")
+								if trade_info:
+									profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
+									msg = (
+										f"🔴 <b>ПРОДАЛ</b> {symbol}\n"
+										f"  Цена: {self.handlers.formatters.format_price(price)}\n"
+										f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
+										f"  Баланс: ${trade_info['balance_after']:.2f}"
+									)
+									all_messages.append(msg)
+									self.paper_trader.save_state()
 					
 					
-					# HOLD/SELL - логируем для диагностики (если нет позиции)
-					else:
-						if symbol not in self.paper_trader.positions:
-							diagnostics.log_signal_generation(
-								symbol=symbol,
-								signal_result=result,
-								price=price,
-								can_buy=False,
-								block_reason=f"Сигнал {signal}, не BUY"
-							)
+						# HOLD/SELL - логируем для диагностики (если нет позиции)
+						else:
+							if symbol not in self.paper_trader.positions:
+								diagnostics.log_signal_generation(
+									symbol=symbol,
+									signal_result=result,
+									price=price,
+									can_buy=False,
+									block_reason=f"Сигнал {signal}, не BUY"
+								)
 			
 			# Отправляем все накопленные сообщения одним батчем
 			if all_messages:
