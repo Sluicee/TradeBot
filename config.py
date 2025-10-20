@@ -348,6 +348,26 @@ STRATEGY_TYPE_HYBRID = "HYBRID"
 MTF_PRIMARY_TIMEFRAME = "1h"
 
 # ====================================================================
+# REAL TRADING CONFIGURATION
+# ====================================================================
+
+# Trading Mode Flags
+ENABLE_PAPER_TRADING = False   # Включить paper trading
+ENABLE_REAL_TRADING = True   # Включить реальную торговлю
+
+# Bybit API (загружаются из .env)
+BYBIT_API_KEY = os.getenv("BYBIT_API_KEY")
+BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET")
+BYBIT_TESTNET = os.getenv("BYBIT_TESTNET", "false").lower() == "true"  # True для testnet
+
+# Real Trading Safety Limits
+REAL_MAX_DAILY_LOSS = 50.0  # Макс убыток в день (USD)
+REAL_MAX_POSITION_SIZE = 100.0  # Макс размер позиции (USD)
+REAL_MAX_POSITIONS = 2  # Макс количество позиций
+REAL_ORDER_TYPE = "MARKET"  # "MARKET" или "LIMIT"
+REAL_LIMIT_ORDER_OFFSET_PERCENT = 0.001  # 0.1% оффсет для лимитных ордеров
+
+# ====================================================================
 # ДИНАМИЧЕСКИЙ РАСЧЕТ MAX_POSITIONS
 # ====================================================================
 

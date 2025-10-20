@@ -41,6 +41,42 @@ class PaperTradingState(Base):
 	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
+class RealTradingState(Base):
+	"""Состояние реального трейдинга"""
+	__tablename__ = "real_trading_state"
+	
+	id = Column(Integer, primary_key=True)
+	is_running = Column(Boolean, default=False)
+	start_time = Column(DateTime)
+	total_trades = Column(Integer, default=0)
+	winning_trades = Column(Integer, default=0)
+	losing_trades = Column(Integer, default=0)
+	total_commission = Column(Float, default=0.0)
+	stop_loss_triggers = Column(Integer, default=0)
+	take_profit_triggers = Column(Integer, default=0)
+	trailing_stop_triggers = Column(Integer, default=0)
+	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class RealTrade(Base):
+	"""Реальная сделка на бирже"""
+	__tablename__ = "real_trades"
+	
+	id = Column(Integer, primary_key=True)
+	symbol = Column(String(20), nullable=False, index=True)
+	side = Column(String(10), nullable=False)  # BUY/SELL
+	order_type = Column(String(10), nullable=False)  # MARKET/LIMIT
+	quantity = Column(Float, nullable=False)
+	price = Column(Float, nullable=False)
+	order_id = Column(String(50), nullable=False, index=True)  # Bybit order ID
+	status = Column(String(20), nullable=False)  # FILLED/PARTIAL/CANCELLED
+	commission = Column(Float, default=0.0)
+	realized_pnl = Column(Float, default=0.0)
+	timestamp = Column(DateTime, default=datetime.now, index=True)
+	reason = Column(String(50))  # SIGNAL/STOP_LOSS/TAKE_PROFIT
+	created_at = Column(DateTime, default=datetime.now)
+
+
 class Position(Base):
 	"""Открытая позиция"""
 	__tablename__ = "positions"
@@ -914,11 +950,110 @@ class DatabaseManager:
 			return [
 				{
 					"id": p.id,
+					"signal_signature": p.signal_signature,
 					"signal_type": p.signal_type,
 					"entry_price": p.entry_price,
 					"created_at": p.created_at.isoformat() if p.created_at else None
 				}
 				for p in pending
+			]
+	
+	# ====================================================================
+	# REAL TRADING METHODS
+	# ====================================================================
+	
+	def save_real_state(self, is_running: bool, start_time: datetime, stats: Dict[str, Any]):
+		"""Сохранить состояние реального трейдинга"""
+		with self.session_scope() as session:
+			# Удаляем старые записи
+			session.query(RealTradingState).delete()
+			
+			# Создаем новую запись
+			state = RealTradingState(
+				is_running=is_running,
+				start_time=start_time,
+				total_trades=stats.get("total_trades", 0),
+				winning_trades=stats.get("winning_trades", 0),
+				losing_trades=stats.get("losing_trades", 0),
+				total_commission=stats.get("total_commission", 0.0),
+				stop_loss_triggers=stats.get("stop_loss_triggers", 0),
+				take_profit_triggers=stats.get("take_profit_triggers", 0),
+				trailing_stop_triggers=stats.get("trailing_stop_triggers", 0)
+			)
+			session.add(state)
+			session.commit()
+	
+	def get_real_state(self):
+		"""Получить состояние реального трейдинга"""
+		with self.session_scope() as session:
+			return session.query(RealTradingState).first()
+	
+	def add_real_trade(self, trade_data: Dict[str, Any]):
+		"""Добавить реальную сделку"""
+		with self.session_scope() as session:
+			trade = RealTrade(
+				symbol=trade_data.get("symbol"),
+				side=trade_data.get("type", "BUY"),  # BUY/SELL
+				order_type=trade_data.get("order_type", "MARKET"),
+				quantity=trade_data.get("amount", 0),
+				price=trade_data.get("price", 0),
+				order_id=trade_data.get("order_id", ""),
+				status=trade_data.get("status", "SUBMITTED"),
+				commission=trade_data.get("commission", 0.0),
+				realized_pnl=trade_data.get("profit", 0.0),
+				reason=trade_data.get("type", "SIGNAL")
+			)
+			session.add(trade)
+			session.commit()
+	
+	def get_real_trades_history(self, limit: int = 100) -> List[Dict[str, Any]]:
+		"""Получить историю реальных сделок"""
+		with self.session_scope() as session:
+			trades = session.query(RealTrade).order_by(RealTrade.timestamp.desc()).limit(limit).all()
+			return [
+				{
+					"id": t.id,
+					"symbol": t.symbol,
+					"side": t.side,
+					"order_type": t.order_type,
+					"quantity": t.quantity,
+					"price": t.price,
+					"order_id": t.order_id,
+					"status": t.status,
+					"commission": t.commission,
+					"realized_pnl": t.realized_pnl,
+					"timestamp": t.timestamp.isoformat() if t.timestamp else None,
+					"reason": t.reason,
+					"created_at": t.created_at.isoformat() if t.created_at else None
+				}
+				for t in trades
+			]
+	
+	def get_real_trades_by_date_range(self, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
+		"""Получить реальные сделки за период"""
+		with self.session_scope() as session:
+			trades = session.query(RealTrade).filter(
+				RealTrade.timestamp >= start_time,
+				RealTrade.timestamp <= end_time
+			).all()
+			return [
+				{
+					"id": t.id,
+					"symbol": t.symbol,
+					"side": t.side,
+					"order_type": t.order_type,
+					"quantity": t.quantity,
+					"price": t.price,
+					"order_id": t.order_id,
+					"status": t.status,
+					"commission": t.commission,
+					"realized_pnl": t.realized_pnl,
+					"profit": t.realized_pnl,  # Для совместимости
+					"timestamp": t.timestamp.isoformat() if t.timestamp else None,
+					"reason": t.reason,
+					"created_at": t.created_at.isoformat() if t.created_at else None
+				}
+				for t in trades
 			]
 	
 	def get_all_bayesian_stats(self) -> List[Dict[str, Any]]:

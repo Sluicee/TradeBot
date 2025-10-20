@@ -48,6 +48,23 @@ git pull
 
 echo ""
 
+# Миграция Real Trading
+echo "🔄 Проверка миграции Real Trading..."
+if [ -f "migrate_real_trading.py" ]; then
+	echo "📊 Выполнение миграции Real Trading..."
+	python3 migrate_real_trading.py
+	
+	if [ $? -eq 0 ]; then
+		echo "✅ Миграция Real Trading завершена"
+	else
+		echo "⚠️  Миграция Real Trading завершилась с предупреждениями"
+	fi
+else
+	echo "ℹ️  Миграция Real Trading не найдена, пропускаем"
+fi
+
+echo ""
+
 # Обновление в зависимости от метода
 if [ "$METHOD" = "docker" ]; then
 	echo "🐳 Обновление Docker контейнера..."

@@ -14,7 +14,7 @@ from config import (
 	POLL_VOLATILITY_HIGH_THRESHOLD, POLL_VOLATILITY_LOW_THRESHOLD, VOLATILITY_ALERT_COOLDOWN,
 	INITIAL_BALANCE, STRATEGY_MODE, ADX_WINDOW,
 	MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION,
-	USE_STATISTICAL_MODELS
+	USE_STATISTICAL_MODELS, ENABLE_REAL_TRADING
 )
 from signal_logger import log_signal
 from data_provider import DataProvider
@@ -58,6 +58,15 @@ class TelegramBot:
 		# Paper Trading
 		self.paper_trader = PaperTrader()  # Использует INITIAL_BALANCE из config
 		self.paper_trader.load_state()
+		
+		# Real Trading
+		try:
+			from real_trader import RealTrader
+			self.real_trader = RealTrader()
+			self.real_trader.load_state()
+		except ImportError as e:
+			logger.warning(f"Real Trading недоступен: {e}")
+			self.real_trader = None
 		
 		# Гибридная стратегия - отслеживание режима по символам
 		self.symbol_modes: dict[str, str] = {}  # symbol -> "MR", "TF", "TRANSITION"
@@ -193,6 +202,18 @@ class TelegramBot:
 		self.application.add_handler(CommandHandler("paper_candidates", self.handlers.paper_candidates))
 		self.application.add_handler(CommandHandler("paper_force_buy", self.handlers.paper_force_buy))
 		self.application.add_handler(CommandHandler("paper_force_sell", self.handlers.paper_force_sell))
+		
+		# Real Trading
+		if ENABLE_REAL_TRADING:
+			from telegram_real_trading import TelegramRealTrading
+			real_trading = TelegramRealTrading(self)
+			self.application.add_handler(CommandHandler("real_start", real_trading.real_start))
+			self.application.add_handler(CommandHandler("real_stop", real_trading.real_stop))
+			self.application.add_handler(CommandHandler("real_status", real_trading.real_status))
+			self.application.add_handler(CommandHandler("real_balance", real_trading.real_balance))
+			self.application.add_handler(CommandHandler("real_trades", real_trading.real_trades))
+			self.application.add_handler(CommandHandler("real_limits", real_trading.real_limits))
+			self.application.add_handler(CommandHandler("real_emergency_stop", real_trading.real_emergency_stop))
 		
 		# Kelly Criterion и Averaging
 		self.application.add_handler(CommandHandler("kelly_info", self.handlers.kelly_info))
@@ -380,8 +401,8 @@ class TelegramBot:
 						if actions:
 							self.paper_trader.save_state()
 				
-				# Анализируем отслеживаемые символы
-				for symbol in self.tracked_symbols:
+				# Анализируем отслеживаемые символы (создаем копию для безопасной итерации)
+				for symbol in list(self.tracked_symbols):
 					try:
 						klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=500)
 						df = provider.klines_to_dataframe(klines)
@@ -557,6 +578,63 @@ class TelegramBot:
 									can_buy=False,
 									block_reason=f"Сигнал {signal}, не BUY"
 								)
+				
+				# ====================================================================
+				# REAL TRADING LOGIC
+				# ====================================================================
+				if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
+					# BUY сигнал для новой позиции
+					if signal == "BUY" and symbol not in self.real_trader.positions:
+						can_buy = self.real_trader.can_open_position(symbol)
+						
+						if can_buy:
+							try:
+								trade_info = await self.real_trader.open_position(
+									symbol=symbol,
+									price=price,
+									signal_strength=signal_strength,
+									atr=atr,
+									position_size_percent=position_size_percent,
+									reasons=reasons,
+									active_mode=active_mode,
+									bullish_votes=bullish_votes,
+									bearish_votes=bearish_votes
+								)
+								if trade_info:
+									position_size_display = f"{position_size_percent*100:.0f}%" if position_size_percent is not None else "N/A"
+									
+									msg = (
+										f"🚀 <b>РЕАЛЬНАЯ ПОКУПКА</b> {symbol} ({active_mode})\n"
+										f"  Цена: {self.handlers.formatters.format_price(price)}\n"
+										f"  Вложено: ${trade_info['invest_amount']:.2f} ({position_size_display})\n"
+										f"  Голоса: +{bullish_votes}/-{bearish_votes} (Δ{bullish_votes-bearish_votes:+d})\n"
+										f"  Order ID: {trade_info.get('order_id', 'N/A')}\n"
+										f"  ⚠️ РЕАЛЬНЫЕ ДЕНЬГИ!"
+									)
+									all_messages.append(msg)
+								self.real_trader.save_state()
+							except Exception as e:
+								logger.error(f"Ошибка реальной покупки {symbol}: {e}")
+								all_messages.append(f"❌ Ошибка реальной покупки {symbol}: {e}")
+					
+					# SELL сигнал - закрываем LONG позицию
+					elif signal == "SELL" and symbol in self.real_trader.positions:
+						try:
+							trade_info = await self.real_trader.close_position(symbol, price, "SELL")
+							if trade_info:
+								profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
+								msg = (
+									f"🔴 <b>РЕАЛЬНАЯ ПРОДАЖА</b> {symbol}\n"
+									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
+									f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
+									f"  Order ID: {trade_info.get('order_id', 'N/A')}\n"
+									f"  ⚠️ РЕАЛЬНЫЕ ДЕНЬГИ!"
+								)
+								all_messages.append(msg)
+								self.real_trader.save_state()
+						except Exception as e:
+							logger.error(f"Ошибка реальной продажи {symbol}: {e}")
+							all_messages.append(f"❌ Ошибка реальной продажи {symbol}: {e}")
 			
 			# Отправляем все накопленные сообщения одним батчем
 			if all_messages:
