@@ -26,10 +26,14 @@ def migrate_real_trading_tables(connection):
             CREATE TABLE real_trading_state (
                 id INTEGER PRIMARY KEY,
                 is_running BOOLEAN DEFAULT FALSE,
-                daily_pnl REAL DEFAULT 0.0,
+                start_time DATETIME,
                 total_trades INTEGER DEFAULT 0,
-                last_reset_date DATE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                winning_trades INTEGER DEFAULT 0,
+                losing_trades INTEGER DEFAULT 0,
+                total_commission REAL DEFAULT 0.0,
+                stop_loss_triggers INTEGER DEFAULT 0,
+                take_profit_triggers INTEGER DEFAULT 0,
+                trailing_stop_triggers INTEGER DEFAULT 0,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """))
@@ -37,6 +41,39 @@ def migrate_real_trading_tables(connection):
         logger.info("✅ real_trading_state table created")
     else:
         logger.info("✅ real_trading_state table already exists")
+        # Check if we need to add missing columns
+        logger.info("Checking for missing columns in real_trading_state...")
+        missing_columns = []
+        
+        # Check for each required column
+        required_columns = [
+            ('start_time', 'DATETIME'),
+            ('winning_trades', 'INTEGER DEFAULT 0'),
+            ('losing_trades', 'INTEGER DEFAULT 0'),
+            ('total_commission', 'REAL DEFAULT 0.0'),
+            ('stop_loss_triggers', 'INTEGER DEFAULT 0'),
+            ('take_profit_triggers', 'INTEGER DEFAULT 0'),
+            ('trailing_stop_triggers', 'INTEGER DEFAULT 0')
+        ]
+        
+        for col_name, col_type in required_columns:
+            result = connection.execute(text(f"""
+                SELECT COUNT(*) FROM pragma_table_info('real_trading_state') 
+                WHERE name = '{col_name}'
+            """))
+            if result.fetchone()[0] == 0:
+                missing_columns.append((col_name, col_type))
+        
+        # Add missing columns
+        for col_name, col_type in missing_columns:
+            logger.info(f"Adding missing column: {col_name}")
+            connection.execute(text(f"ALTER TABLE real_trading_state ADD COLUMN {col_name} {col_type}"))
+            connection.commit()
+        
+        if missing_columns:
+            logger.info(f"✅ Added {len(missing_columns)} missing columns to real_trading_state")
+        else:
+            logger.info("✅ All required columns already exist")
     
     # Create real_trades table
     if 'real_trades' not in existing_tables:
