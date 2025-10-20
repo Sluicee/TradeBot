@@ -32,6 +32,12 @@ class TelegramRealTrading:
 		if self.bot.owner_chat_id is None:
 			return True
 		return update.effective_chat.id == self.bot.owner_chat_id
+	
+	def _check_real_trader(self, update):
+		"""Проверяет, инициализирован ли RealTrader"""
+		if not hasattr(self.bot, 'real_trader') or self.bot.real_trader is None:
+			return False, "❌ Real Trading не инициализирован"
+		return True, None
 
 	async def real_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 		"""Запускает реальный трейдинг"""
@@ -39,8 +45,10 @@ class TelegramRealTrading:
 			await update.message.reply_text("🚫 Доступ запрещен")
 			return
 		
-		if not hasattr(self.bot, 'real_trader'):
-			await update.message.reply_text("❌ Real Trading не инициализирован")
+		# Проверяем инициализацию RealTrader
+		is_ready, error_msg = self._check_real_trader(update)
+		if not is_ready:
+			await update.message.reply_text(error_msg)
 			return
 		
 		if self.bot.real_trader.is_running:
@@ -100,8 +108,10 @@ class TelegramRealTrading:
 			await update.message.reply_text("🚫 Доступ запрещен")
 			return
 		
-		if not hasattr(self.bot, 'real_trader'):
-			await update.message.reply_text("❌ Real Trading не инициализирован")
+		# Проверяем инициализацию RealTrader
+		is_ready, error_msg = self._check_real_trader(update)
+		if not is_ready:
+			await update.message.reply_text(error_msg)
 			return
 		
 		if not self.bot.real_trader.is_running:
@@ -155,8 +165,10 @@ class TelegramRealTrading:
 			await update.message.reply_text("🚫 Доступ запрещен")
 			return
 		
-		if not hasattr(self.bot, 'real_trader'):
-			await update.message.reply_text("❌ Real Trading не инициализирован")
+		# Проверяем инициализацию RealTrader
+		is_ready, error_msg = self._check_real_trader(update)
+		if not is_ready:
+			await update.message.reply_text(error_msg)
 			return
 		
 		status = await self.bot.real_trader.get_status()
@@ -242,8 +254,10 @@ class TelegramRealTrading:
 			await update.message.reply_text("🚫 Доступ запрещен")
 			return
 		
-		if not hasattr(self.bot, 'real_trader'):
-			await update.message.reply_text("❌ Real Trading не инициализирован")
+		# Проверяем инициализацию RealTrader
+		is_ready, error_msg = self._check_real_trader(update)
+		if not is_ready:
+			await update.message.reply_text(error_msg)
 			return
 		
 		try:
@@ -271,8 +285,10 @@ class TelegramRealTrading:
 			await update.message.reply_text("🚫 Доступ запрещен")
 			return
 		
-		if not hasattr(self.bot, 'real_trader'):
-			await update.message.reply_text("❌ Real Trading не инициализирован")
+		# Проверяем инициализацию RealTrader
+		is_ready, error_msg = self._check_real_trader(update)
+		if not is_ready:
+			await update.message.reply_text(error_msg)
 			return
 		
 		limit = 10
@@ -355,8 +371,10 @@ class TelegramRealTrading:
 			await update.message.reply_text("🚫 Доступ запрещен")
 			return
 		
-		if not hasattr(self.bot, 'real_trader'):
-			await update.message.reply_text("❌ Real Trading не инициализирован")
+		# Проверяем инициализацию RealTrader
+		is_ready, error_msg = self._check_real_trader(update)
+		if not is_ready:
+			await update.message.reply_text(error_msg)
 			return
 		
 		# Немедленно останавливаем
