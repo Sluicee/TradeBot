@@ -94,13 +94,41 @@ def migrate_real_trading_tables(connection):
                 reason TEXT,
                 exchange_order_id TEXT,
                 avg_price REAL,
-                filled_quantity REAL DEFAULT 0.0
+                filled_quantity REAL DEFAULT 0.0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """))
         connection.commit()
         logger.info("✅ real_trades table created")
     else:
         logger.info("✅ real_trades table already exists")
+        # Check if we need to add missing columns
+        logger.info("Checking for missing columns in real_trades...")
+        missing_columns = []
+        
+        # Check for each required column
+        required_columns = [
+            ('created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP')
+        ]
+        
+        for col_name, col_type in required_columns:
+            result = connection.execute(text(f"""
+                SELECT COUNT(*) FROM pragma_table_info('real_trades') 
+                WHERE name = '{col_name}'
+            """))
+            if result.fetchone()[0] == 0:
+                missing_columns.append((col_name, col_type))
+        
+        # Add missing columns
+        for col_name, col_type in missing_columns:
+            logger.info(f"Adding missing column: {col_name}")
+            connection.execute(text(f"ALTER TABLE real_trades ADD COLUMN {col_name} {col_type}"))
+            connection.commit()
+        
+        if missing_columns:
+            logger.info(f"✅ Added {len(missing_columns)} missing columns to real_trades")
+        else:
+            logger.info("✅ All required columns already exist")
     
     # Create bayesian_pending_signals table
     if 'bayesian_pending_signals' not in existing_tables:
