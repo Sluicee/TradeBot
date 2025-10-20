@@ -9,8 +9,101 @@ from sqlalchemy import text, create_engine
 from logger import logger
 
 
+def migrate_real_trading_tables(connection):
+    """Create Real Trading tables if they don't exist"""
+    
+    # Check existing tables
+    result = connection.execute(text("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name IN ('real_trading_state', 'real_trades', 'bayesian_pending_signals')
+    """))
+    existing_tables = [row[0] for row in result.fetchall()]
+    
+    # Create real_trading_state table
+    if 'real_trading_state' not in existing_tables:
+        logger.info("Creating real_trading_state table...")
+        connection.execute(text("""
+            CREATE TABLE real_trading_state (
+                id INTEGER PRIMARY KEY,
+                is_running BOOLEAN DEFAULT FALSE,
+                daily_pnl REAL DEFAULT 0.0,
+                total_trades INTEGER DEFAULT 0,
+                last_reset_date DATE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        connection.commit()
+        logger.info("✅ real_trading_state table created")
+    else:
+        logger.info("✅ real_trading_state table already exists")
+    
+    # Create real_trades table
+    if 'real_trades' not in existing_tables:
+        logger.info("Creating real_trades table...")
+        connection.execute(text("""
+            CREATE TABLE real_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                order_type TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                price REAL NOT NULL,
+                order_id TEXT,
+                status TEXT DEFAULT 'PENDING',
+                commission REAL DEFAULT 0.0,
+                realized_pnl REAL DEFAULT 0.0,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                reason TEXT,
+                exchange_order_id TEXT,
+                avg_price REAL,
+                filled_quantity REAL DEFAULT 0.0
+            )
+        """))
+        connection.commit()
+        logger.info("✅ real_trades table created")
+    else:
+        logger.info("✅ real_trades table already exists")
+    
+    # Create bayesian_pending_signals table
+    if 'bayesian_pending_signals' not in existing_tables:
+        logger.info("Creating bayesian_pending_signals table...")
+        connection.execute(text("""
+            CREATE TABLE bayesian_pending_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_signature TEXT NOT NULL,
+                signal_type TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        connection.commit()
+        logger.info("✅ bayesian_pending_signals table created")
+    else:
+        logger.info("✅ bayesian_pending_signals table already exists")
+    
+    # Create indexes
+    logger.info("Creating indexes...")
+    indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_real_trades_symbol ON real_trades(symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_real_trades_timestamp ON real_trades(timestamp)",
+        "CREATE INDEX IF NOT EXISTS idx_real_trades_status ON real_trades(status)",
+        "CREATE INDEX IF NOT EXISTS idx_bayesian_pending_signature ON bayesian_pending_signals(signal_signature)",
+        "CREATE INDEX IF NOT EXISTS idx_bayesian_pending_created ON bayesian_pending_signals(created_at)"
+    ]
+    
+    for index_sql in indexes:
+        try:
+            connection.execute(text(index_sql))
+            connection.commit()
+        except Exception as e:
+            logger.warning(f"Index creation warning: {e}")
+    
+    logger.info("✅ Real Trading tables migration completed")
+
+
 def migrate_database():
-    """Migrate database to add missing columns"""
+    """Migrate database to add missing columns and Real Trading tables"""
     logger.info("=== DATABASE MIGRATION ===")
     
     # Get database URL from environment or use default
@@ -28,6 +121,11 @@ def migrate_database():
             engine = create_engine(database_url)
         
         with engine.connect() as connection:
+            # 1. Check and create Real Trading tables
+            logger.info("Checking Real Trading tables...")
+            migrate_real_trading_tables(connection)
+            
+            # 2. Check and add missing columns to trades_history
             # Check if columns exist
             result = connection.execute(text("""
                 SELECT COUNT(*) as count 
