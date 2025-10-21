@@ -237,8 +237,8 @@ def load_real_trader_state() -> Optional[Dict[str, Any]]:
 		# Загружаем историю реальных сделок
 		trades_history = db.get_real_trades_history(limit=1000)
 		
-		# Для реальной торговли используем фиксированный начальный баланс
-		initial_balance = 20.0  # Фиксированный начальный баланс $20
+		# Для реальной торговли используем настройку из dashboard
+		initial_balance = st.session_state.get('real_trading_initial_balance', 20.0)
 		
 		# Формируем структуру
 		state = {
@@ -418,7 +418,8 @@ def load_settings() -> Dict[str, Any]:
 		"pyramid_enabled": True,
 		"kelly_fraction": 0.25,
 		"max_averaging": 2,
-		"averaging_drop": 5.0
+		"averaging_drop": 5.0,
+		"real_trading_initial_balance": 20.0
 	}
 
 def save_settings(settings: Dict[str, Any]):
@@ -1835,6 +1836,35 @@ def main():
 			["📄 Paper Trading", "💰 Real Trading"],
 			help="Выберите режим для отображения данных"
 		)
+		
+		# Настройка начального баланса для Real Trading
+		if "Real Trading" in trading_mode:
+			st.subheader("⚙️ Настройки Real Trading")
+			
+			# Загружаем настройки
+			settings = load_settings()
+			current_balance = settings.get('real_trading_initial_balance', 20.0)
+			
+			initial_balance = st.number_input(
+				"Начальный баланс (USD)",
+				min_value=1.0,
+				max_value=10000.0,
+				value=current_balance,
+				step=1.0,
+				help="Начальный баланс для расчета P&L в реальной торговле"
+			)
+			
+			# Сохраняем в session_state и в настройки
+			st.session_state['real_trading_initial_balance'] = initial_balance
+			
+			# Сохраняем в файл настроек если значение изменилось
+			if initial_balance != current_balance:
+				settings['real_trading_initial_balance'] = initial_balance
+				save_settings(settings)
+				st.success(f"✅ Начальный баланс сохранен: ${initial_balance}")
+		else:
+			# Для Paper Trading используем значение по умолчанию
+			st.session_state['real_trading_initial_balance'] = 20.0
 		
 		st.divider()
 		
