@@ -374,17 +374,31 @@ class RealTrader:
 		
 		logger.info(f"[REAL_CLOSE] 📊 Вход: ${position.entry_price:.4f}, Количество: {position.amount:.6f}")
 		
+		# Получаем реальный баланс монет с биржи
+		coin = symbol.replace("USDT", "")
+		real_balance = await bybit_trader.get_coin_balance(coin)
+		
+		logger.info(f"[REAL_CLOSE] 📊 Реальный баланс {coin}: {real_balance:.8f}")
+		logger.info(f"[REAL_CLOSE] 📊 Позиция в памяти: {position.amount:.8f}")
+		
+		# Используем реальный баланс, если он больше 0
+		sell_amount = real_balance if real_balance > 0 else position.amount
+		
+		if real_balance > 0 and abs(real_balance - position.amount) > 0.001:
+			logger.warning(f"[REAL_CLOSE] ⚠️ Несоответствие: позиция={position.amount:.8f}, баланс={real_balance:.8f}")
+			logger.info(f"[REAL_CLOSE] 🔧 Используем реальный баланс: {sell_amount:.8f}")
+		
 		# Размещаем ордер на продажу
 		async with aiohttp.ClientSession() as session:
 			try:
 				if REAL_ORDER_TYPE == "MARKET":
 					order_result = await bybit_trader.place_market_order(
-						symbol, "Sell", position.amount
+						symbol, "Sell", sell_amount
 					)
 				else:  # LIMIT
 					limit_price = price * (1 - REAL_LIMIT_ORDER_OFFSET_PERCENT)
 					order_result = await bybit_trader.place_limit_order(
-						symbol, "Sell", position.amount, limit_price
+						symbol, "Sell", sell_amount, limit_price
 					)
 				
 				order_id = order_result["order_id"]
@@ -400,7 +414,7 @@ class RealTrader:
 					remaining_invested = total_investment
 				
 				# Для LONG: обычный расчет
-				sell_value = position.amount * price
+				sell_value = sell_amount * price
 				commission = sell_value * COMMISSION_RATE
 				profit = sell_value - remaining_invested + position.partial_close_profit - commission
 				profit_percent = (profit / total_investment) * 100
@@ -425,7 +439,7 @@ class RealTrader:
 					"type": reason,
 					"symbol": symbol,
 					"price": price,
-					"amount": position.amount,
+					"amount": sell_amount,  # Используем реальное количество
 					"sell_value": sell_value,
 					"commission": commission,
 					"profit": profit,

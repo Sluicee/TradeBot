@@ -392,6 +392,15 @@ class BybitTrader:
 		except Exception as e:
 			logger.error(f"Error getting positions: {e}")
 			return []
+	
+	async def get_coin_balance(self, coin: str) -> float:
+		"""Получает точный баланс конкретной монеты"""
+		try:
+			balances = await self.get_balance()
+			return balances.get(coin, 0.0)
+		except Exception as e:
+			logger.error(f"Error getting {coin} balance: {e}")
+			return 0.0
 
 
 # Глобальный экземпляр для использования в других модулях
