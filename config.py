@@ -352,7 +352,7 @@ MTF_PRIMARY_TIMEFRAME = "1h"
 # ====================================================================
 
 # Trading Mode Flags
-ENABLE_PAPER_TRADING = False   # Включить paper trading
+ENABLE_PAPER_TRADING = True   # Включить paper trading
 ENABLE_REAL_TRADING = True   # Включить реальную торговлю
 
 # Bybit API (загружаются из .env)

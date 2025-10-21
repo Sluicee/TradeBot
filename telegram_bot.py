@@ -579,13 +579,42 @@ class TelegramBot:
 									block_reason=f"Сигнал {signal}, не BUY"
 								)
 				
-				# ====================================================================
-				# REAL TRADING LOGIC
-				# ====================================================================
-				if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
-					# BUY сигнал для новой позиции
+			# ==========================================
+			# Real Trading: Обработка сигналов
+			# ==========================================
+			if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
+				from signal_diagnostics import diagnostics
+				
+				# Обрабатываем все сигналы для Real Trading
+				for symbol, result in trading_signals.items():
+					signal = result["signal"]
+					price = current_prices.get(symbol)
+					
+					if price is None:
+						continue
+					
+					# Получаем метаданные сигнала (v5.5 HYBRID)
+					signal_strength = abs(result.get("bullish_votes", 0) - result.get("bearish_votes", 0))
+					atr = result.get("ATR", 0.0)
+					bullish_votes = result.get("bullish_votes", 0)
+					bearish_votes = result.get("bearish_votes", 0)
+					active_mode = result.get("active_mode", "UNKNOWN")
+					reasons = result.get("reasons", [])
+					position_size_percent = result.get("position_size_percent", None)
+					
+					# BUY сигнал - открываем позицию
 					if signal == "BUY" and symbol not in self.real_trader.positions:
 						can_buy = self.real_trader.can_open_position(symbol)
+						block_reason = None if can_buy else "Лимит позиций или баланс"
+						
+						# Диагностика сигнала
+						diagnostics.log_signal_generation(
+							symbol=symbol,
+							signal_result=result,
+							price=price,
+							can_buy=can_buy,
+							block_reason=block_reason
+						)
 						
 						if can_buy:
 							try:
