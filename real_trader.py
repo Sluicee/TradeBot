@@ -19,7 +19,7 @@ from config import (
 	MAX_POSITION_DRAWDOWN_PERCENT, MAX_AVERAGING_DRAWDOWN_PERCENT,
 	STRATEGY_TYPE_TF, STRATEGY_TYPE_MR, STRATEGY_TYPE_HYBRID,
 	# Real Trading configs
-	REAL_MAX_DAILY_LOSS, REAL_MAX_POSITION_SIZE, REAL_MAX_POSITIONS,
+	REAL_MAX_DAILY_LOSS, REAL_MAX_POSITION_SIZE,
 	REAL_ORDER_TYPE, REAL_LIMIT_ORDER_OFFSET_PERCENT, REAL_MIN_ORDER_VALUE,
 	get_dynamic_max_positions
 )
@@ -179,9 +179,20 @@ class RealTrader:
 		if symbol in self.positions:
 			return False
 		
-		# Проверяем лимит позиций
-		if len(self.positions) >= REAL_MAX_POSITIONS:
-			logger.warning(f"[CAN_OPEN] ❌ {symbol}: достигнут лимит позиций {len(self.positions)}/{REAL_MAX_POSITIONS}")
+		# Проверяем динамический лимит позиций
+		# Получаем текущий баланс для расчета
+		balance = await bybit_trader.get_balance()
+		usdt_balance = balance.get("USDT", 0.0)
+		
+		# Рассчитываем общий баланс (свободный + в позициях)
+		total_pnl = sum(pos.calculate_pnl(0.0) for pos in self.positions.values())  # PnL будет пересчитан позже
+		total_balance = usdt_balance + total_pnl
+		
+		# Рассчитываем динамический лимит позиций
+		dynamic_max_positions = get_dynamic_max_positions(total_balance)
+		
+		if len(self.positions) >= dynamic_max_positions:
+			logger.warning(f"[CAN_OPEN] ❌ {symbol}: достигнут лимит позиций {len(self.positions)}/{dynamic_max_positions} (баланс: ${total_balance:.2f})")
 			return False
 		
 		return True
