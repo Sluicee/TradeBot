@@ -8,7 +8,12 @@ import time
 from typing import Dict, Any, List, Optional
 from logger import logger
 from config import BYBIT_API_KEY, BYBIT_API_SECRET, BYBIT_TESTNET, REAL_MIN_ORDER_VALUE
-from pybit.unified_trading import HTTP
+
+try:
+	from pybit.unified_trading import HTTP
+except ImportError:
+	logger.error("pybit library not installed. Run: pip install pybit")
+	HTTP = None
 
 
 class BybitTrader:
@@ -40,6 +45,39 @@ class BybitTrader:
 		"""Проверяет, что сессия инициализирована"""
 		if not self.session:
 			raise Exception("BybitTrader не инициализирован. Проверьте API ключи.")
+	
+	def _get_symbol_decimals(self, symbol: str) -> int:
+		"""Определяет количество знаков после запятой для символа"""
+		# Основные правила для популярных символов
+		symbol_decimals = {
+			"BTCUSDT": 5,
+			"ETHUSDT": 4,
+			"ADAUSDT": 1,  # ADA требует только 1 знак
+			"DOGEUSDT": 0,
+			"SOLUSDT": 2,
+			"MATICUSDT": 1,
+			"AVAXUSDT": 2,
+			"DOTUSDT": 2,
+			"LINKUSDT": 2,
+			"UNIUSDT": 2,
+			"LTCUSDT": 3,
+			"BCHUSDT": 3,
+			"XRPUSDT": 1,
+			"ATOMUSDT": 2,
+			"NEARUSDT": 2,
+			"FTMUSDT": 1,
+			"ALGOUSDT": 1,
+			"VETUSDT": 0,
+			"ICPUSDT": 2,
+			"FILUSDT": 2,
+		}
+		
+		# Если символ найден в списке - используем его значение
+		if symbol in symbol_decimals:
+			return symbol_decimals[symbol]
+		
+		# По умолчанию используем 2 знака для неизвестных символов
+		return 2
 	
 	async def get_balance(self) -> Dict[str, float]:
 		"""Получает баланс аккаунта"""
@@ -101,7 +139,9 @@ class BybitTrader:
 				)
 			else:
 				# Fallback: используем количество монет (для обратной совместимости)
-				rounded_quantity = round(quantity, 6)
+				# Определяем правильное количество знаков для символа
+				decimals = self._get_symbol_decimals(symbol)
+				rounded_quantity = round(quantity, decimals)
 				logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
 				
 				response = self.session.place_order(
@@ -165,14 +205,17 @@ class BybitTrader:
 					timeInForce="GTC"
 				)
 			else:
-				logger.info(f"Placing limit order: {side} {quantity} {symbol} @ {price}")
+				# Определяем правильное количество знаков для символа
+				decimals = self._get_symbol_decimals(symbol)
+				rounded_quantity = round(quantity, decimals)
+				logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {price}")
 				
 				response = self.session.place_order(
 					category="spot",
 					symbol=symbol,
 					side=side,
 					orderType="Limit",
-					qty=str(quantity),
+					qty=str(rounded_quantity),
 					price=str(price),
 					timeInForce="GTC"
 				)
