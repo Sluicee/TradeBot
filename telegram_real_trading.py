@@ -122,26 +122,14 @@ class TelegramRealTrading:
 		if self.bot.real_trader.positions:
 			msg = await update.message.reply_text("⏳ Закрываю все позиции...")
 			
-			closed_positions = []
-			async with aiohttp.ClientSession() as session:
-				provider = DataProvider(session)
-				for symbol in list(self.bot.real_trader.positions.keys()):
-					try:
-						klines = await provider.fetch_klines(symbol=symbol, interval=self.bot.default_interval, limit=1)
-						df = provider.klines_to_dataframe(klines)
-						if not df.empty:
-							current_price = float(df['close'].iloc[-1])
-							trade_info = await self.bot.real_trader.close_position(symbol, current_price, "MANUAL-CLOSE")
-							if trade_info:
-								closed_positions.append(f"• {symbol}: {trade_info['profit']:+.2f} USD ({trade_info['profit_percent']:+.2f}%)")
-					except Exception as e:
-						logger.error(f"Ошибка закрытия позиции {symbol}: {e}")
+			# Используем новую функцию для закрытия всех позиций
+			closed_count = await self.bot.real_trader.stop_and_close_all()
 			
-			positions_text = "\n".join(closed_positions) if closed_positions else "Нет позиций для закрытия"
+			positions_text = f"Закрыто позиций: {closed_count}" if closed_count > 0 else "Нет позиций для закрытия"
 		else:
 			positions_text = "Нет открытых позиций"
+			self.bot.real_trader.stop()
 		
-		self.bot.real_trader.stop()
 		self.bot.real_trader.save_state()
 		
 		# Получаем финальный статус

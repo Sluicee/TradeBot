@@ -121,6 +121,39 @@ class RealTrader:
 		self.is_running = False
 		logger.info("Real Trading остановлен")
 	
+	async def stop_and_close_all(self):
+		"""Останавливает торговлю и закрывает все позиции"""
+		self.is_running = False
+		logger.info("Real Trading остановлен, закрываем все позиции...")
+		
+		# Закрываем все позиции
+		closed_count = 0
+		for symbol in list(self.positions.keys()):
+			try:
+				# Получаем текущую цену
+				from data_provider import DataProvider
+				import aiohttp
+				
+				async with aiohttp.ClientSession() as session:
+					provider = DataProvider(session)
+					klines = await provider.fetch_klines(symbol=symbol, interval="1m", limit=1)
+					df = provider.klines_to_dataframe(klines)
+					
+					if not df.empty:
+						current_price = float(df['close'].iloc[-1])
+						trade_info = await self.close_position(symbol, current_price, "MANUAL-STOP")
+						if trade_info:
+							closed_count += 1
+							logger.info(f"✅ Закрыта позиция {symbol}: {trade_info['profit']:+.2f} USD")
+					else:
+						logger.warning(f"⚠️ Не удалось получить цену для {symbol}")
+						
+			except Exception as e:
+				logger.error(f"❌ Ошибка закрытия позиции {symbol}: {e}")
+		
+		logger.info(f"Real Trading остановлен. Закрыто позиций: {closed_count}")
+		return closed_count
+	
 	def reset(self):
 		"""Сбрасывает состояние к начальному"""
 		self.positions.clear()
@@ -276,13 +309,16 @@ class RealTrader:
 				self.positions[symbol] = position
 				
 				# Добавляем в историю
+				commission = actual_invest_amount * COMMISSION_RATE
+				self.stats["total_commission"] += commission
+				
 				trade_info = {
 					"type": "BUY",
 					"symbol": symbol,
 					"price": price,
 					"amount": rounded_quantity,
 					"invest_amount": actual_invest_amount,
-					"commission": actual_invest_amount * COMMISSION_RATE,
+					"commission": commission,
 					"signal_strength": signal_strength,
 					"time": position.entry_time,
 					"order_id": order_id,
@@ -370,6 +406,8 @@ class RealTrader:
 				profit_percent = (profit / total_investment) * 100
 				
 				# Обновляем статистику
+				self.stats["total_commission"] += commission
+				
 				if profit > 0:
 					self.stats["winning_trades"] += 1
 				else:
