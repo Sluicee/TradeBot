@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 from logger import logger
 from config import (
-	REAL_MAX_DAILY_LOSS, REAL_MAX_POSITION_SIZE, REAL_MAX_POSITIONS
+	REAL_MAX_DAILY_LOSS, REAL_MAX_POSITION_SIZE
 )
 from database import db
 
@@ -44,10 +44,7 @@ class SafetyLimits:
 	
 	def check_position_limits(self, symbol: str, positions: Dict) -> bool:
 		"""Проверяет лимиты для новой позиции"""
-		# Проверяем лимит количества позиций
-		if len(positions) >= REAL_MAX_POSITIONS:
-			logger.warning(f"Достигнут лимит позиций: {len(positions)}/{REAL_MAX_POSITIONS}")
-			return False
+		# Лимит количества позиций теперь проверяется динамически в real_trader.py
 		
 		# Проверяем, нет ли уже позиции по этому символу
 		if symbol in positions:
@@ -101,7 +98,6 @@ class SafetyLimits:
 			"daily_loss_limit": REAL_MAX_DAILY_LOSS,
 			"remaining_daily_loss": self.get_remaining_daily_loss(),
 			"max_position_size": REAL_MAX_POSITION_SIZE,
-			"max_positions": REAL_MAX_POSITIONS,
 			"is_daily_limit_reached": self.get_daily_loss() >= REAL_MAX_DAILY_LOSS
 		}
 	
