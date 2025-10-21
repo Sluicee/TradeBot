@@ -237,9 +237,21 @@ def load_real_trader_state() -> Optional[Dict[str, Any]]:
 		# Загружаем историю реальных сделок
 		trades_history = db.get_real_trades_history(limit=1000)
 		
+		# Рассчитываем начальный баланс из истории сделок или используем текущий
+		initial_balance = balance  # По умолчанию текущий баланс
+		if trades_history:
+			# Пытаемся восстановить начальный баланс из истории
+			# Считаем общую прибыль/убыток из сделок
+			total_pnl = 0
+			for trade in trades_history:
+				if trade.get("realized_pnl"):
+					total_pnl += trade["realized_pnl"]
+			# Начальный баланс = текущий - общая прибыль
+			initial_balance = balance - total_pnl
+		
 		# Формируем структуру
 		state = {
-			"initial_balance": 1000,  # TODO: получить из конфига
+			"initial_balance": initial_balance,
 			"balance": balance,
 			"positions": positions,
 			"current_prices": current_prices,
@@ -444,8 +456,15 @@ def calculate_metrics(trades: List[Dict[str, Any]]) -> Dict[str, float]:
 	if not trades:
 		return {}
 	
-	# Фильтруем только закрытые сделки с profit
-	closed_trades = [t for t in trades if "profit" in t and t.get("profit") is not None]
+	# Фильтруем только закрытые сделки с profit или realized_pnl
+	closed_trades = []
+	for t in trades:
+		if "profit" in t and t.get("profit") is not None:
+			closed_trades.append(t)
+		elif "realized_pnl" in t and t.get("realized_pnl") is not None:
+			# Конвертируем realized_pnl в profit для совместимости
+			t["profit"] = t["realized_pnl"]
+			closed_trades.append(t)
 	
 	if not closed_trades:
 		return {}
@@ -581,11 +600,16 @@ def overview_page(state: Dict[str, Any]):
 	
 	# Суммируем стоимость открытых позиций
 	positions_value = 0
+	current_prices = state.get("current_prices", {})
+	
 	for symbol, pos in positions.items():
-		# Используем текущую цену из БД
-		current_price = pos.get("current_price", pos.get("entry_price", 0))
+		# Получаем текущую цену из БД или используем entry_price
+		current_price = current_prices.get(symbol, pos.get("current_price", pos.get("entry_price", 0)))
 		amount = pos.get("amount", 0)
 		positions_value += current_price * amount
+		
+		# Обновляем current_price в позиции для отображения
+		pos["current_price"] = current_price
 	
 	total_equity = balance + positions_value
 	total_profit = total_equity - initial
