@@ -696,12 +696,13 @@ def overview_page(state: Dict[str, Any]):
 		recent_trades = trades[:5]  # Первые 5 (уже отсортированы по времени DESC)
 		
 		for trade in recent_trades:
-			trade_type = trade.get("type", "N/A")
+			# Обрабатываем как paper trading, так и real trading форматы
+			trade_type = trade.get("type") or trade.get("side", "N/A")
 			symbol = trade.get("symbol", "N/A")
 			price = trade.get("price", 0)
-			profit = trade.get("profit", 0)
+			profit = trade.get("profit") or trade.get("realized_pnl", 0)
 			profit_pct = trade.get("profit_percent", 0)
-			time = trade.get("time", "N/A")
+			time = trade.get("time") or trade.get("timestamp") or trade.get("created_at", "N/A")
 			
 			# Цвет в зависимости от типа и прибыли
 			if profit and profit > 0:
@@ -872,14 +873,27 @@ def history_page(state: Dict[str, Any]):
 	if filtered_trades:
 		trades_data = []
 		for trade in filtered_trades:
-			profit = trade.get('profit')
+			# Обрабатываем как paper trading, так и real trading форматы
+			profit = trade.get('profit') or trade.get('realized_pnl')
 			profit_pct = trade.get('profit_percent')
+			
+			# Время - проверяем разные поля
+			time_str = trade.get("time") or trade.get("timestamp") or trade.get("created_at", "N/A")
+			if time_str != "N/A" and len(time_str) > 19:
+				time_str = time_str[:19]
+			
+			# Тип - проверяем разные поля
+			trade_type = trade.get("type") or trade.get("side", "N/A")
+			
+			# Количество - проверяем разные поля
+			amount = trade.get('amount') or trade.get('quantity', 0)
+			
 			trades_data.append({
-				"Время": trade.get("time", "N/A")[:19],
-				"Тип": trade.get("type", "N/A"),
+				"Время": time_str,
+				"Тип": trade_type,
 				"Символ": trade.get("symbol", "N/A"),
 				"Цена": format_price(trade.get('price', 0)),
-				"Количество": f"{trade.get('amount', 0):.4f}",
+				"Количество": f"{amount:.4f}",
 				"P&L": f"${profit:.2f}" if profit is not None else "-",
 				"P&L%": f"{profit_pct:.2f}%" if profit_pct is not None else "-",
 				"Баланс": f"${trade.get('balance_after', 0):.2f}"
