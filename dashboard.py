@@ -237,25 +237,8 @@ def load_real_trader_state() -> Optional[Dict[str, Any]]:
 		# Загружаем историю реальных сделок
 		trades_history = db.get_real_trades_history(limit=1000)
 		
-		# Рассчитываем начальный баланс из истории сделок или используем текущий
-		initial_balance = balance  # По умолчанию текущий баланс
-		if trades_history:
-			# Пытаемся восстановить начальный баланс из истории
-			# Считаем общую прибыль/убыток из сделок
-			total_pnl = 0
-			for trade in trades_history:
-				# Проверяем разные поля для P&L
-				pnl = trade.get("realized_pnl") or trade.get("profit")
-				if pnl:
-					total_pnl += pnl
-			
-			# Если есть P&L данные, рассчитываем начальный баланс
-			if total_pnl != 0:
-				initial_balance = balance - total_pnl
-			else:
-				# Если нет P&L данных, используем разумное значение
-				# Предполагаем, что начальный баланс был больше текущего
-				initial_balance = max(balance * 1.5, 100)  # Минимум 100, или 1.5x текущего
+		# Для реальной торговли используем фиксированный начальный баланс
+		initial_balance = 20.0  # Фиксированный начальный баланс $20
 		
 		# Формируем структуру
 		state = {
