@@ -244,13 +244,13 @@ class RealTrader:
 				# Размещаем ордер на бирже
 				if REAL_ORDER_TYPE == "MARKET":
 					order_result = await bybit_trader.place_market_order(
-						symbol, "Buy", rounded_quantity
+						symbol, "Buy", rounded_quantity, price
 					)
 				else:  # LIMIT
 					# Добавляем небольшой оффсет для быстрого исполнения
 					limit_price = price * (1 + REAL_LIMIT_ORDER_OFFSET_PERCENT)
 					order_result = await bybit_trader.place_limit_order(
-						symbol, "Buy", rounded_quantity, limit_price
+						symbol, "Buy", rounded_quantity, limit_price, actual_invest_amount
 					)
 				
 				order_id = order_result["order_id"]

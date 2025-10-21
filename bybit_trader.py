@@ -78,29 +78,40 @@ class BybitTrader:
 			logger.info("Using fallback balance due to API error")
 			return {"USDT": 100.0, "BTC": 0.001}
 	
-	async def place_market_order(self, symbol: str, side: str, quantity: float) -> Dict[str, Any]:
+	async def place_market_order(self, symbol: str, side: str, quantity: float, price: float = None) -> Dict[str, Any]:
 		"""Размещает рыночный ордер"""
 		try:
 			self._check_session()
 			
-			# Округляем количество до разумного количества знаков
-			# Для большинства криптовалют достаточно 6-8 знаков
-			rounded_quantity = round(quantity, 6)
-			
-			# Проверка минимальных лимитов уже выполнена в real_trader.py
-			# с правильной ценой, поэтому здесь пропускаем
-			
-			logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
-			
-			# Размещаем ордер через официальную библиотеку
-			response = self.session.place_order(
-				category="spot",
-				symbol=symbol,
-				side=side,
-				orderType="Market",
-				qty=str(rounded_quantity),
-				timeInForce="IOC"
-			)
+			# Для spot торговли нужно передавать сумму в USDT, а не количество монет
+			if price is not None:
+				# Рассчитываем сумму в USDT
+				usdt_amount = quantity * price
+				rounded_amount = round(usdt_amount, 2)
+				logger.info(f"Placing market order: {side} ${rounded_amount} worth of {symbol}")
+				
+				# Размещаем ордер через официальную библиотеку
+				response = self.session.place_order(
+					category="spot",
+					symbol=symbol,
+					side=side,
+					orderType="Market",
+					qty=str(rounded_amount),  # Сумма в USDT
+					timeInForce="IOC"
+				)
+			else:
+				# Fallback: используем количество монет (для обратной совместимости)
+				rounded_quantity = round(quantity, 6)
+				logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
+				
+				response = self.session.place_order(
+					category="spot",
+					symbol=symbol,
+					side=side,
+					orderType="Market",
+					qty=str(rounded_quantity),
+					timeInForce="IOC"
+				)
 			
 			if response.get("retCode") != 0:
 				error_msg = response.get("retMsg", "Unknown error")
@@ -134,23 +145,37 @@ class BybitTrader:
 				}
 			raise
 	
-	async def place_limit_order(self, symbol: str, side: str, quantity: float, price: float) -> Dict[str, Any]:
+	async def place_limit_order(self, symbol: str, side: str, quantity: float, price: float, usdt_amount: float = None) -> Dict[str, Any]:
 		"""Размещает лимитный ордер"""
 		try:
 			self._check_session()
 			
-			logger.info(f"Placing limit order: {side} {quantity} {symbol} @ {price}")
-			
-			# Размещаем лимитный ордер
-			response = self.session.place_order(
-				category="spot",
-				symbol=symbol,
-				side=side,
-				orderType="Limit",
-				qty=str(quantity),
-				price=str(price),
-				timeInForce="GTC"
-			)
+			# Для spot торговли используем сумму в USDT если указана
+			if usdt_amount is not None:
+				rounded_amount = round(usdt_amount, 2)
+				logger.info(f"Placing limit order: {side} ${rounded_amount} worth of {symbol} @ {price}")
+				
+				response = self.session.place_order(
+					category="spot",
+					symbol=symbol,
+					side=side,
+					orderType="Limit",
+					qty=str(rounded_amount),  # Сумма в USDT
+					price=str(price),
+					timeInForce="GTC"
+				)
+			else:
+				logger.info(f"Placing limit order: {side} {quantity} {symbol} @ {price}")
+				
+				response = self.session.place_order(
+					category="spot",
+					symbol=symbol,
+					side=side,
+					orderType="Limit",
+					qty=str(quantity),
+					price=str(price),
+					timeInForce="GTC"
+				)
 			
 			if response.get("retCode") != 0:
 				error_msg = response.get("retMsg", "Unknown error")
