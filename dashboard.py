@@ -167,80 +167,69 @@ def load_real_trader_state() -> Optional[Dict[str, Any]]:
 		# Получаем текущие цены из БД
 		current_prices = get_current_prices()
 		
-		# Загружаем реальные позиции с Bybit
+		# Загружаем реальные позиции и баланс с Bybit (одним запросом)
 		positions = {}
+		balance = 0
+		
 		try:
 			import asyncio
 			from bybit_trader import bybit_trader
 			
-			# Безопасный способ вызова асинхронных методов в Streamlit
-			def run_async(coro):
-				try:
-					# Пытаемся получить существующий event loop
-					loop = asyncio.get_running_loop()
-					# Если loop уже запущен, создаем задачу
-					return asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=10)
-				except RuntimeError:
-					# Если нет запущенного loop, создаем новый
-					return asyncio.run(coro)
-			
-			# Получаем позиции асинхронно
-			bybit_positions = run_async(bybit_trader.get_positions())
-			
-			for pos_data in bybit_positions:
-				symbol = pos_data.get("symbol", "")
-				if symbol:
-					positions[symbol] = {
-						"symbol": symbol,
-						"entry_price": 0,  # В spot нет entry_price
-						"current_price": 0,  # Будет получено из get_current_prices()
-						"amount": pos_data.get("quantity", 0),
-						"entry_time": "",
-						"signal_strength": 0,
-						"invest_amount": 0,
-						"entry_commission": 0,
-						"atr": 0,
-						"stop_loss_price": 0,
-						"stop_loss_percent": 0,
-						"take_profit_price": 0,
-						"partial_closed": False,
-						"max_price": 0,
-						"partial_close_profit": 0,
-						"original_amount": pos_data.get("quantity", 0),
-						"averaging_count": 0,
-						"average_entry_price": 0,
-						"pyramid_mode": False,
-						"total_invested": 0,
-						"averaging_entries": []
-					}
+			# Проверяем, что BybitTrader инициализирован
+			if not bybit_trader.session:
+				logger.warning("BybitTrader не инициализирован. API ключи не настроены.")
+				# Используем fallback данные
+				balance = 100.0  # Fallback баланс
+			else:
+				# Безопасный способ вызова асинхронных методов в Streamlit
+				def run_async(coro):
+					try:
+						# Пытаемся получить существующий event loop
+						loop = asyncio.get_running_loop()
+						# Если loop уже запущен, создаем задачу
+						return asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=10)
+					except RuntimeError:
+						# Если нет запущенного loop, создаем новый
+						return asyncio.run(coro)
+				
+				# Получаем баланс один раз
+				balances = run_async(bybit_trader.get_balance())
+				balance = balances.get("USDT", 0)
+				
+				# Создаем позиции из балансов (исключаем USDT)
+				for coin, coin_balance in balances.items():
+					if coin != "USDT" and coin_balance > 0:
+						symbol = f"{coin}USDT"
+						positions[symbol] = {
+							"symbol": symbol,
+							"entry_price": 0,  # В spot нет entry_price
+							"current_price": 0,  # Будет получено из get_current_prices()
+							"amount": coin_balance,
+							"entry_time": "",
+							"signal_strength": 0,
+							"invest_amount": 0,
+							"entry_commission": 0,
+							"atr": 0,
+							"stop_loss_price": 0,
+							"stop_loss_percent": 0,
+							"take_profit_price": 0,
+							"partial_closed": False,
+							"max_price": 0,
+							"partial_close_profit": 0,
+							"original_amount": coin_balance,
+							"averaging_count": 0,
+							"average_entry_price": 0,
+							"pyramid_mode": False,
+							"total_invested": 0,
+							"averaging_entries": []
+						}
 		except Exception as e:
-			logger.warning(f"Не удалось загрузить позиции с Bybit: {e}")
+			logger.warning(f"Не удалось загрузить данные с Bybit: {e}")
+			# Используем fallback данные
+			balance = 100.0
 		
 		# Загружаем историю реальных сделок
 		trades_history = db.get_real_trades_history(limit=1000)
-		
-		# Получаем баланс с Bybit
-		balance = 0
-		try:
-			import asyncio
-			from bybit_trader import bybit_trader
-			
-			# Безопасный способ вызова асинхронных методов в Streamlit
-			def run_async(coro):
-				try:
-					# Пытаемся получить существующий event loop
-					loop = asyncio.get_running_loop()
-					# Если loop уже запущен, создаем задачу
-					return asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=10)
-				except RuntimeError:
-					# Если нет запущенного loop, создаем новый
-					return asyncio.run(coro)
-			
-			# Получаем баланс асинхронно
-			balances = run_async(bybit_trader.get_balance())
-			balance = balances.get("USDT", 0)
-		except Exception as e:
-			logger.warning(f"Не удалось получить баланс с Bybit: {e}")
 		
 		# Формируем структуру
 		state = {
@@ -564,6 +553,16 @@ def calculate_drawdown(trades: List[Dict[str, Any]], initial_balance: float) -> 
 def overview_page(state: Dict[str, Any]):
 	"""Страница обзора с KPI и equity curve"""
 	st.header("📊 Обзор")
+	
+	# Проверяем настройку API ключей для Real Trading
+	try:
+		from bybit_trader import bybit_trader
+		if not bybit_trader.session:
+			st.error("⚠️ Bybit API ключи не настроены")
+			st.info("Для работы с реальной торговлей настройте BYBIT_API_KEY и BYBIT_API_SECRET в .env файле")
+			st.divider()
+	except:
+		pass
 	
 	if not state:
 		st.warning("Нет данных для отображения. Запустите торговлю.")
@@ -1711,6 +1710,15 @@ def render_bot_status_widget():
 		st.warning("💰 Real Trading")
 	else:
 		st.caption("❓ Режим неизвестен")
+	
+	# Проверка API ключей для Real Trading
+	try:
+		from bybit_trader import bybit_trader
+		if not bybit_trader.session:
+			st.error("⚠️ Bybit API ключи не настроены")
+			st.caption("Настройте BYBIT_API_KEY и BYBIT_API_SECRET в .env")
+	except:
+		pass
 	
 	# Последнее обновление данных из БД
 	if status["last_update"]:
