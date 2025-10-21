@@ -212,19 +212,34 @@ class RealTrader:
 					logger.error(f"[REAL_OPEN] ❌ {symbol}: invest_amount <= 0")
 					return None
 				
+				# Проверяем минимальные лимиты Bybit
+				min_order_value = 5.0  # Минимальная сумма ордера в USDT
+				if invest_amount < min_order_value:
+					logger.warning(f"[REAL_OPEN] ❌ {symbol}: сумма ордера ${invest_amount:.2f} < минимального лимита ${min_order_value}")
+					return None
+				
 				# Рассчитываем количество для покупки
 				quantity = invest_amount / price
+				
+				# Округляем количество до разумного количества знаков
+				# Для большинства криптовалют достаточно 6-8 знаков
+				rounded_quantity = round(quantity, 6)
+				
+				# Пересчитываем фактическую сумму с округленным количеством
+				actual_invest_amount = rounded_quantity * price
+				
+				logger.info(f"[REAL_OPEN] 📊 Расчет: {invest_amount:.2f} USDT / {price:.4f} = {quantity:.8f} -> {rounded_quantity:.6f} (${actual_invest_amount:.2f})")
 				
 				# Размещаем ордер на бирже
 				if REAL_ORDER_TYPE == "MARKET":
 					order_result = await bybit_trader.place_market_order(
-						symbol, "Buy", quantity
+						symbol, "Buy", rounded_quantity
 					)
 				else:  # LIMIT
 					# Добавляем небольшой оффсет для быстрого исполнения
 					limit_price = price * (1 + REAL_LIMIT_ORDER_OFFSET_PERCENT)
 					order_result = await bybit_trader.place_limit_order(
-						symbol, "Buy", quantity, limit_price
+						symbol, "Buy", rounded_quantity, limit_price
 					)
 				
 				order_id = order_result["order_id"]
@@ -234,11 +249,11 @@ class RealTrader:
 				position = Position(
 					symbol=symbol,
 					entry_price=price,
-					amount=quantity,
+					amount=rounded_quantity,
 					entry_time=datetime.now().isoformat(),
 					signal_strength=signal_strength,
-					invest_amount=invest_amount,
-					commission=invest_amount * COMMISSION_RATE,
+					invest_amount=actual_invest_amount,
+					commission=actual_invest_amount * COMMISSION_RATE,
 					atr=atr,
 					rsi=rsi,
 					adx=adx,
@@ -254,9 +269,9 @@ class RealTrader:
 					"type": "BUY",
 					"symbol": symbol,
 					"price": price,
-					"amount": quantity,
-					"invest_amount": invest_amount,
-					"commission": invest_amount * COMMISSION_RATE,
+					"amount": rounded_quantity,
+					"invest_amount": actual_invest_amount,
+					"commission": actual_invest_amount * COMMISSION_RATE,
 					"signal_strength": signal_strength,
 					"time": position.entry_time,
 					"order_id": order_id,

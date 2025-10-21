@@ -83,7 +83,18 @@ class BybitTrader:
 		try:
 			self._check_session()
 			
-			logger.info(f"Placing market order: {side} {quantity} {symbol}")
+			# Округляем количество до разумного количества знаков
+			# Для большинства криптовалют достаточно 6-8 знаков
+			rounded_quantity = round(quantity, 6)
+			
+			# Проверяем минимальные лимиты Bybit
+			min_order_value = 5.0  # Минимальная сумма ордера в USDT
+			estimated_value = rounded_quantity * 1.0  # Примерная цена для проверки
+			
+			if estimated_value < min_order_value:
+				raise Exception(f"Order value too small: ${estimated_value:.2f} < ${min_order_value}")
+			
+			logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
 			
 			# Размещаем ордер через официальную библиотеку
 			response = self.session.place_order(
@@ -91,7 +102,7 @@ class BybitTrader:
 				symbol=symbol,
 				side=side,
 				orderType="Market",
-				qty=str(quantity),
+				qty=str(rounded_quantity),
 				timeInForce="IOC"
 			)
 			
