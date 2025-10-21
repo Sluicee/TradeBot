@@ -138,20 +138,34 @@ class BybitTrader:
 					timeInForce="IOC"
 				)
 			else:
-				# Fallback: используем количество монет (для обратной совместимости)
-				# Определяем правильное количество знаков для символа
-				decimals = self._get_symbol_decimals(symbol)
-				rounded_quantity = round(quantity, decimals)
-				logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
-				
-				response = self.session.place_order(
-					category="spot",
-					symbol=symbol,
-					side=side,
-					orderType="Market",
-					qty=str(rounded_quantity),
-					timeInForce="IOC"
-				)
+				# Для продажи используем точное количество монет
+				# Для покупки округляем до допустимого количества знаков
+				if side == "Sell":
+					# При продаже используем точное количество монет
+					logger.info(f"Placing market order: {side} {quantity} {symbol}")
+					
+					response = self.session.place_order(
+						category="spot",
+						symbol=symbol,
+						side=side,
+						orderType="Market",
+						qty=str(quantity),  # Точное количество монет
+						timeInForce="IOC"
+					)
+				else:
+					# При покупке округляем до допустимого количества знаков
+					decimals = self._get_symbol_decimals(symbol)
+					rounded_quantity = round(quantity, decimals)
+					logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
+					
+					response = self.session.place_order(
+						category="spot",
+						symbol=symbol,
+						side=side,
+						orderType="Market",
+						qty=str(rounded_quantity),
+						timeInForce="IOC"
+					)
 			
 			if response.get("retCode") != 0:
 				error_msg = response.get("retMsg", "Unknown error")
@@ -205,20 +219,36 @@ class BybitTrader:
 					timeInForce="GTC"
 				)
 			else:
-				# Определяем правильное количество знаков для символа
-				decimals = self._get_symbol_decimals(symbol)
-				rounded_quantity = round(quantity, decimals)
-				logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {price}")
-				
-				response = self.session.place_order(
-					category="spot",
-					symbol=symbol,
-					side=side,
-					orderType="Limit",
-					qty=str(rounded_quantity),
-					price=str(price),
-					timeInForce="GTC"
-				)
+				# Для продажи используем точное количество монет
+				# Для покупки округляем до допустимого количества знаков
+				if side == "Sell":
+					# При продаже используем точное количество монет
+					logger.info(f"Placing limit order: {side} {quantity} {symbol} @ {price}")
+					
+					response = self.session.place_order(
+						category="spot",
+						symbol=symbol,
+						side=side,
+						orderType="Limit",
+						qty=str(quantity),  # Точное количество монет
+						price=str(price),
+						timeInForce="GTC"
+					)
+				else:
+					# При покупке округляем до допустимого количества знаков
+					decimals = self._get_symbol_decimals(symbol)
+					rounded_quantity = round(quantity, decimals)
+					logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {price}")
+					
+					response = self.session.place_order(
+						category="spot",
+						symbol=symbol,
+						side=side,
+						orderType="Limit",
+						qty=str(rounded_quantity),
+						price=str(price),
+						timeInForce="GTC"
+					)
 			
 			if response.get("retCode") != 0:
 				error_msg = response.get("retMsg", "Unknown error")
