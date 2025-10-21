@@ -185,7 +185,7 @@ class RealTrader:
 		usdt_balance = balance.get("USDT", 0.0)
 		
 		# Рассчитываем общий баланс (свободный + в позициях)
-		total_pnl = sum(pos.calculate_pnl(0.0) for pos in self.positions.values())  # PnL будет пересчитан позже
+		total_pnl = sum(pos.get_pnl(0.0)["pnl"] for pos in self.positions.values())  # PnL будет пересчитан позже
 		total_balance = usdt_balance + total_pnl
 		
 		# Рассчитываем динамический лимит позиций
