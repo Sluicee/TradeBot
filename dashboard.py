@@ -174,10 +174,11 @@ def load_real_trader_state() -> Optional[Dict[str, Any]]:
 		try:
 			import asyncio
 			from bybit_trader import bybit_trader
+			from config import BYBIT_API_KEY, BYBIT_API_SECRET
 			
-			# Проверяем, что BybitTrader инициализирован
-			if not bybit_trader.session:
-				logger.warning("BybitTrader не инициализирован. API ключи не настроены.")
+			# Проверяем, что API ключи настроены
+			if not BYBIT_API_KEY or not BYBIT_API_SECRET:
+				logger.warning("BYBIT_API_KEY и BYBIT_API_SECRET не установлены в .env")
 				# Используем fallback данные
 				balance = 100.0  # Fallback баланс
 			else:
@@ -556,8 +557,8 @@ def overview_page(state: Dict[str, Any]):
 	
 	# Проверяем настройку API ключей для Real Trading
 	try:
-		from bybit_trader import bybit_trader
-		if not bybit_trader.session:
+		from config import BYBIT_API_KEY, BYBIT_API_SECRET
+		if not BYBIT_API_KEY or not BYBIT_API_SECRET:
 			st.error("⚠️ Bybit API ключи не настроены")
 			st.info("Для работы с реальной торговлей настройте BYBIT_API_KEY и BYBIT_API_SECRET в .env файле")
 			st.divider()
@@ -1713,8 +1714,8 @@ def render_bot_status_widget():
 	
 	# Проверка API ключей для Real Trading
 	try:
-		from bybit_trader import bybit_trader
-		if not bybit_trader.session:
+		from config import BYBIT_API_KEY, BYBIT_API_SECRET
+		if not BYBIT_API_KEY or not BYBIT_API_SECRET:
 			st.error("⚠️ Bybit API ключи не настроены")
 			st.caption("Настройте BYBIT_API_KEY и BYBIT_API_SECRET в .env")
 	except:
