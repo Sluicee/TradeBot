@@ -244,10 +244,18 @@ def load_real_trader_state() -> Optional[Dict[str, Any]]:
 			# Считаем общую прибыль/убыток из сделок
 			total_pnl = 0
 			for trade in trades_history:
-				if trade.get("realized_pnl"):
-					total_pnl += trade["realized_pnl"]
-			# Начальный баланс = текущий - общая прибыль
-			initial_balance = balance - total_pnl
+				# Проверяем разные поля для P&L
+				pnl = trade.get("realized_pnl") or trade.get("profit")
+				if pnl:
+					total_pnl += pnl
+			
+			# Если есть P&L данные, рассчитываем начальный баланс
+			if total_pnl != 0:
+				initial_balance = balance - total_pnl
+			else:
+				# Если нет P&L данных, используем разумное значение
+				# Предполагаем, что начальный баланс был больше текущего
+				initial_balance = max(balance * 1.5, 100)  # Минимум 100, или 1.5x текущего
 		
 		# Формируем структуру
 		state = {
@@ -459,11 +467,15 @@ def calculate_metrics(trades: List[Dict[str, Any]]) -> Dict[str, float]:
 	# Фильтруем только закрытые сделки с profit или realized_pnl
 	closed_trades = []
 	for t in trades:
-		if "profit" in t and t.get("profit") is not None:
+		# Проверяем разные поля для P&L
+		profit = t.get("profit") or t.get("realized_pnl")
+		if profit is not None and profit != 0:
+			# Конвертируем в profit для совместимости
+			t["profit"] = profit
 			closed_trades.append(t)
-		elif "realized_pnl" in t and t.get("realized_pnl") is not None:
-			# Конвертируем realized_pnl в profit для совместимости
-			t["profit"] = t["realized_pnl"]
+		elif t.get("type") in ["SELL", "MANUAL-CLOSE", "MANUAL-STOP"] or t.get("side") == "SELL":
+			# Для закрывающих сделок без P&L, считаем их как 0
+			t["profit"] = 0
 			closed_trades.append(t)
 	
 	if not closed_trades:
@@ -888,13 +900,17 @@ def history_page(state: Dict[str, Any]):
 			# Количество - проверяем разные поля
 			amount = trade.get('amount') or trade.get('quantity', 0)
 			
+			# Для реальных сделок, если P&L не указан, показываем 0.00
+			if profit is None:
+				profit = 0.0
+			
 			trades_data.append({
 				"Время": time_str,
 				"Тип": trade_type,
 				"Символ": trade.get("symbol", "N/A"),
 				"Цена": format_price(trade.get('price', 0)),
 				"Количество": f"{amount:.4f}",
-				"P&L": f"${profit:.2f}" if profit is not None else "-",
+				"P&L": f"${profit:.2f}" if profit != 0 else "$0.00",
 				"P&L%": f"{profit_pct:.2f}%" if profit_pct is not None else "-",
 				"Баланс": f"${trade.get('balance_after', 0):.2f}"
 			})
