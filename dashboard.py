@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 import numpy as np
 from scipy import stats as scipy_stats
-from database import db, Signal, PaperTradingState
+from database import db, Signal, PaperTradingState, RealTradingState, RealTrade
 from logger import logger
 
 # Импорты опциональные (могут не работать на всех системах)
@@ -155,6 +155,120 @@ def load_paper_trader_state() -> Optional[Dict[str, Any]]:
 		st.error(f"Ошибка загрузки состояния из БД: {e}")
 		return None
 
+@st.cache_data(ttl=10)
+def load_real_trader_state() -> Optional[Dict[str, Any]]:
+	"""Загружает состояние реального трейдера из БД"""
+	try:
+		# Загружаем основное состояние
+		db_state = db.get_real_state()
+		if not db_state:
+			return None
+		
+		# Получаем текущие цены из БД
+		current_prices = get_current_prices()
+		
+		# Загружаем реальные позиции с Bybit
+		positions = {}
+		try:
+			import asyncio
+			from bybit_trader import bybit_trader
+			
+			# Безопасный способ вызова асинхронных методов в Streamlit
+			def run_async(coro):
+				try:
+					# Пытаемся получить существующий event loop
+					loop = asyncio.get_running_loop()
+					# Если loop уже запущен, создаем задачу
+					return asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=10)
+				except RuntimeError:
+					# Если нет запущенного loop, создаем новый
+					return asyncio.run(coro)
+			
+			# Получаем позиции асинхронно
+			bybit_positions = run_async(bybit_trader.get_positions())
+			
+			for pos_data in bybit_positions:
+				symbol = pos_data.get("symbol", "")
+				if symbol:
+					positions[symbol] = {
+						"symbol": symbol,
+						"entry_price": 0,  # В spot нет entry_price
+						"current_price": 0,  # Будет получено из get_current_prices()
+						"amount": pos_data.get("quantity", 0),
+						"entry_time": "",
+						"signal_strength": 0,
+						"invest_amount": 0,
+						"entry_commission": 0,
+						"atr": 0,
+						"stop_loss_price": 0,
+						"stop_loss_percent": 0,
+						"take_profit_price": 0,
+						"partial_closed": False,
+						"max_price": 0,
+						"partial_close_profit": 0,
+						"original_amount": pos_data.get("quantity", 0),
+						"averaging_count": 0,
+						"average_entry_price": 0,
+						"pyramid_mode": False,
+						"total_invested": 0,
+						"averaging_entries": []
+					}
+		except Exception as e:
+			logger.warning(f"Не удалось загрузить позиции с Bybit: {e}")
+		
+		# Загружаем историю реальных сделок
+		trades_history = db.get_real_trades_history(limit=1000)
+		
+		# Получаем баланс с Bybit
+		balance = 0
+		try:
+			import asyncio
+			from bybit_trader import bybit_trader
+			
+			# Безопасный способ вызова асинхронных методов в Streamlit
+			def run_async(coro):
+				try:
+					# Пытаемся получить существующий event loop
+					loop = asyncio.get_running_loop()
+					# Если loop уже запущен, создаем задачу
+					return asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=10)
+				except RuntimeError:
+					# Если нет запущенного loop, создаем новый
+					return asyncio.run(coro)
+			
+			# Получаем баланс асинхронно
+			balances = run_async(bybit_trader.get_balance())
+			balance = balances.get("USDT", 0)
+		except Exception as e:
+			logger.warning(f"Не удалось получить баланс с Bybit: {e}")
+		
+		# Формируем структуру
+		state = {
+			"initial_balance": 1000,  # TODO: получить из конфига
+			"balance": balance,
+			"positions": positions,
+			"current_prices": current_prices,
+			"trades_history": trades_history,
+			"stats": {
+				"total_trades": db_state.total_trades,
+				"winning_trades": db_state.winning_trades,
+				"losing_trades": db_state.losing_trades,
+				"total_commission": db_state.total_commission,
+				"stop_loss_triggers": db_state.stop_loss_triggers,
+				"take_profit_triggers": db_state.take_profit_triggers,
+				"trailing_stop_triggers": getattr(db_state, 'trailing_stop_triggers', 0)
+			},
+			"is_running": db_state.is_running,
+			"start_time": db_state.start_time.isoformat() if db_state.start_time else None,
+			"max_positions": 3  # TODO: получить из config
+		}
+		
+		return state
+		
+	except Exception as e:
+		st.error(f"Ошибка загрузки состояния реальной торговли: {e}")
+		return None
+
 def check_bot_status() -> Dict[str, Any]:
 	"""Проверяет состояние торгового бота"""
 	log_file = get_latest_log_file()
@@ -165,25 +279,41 @@ def check_bot_status() -> Dict[str, Any]:
 		"state_file_age": None,
 		"log_file_exists": log_file is not None and os.path.exists(log_file),
 		"process_found": False,
-		"uptime": None
+		"uptime": None,
+		"trading_mode": "unknown"  # paper, real, unknown
 	}
 	
-	# Проверка БД и последнего обновления
+	# Проверка Paper Trading
 	try:
-		db_state = db.get_paper_state()
-		if db_state:
+		paper_state = db.get_paper_state()
+		if paper_state and paper_state.is_running:
+			status["trading_mode"] = "paper"
 			status["state_file_exists"] = True
-			if db_state.updated_at:
-				status["last_update"] = db_state.updated_at
-				age_seconds = (datetime.now() - db_state.updated_at).total_seconds()
+			if paper_state.updated_at:
+				status["last_update"] = paper_state.updated_at
+				age_seconds = (datetime.now() - paper_state.updated_at).total_seconds()
 				status["state_file_age"] = age_seconds
 				
 				# Считаем бот живым если БД обновлялась в последние 5 минут
 				if age_seconds < 300:
 					status["is_running"] = True
-			# Также проверяем флаг is_running
-			if db_state.is_running:
-				status["is_running"] = True
+	except Exception as e:
+		pass
+	
+	# Проверка Real Trading
+	try:
+		real_state = db.get_real_state()
+		if real_state and real_state.is_running:
+			status["trading_mode"] = "real"
+			status["state_file_exists"] = True
+			if real_state.updated_at:
+				status["last_update"] = real_state.updated_at
+				age_seconds = (datetime.now() - real_state.updated_at).total_seconds()
+				status["state_file_age"] = age_seconds
+				
+				# Считаем бот живым если БД обновлялась в последние 5 минут
+				if age_seconds < 300:
+					status["is_running"] = True
 	except Exception as e:
 		pass
 	
@@ -194,7 +324,7 @@ def check_bot_status() -> Dict[str, Any]:
 				try:
 					cmdline = proc.info.get('cmdline', [])
 					# Проверяем различные варианты имен процессов
-					if cmdline and any(name in ' '.join(cmdline) for name in ['bot.py', 'main.py', 'telegram_bot.py', 'paper_trader.py']):
+					if cmdline and any(name in ' '.join(cmdline) for name in ['bot.py', 'main.py', 'telegram_bot.py', 'paper_trader.py', 'real_trader.py']):
 						status["process_found"] = True
 						status["uptime"] = datetime.now() - datetime.fromtimestamp(proc.info['create_time'])
 						status["is_running"] = True
@@ -436,7 +566,7 @@ def overview_page(state: Dict[str, Any]):
 	st.header("📊 Обзор")
 	
 	if not state:
-		st.warning("Нет данных для отображения. Запустите paper trading.")
+		st.warning("Нет данных для отображения. Запустите торговлю.")
 		return
 	
 	# Рассчитываем стоимость активов
@@ -1359,7 +1489,7 @@ def settings_page():
 	with col1:
 		st.write("**Сброс Paper Trading**")
 		confirm = st.checkbox("Подтвердите сброс (все данные будут удалены)")
-		if st.button("🔄 Сбросить", type="primary") and confirm:
+		if st.button("🔄 Сбросить Paper", type="primary") and confirm:
 				try:
 					# Сброс БД
 					with db.session_scope() as session:
@@ -1371,16 +1501,39 @@ def settings_page():
 					st.rerun()
 				except Exception as e:
 					st.error(f"Ошибка: {e}")
+		
+		st.write("**Сброс Real Trading**")
+		confirm_real = st.checkbox("Подтвердите сброс реальной торговли")
+		if st.button("🔄 Сбросить Real", type="secondary") and confirm_real:
+				try:
+					# Сброс БД реальной торговли
+					with db.session_scope() as session:
+						# Удаляем все данные реальной торговли
+						session.query(RealTradingState).delete()
+						session.query(RealTrade).delete()
+						session.commit()
+					
+					st.success("✅ Real trading сброшен!")
+					st.rerun()
+				except Exception as e:
+					st.error(f"Ошибка: {e}")
 	
 	with col2:
 		st.write("**Информация**")
 		try:
-			# Статистика БД
-			state = db.get_paper_state()
-			if state:
-				st.info(f"Записей в БД: {state.total_trades} сделок")
+			# Статистика Paper Trading
+			paper_state = db.get_paper_state()
+			if paper_state:
+				st.info(f"Paper Trading: {paper_state.total_trades} сделок")
 			else:
-				st.info("БД не инициализирована")
+				st.info("Paper Trading: не инициализирован")
+			
+			# Статистика Real Trading
+			real_state = db.get_real_state()
+			if real_state:
+				st.info(f"Real Trading: {real_state.total_trades} сделок")
+			else:
+				st.info("Real Trading: не инициализирован")
 		except Exception as e:
 			st.warning(f"Ошибка получения данных: {e}")
 
@@ -1550,6 +1703,15 @@ def render_bot_status_widget():
 	else:
 		st.error("❌ Не работает")
 	
+	# Режим торговли
+	trading_mode = status.get("trading_mode", "unknown")
+	if trading_mode == "paper":
+		st.info("📄 Paper Trading")
+	elif trading_mode == "real":
+		st.warning("💰 Real Trading")
+	else:
+		st.caption("❓ Режим неизвестен")
+	
 	# Последнее обновление данных из БД
 	if status["last_update"]:
 		age = status["state_file_age"]
@@ -1616,6 +1778,15 @@ def main():
 		render_bot_status_widget()
 		st.divider()
 		
+		# Переключатель режима торговли
+		trading_mode = st.radio(
+			"Режим торговли",
+			["📄 Paper Trading", "💰 Real Trading"],
+			help="Выберите режим для отображения данных"
+		)
+		
+		st.divider()
+		
 		# Навигация
 		page = st.radio(
 			"Навигация",
@@ -1653,8 +1824,11 @@ def main():
 				st.session_state.last_ui_refresh = datetime.now()
 				st.rerun()
 	
-	# Загрузка состояния
-	state = load_paper_trader_state()
+	# Загрузка состояния в зависимости от выбранного режима
+	if "Real Trading" in trading_mode:
+		state = load_real_trader_state()
+	else:
+		state = load_paper_trader_state()
 	
 	# Роутинг страниц
 	if page == "📊 Обзор":
