@@ -364,6 +364,7 @@ BYBIT_TESTNET = os.getenv("BYBIT_TESTNET", "false").lower() == "true"  # True д
 REAL_MAX_DAILY_LOSS = 50.0  # Макс убыток в день (USD)
 REAL_MAX_POSITION_SIZE = 100.0  # Макс размер позиции (USD)
 REAL_MAX_POSITIONS = 2  # Макс количество позиций
+REAL_MIN_ORDER_VALUE = 1.0  # Минимальная сумма ордера (USD) для spot торговли
 REAL_ORDER_TYPE = "MARKET"  # "MARKET" или "LIMIT"
 REAL_LIMIT_ORDER_OFFSET_PERCENT = 0.001  # 0.1% оффсет для лимитных ордеров
 

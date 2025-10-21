@@ -20,7 +20,7 @@ from config import (
 	STRATEGY_TYPE_TF, STRATEGY_TYPE_MR, STRATEGY_TYPE_HYBRID,
 	# Real Trading configs
 	REAL_MAX_DAILY_LOSS, REAL_MAX_POSITION_SIZE, REAL_MAX_POSITIONS,
-	REAL_ORDER_TYPE, REAL_LIMIT_ORDER_OFFSET_PERCENT,
+	REAL_ORDER_TYPE, REAL_LIMIT_ORDER_OFFSET_PERCENT, REAL_MIN_ORDER_VALUE,
 	get_dynamic_max_positions
 )
 
@@ -208,14 +208,21 @@ class RealTrader:
 				# Ограничиваем размер позиции лимитами безопасности
 				invest_amount = min(usdt_balance * position_size_percent, REAL_MAX_POSITION_SIZE)
 				
+				# Адаптивный расчет для малых балансов
+				# Если рассчитанная сумма меньше минимального лимита, увеличиваем процент
+				if invest_amount < REAL_MIN_ORDER_VALUE and usdt_balance >= REAL_MIN_ORDER_VALUE:
+					# Используем минимальную сумму + небольшой запас
+					invest_amount = min(REAL_MIN_ORDER_VALUE * 1.2, usdt_balance * 0.8)  # 20% запас или 80% от баланса
+					position_size_percent = invest_amount / usdt_balance
+					logger.info(f"[REAL_OPEN] 🔧 Адаптивный расчет для малого баланса: ${invest_amount:.2f} ({position_size_percent*100:.1f}%)")
+				
 				if invest_amount <= 0:
 					logger.error(f"[REAL_OPEN] ❌ {symbol}: invest_amount <= 0")
 					return None
 				
 				# Проверяем минимальные лимиты Bybit
-				min_order_value = 5.0  # Минимальная сумма ордера в USDT
-				if invest_amount < min_order_value:
-					logger.warning(f"[REAL_OPEN] ❌ {symbol}: сумма ордера ${invest_amount:.2f} < минимального лимита ${min_order_value}")
+				if invest_amount < REAL_MIN_ORDER_VALUE:
+					logger.warning(f"[REAL_OPEN] ❌ {symbol}: сумма ордера ${invest_amount:.2f} < минимального лимита ${REAL_MIN_ORDER_VALUE}")
 					return None
 				
 				# Рассчитываем количество для покупки
