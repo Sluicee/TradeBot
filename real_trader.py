@@ -169,7 +169,7 @@ class RealTrader:
 		}
 		self.start_time = datetime.now().isoformat()
 	
-	def can_open_position(self, symbol: str) -> bool:
+	async def can_open_position(self, symbol: str) -> bool:
 		"""Проверяет, можно ли открыть позицию"""
 		# Проверяем лимиты безопасности
 		if not self.safety_limits.check_position_limits(symbol, self.positions):
@@ -222,7 +222,7 @@ class RealTrader:
 		if reasons:
 			logger.info(f"[REAL_OPEN] 📋 Причины: {reasons[:3]}")
 		
-		if not self.can_open_position(symbol):
+		if not await self.can_open_position(symbol):
 			logger.warning(f"[REAL_OPEN] ❌ {symbol}: не пройдены базовые проверки")
 			return None
 		
