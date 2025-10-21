@@ -494,16 +494,29 @@ class RealTrader:
 					symbol = pos["symbol"]
 					quantity = pos["quantity"]
 					
-					# Получаем текущую цену для расчета PnL
-					# Здесь нужно будет получить цену из внешнего источника
-					current_price = 0.0  # TODO: получить актуальную цену
-					
-					positions_info.append({
-						"symbol": symbol,
-						"quantity": quantity,
-						"current_price": current_price,
-						"side": pos["side"]
-					})
+					# Ищем локальную позицию для получения SL/TP и entry_price
+					local_pos = self.positions.get(symbol)
+					if local_pos:
+						positions_info.append({
+							"symbol": symbol,
+							"quantity": quantity,
+							"entry_price": local_pos.entry_price,
+							"stop_loss": local_pos.stop_loss_price,
+							"take_profit": local_pos.take_profit_price,
+							"current_price": 0.0,  # Будет получена в telegram_real_trading.py
+							"side": pos["side"]
+						})
+					else:
+						# Если нет локальной позиции, создаем базовую информацию
+						positions_info.append({
+							"symbol": symbol,
+							"quantity": quantity,
+							"entry_price": 0.0,
+							"stop_loss": 0.0,
+							"take_profit": 0.0,
+							"current_price": 0.0,
+							"side": pos["side"]
+						})
 				
 				# Рассчитываем общий PnL
 				total_balance = usdt_balance + total_pnl

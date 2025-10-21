@@ -195,35 +195,56 @@ class TelegramRealTrading:
 		# Формируем информацию о позициях
 		positions_text = ""
 		total_pnl = 0.0
+		total_current_value = 0.0
 		
 		for pos in status['positions']:
 			symbol = pos['symbol']
 			quantity = pos['quantity']
-			current_price = current_prices.get(symbol, pos.get('current_price', 0))
+			entry_price = pos.get('entry_price', 0)
+			current_price = current_prices.get(symbol, pos.get('current_price', entry_price))
 			
 			if current_price > 0:
-				# Рассчитываем PnL (упрощенно)
-				entry_value = quantity * current_price  # Примерная стоимость входа
+				# Рассчитываем PnL правильно
+				entry_value = quantity * entry_price
 				current_value = quantity * current_price
-				pnl = current_value - entry_value  # Упрощенный расчет
+				pnl = current_value - entry_value
+				pnl_percent = (pnl / entry_value) * 100 if entry_value > 0 else 0
 				total_pnl += pnl
+				total_current_value += current_value
 				
 				emoji = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
 				
+				# Получаем SL/TP из позиции
+				stop_loss = pos.get('stop_loss', 0)
+				take_profit = pos.get('take_profit', 0)
+				
 				positions_text += (
 					f"  {emoji} <b>{symbol}</b>\n"
-					f"    Количество: {quantity:.6f}\n"
-					f"    Цена: {self.formatters.format_price(current_price)}\n"
-					f"    PnL: ${pnl:+.2f}\n\n"
+					f"    Вход: {self.formatters.format_price(entry_price)} → Сейчас: {self.formatters.format_price(current_price)}\n"
+					f"    PnL: ${pnl:+.2f} ({pnl_percent:+.2f}%)\n"
+					f"    Стоимость: ${current_value:.2f}\n"
 				)
+				
+				# Добавляем SL/TP если они установлены
+				if stop_loss > 0 or take_profit > 0:
+					sl_text = f"SL: {self.formatters.format_price(stop_loss)}" if stop_loss > 0 else "SL: —"
+					tp_text = f"TP: {self.formatters.format_price(take_profit)}" if take_profit > 0 else "TP: —"
+					positions_text += f"    {sl_text} | {tp_text}\n"
+				
+				positions_text += "\n"
 		
 		status_emoji = "🟢" if status['is_running'] else "⏸"
+		
+		# Рассчитываем общий баланс включая позиции
+		usdt_balance = status.get('usdt_balance', 0)
+		total_balance = usdt_balance + total_current_value
 		
 		text = (
 			f"<b>{status_emoji} Real Trading Status</b>\n\n"
 			f"💰 <b>Баланс:</b>\n"
-			f"  • USDT: ${status.get('usdt_balance', 0):.2f}\n"
-			f"  • Общий: ${status.get('total_balance', 0):.2f}\n"
+			f"  • USDT: ${usdt_balance:.2f}\n"
+			f"  • Позиции: ${total_current_value:.2f}\n"
+			f"  • Общий: ${total_balance:.2f}\n"
 			f"  • PnL: ${total_pnl:+.2f}\n\n"
 			f"📊 <b>Позиции ({len(status['positions'])}/{status.get('max_positions', REAL_MAX_POSITIONS)}):</b>\n"
 		)
