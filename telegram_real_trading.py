@@ -9,7 +9,7 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 from config import (
-	REAL_MAX_DAILY_LOSS, REAL_MAX_POSITION_SIZE, REAL_MAX_POSITIONS,
+	REAL_MAX_DAILY_LOSS, REAL_MAX_POSITION_SIZE,
 	REAL_ORDER_TYPE, REAL_LIMIT_ORDER_OFFSET_PERCENT
 )
 from data_provider import DataProvider
@@ -94,7 +94,7 @@ class TelegramRealTrading:
 				f"🛡️ Лимиты безопасности:\n"
 				f"  • Макс убыток в день: ${REAL_MAX_DAILY_LOSS}\n"
 				f"  • Макс размер позиции: ${REAL_MAX_POSITION_SIZE}\n"
-				f"  • Макс позиций: {REAL_MAX_POSITIONS}\n\n"
+				f"  • Макс позиций: динамический (зависит от баланса)\n\n"
 				f"⚠️ <b>ВНИМАНИЕ:</b> Реальная торговля с реальными деньгами!\n"
 				f"Используйте /real_status для проверки состояния."
 			)
@@ -234,7 +234,7 @@ class TelegramRealTrading:
 			f"  • Позиции: ${total_current_value:.2f}\n"
 			f"  • Общий: ${total_balance:.2f}\n"
 			f"  • PnL: ${total_pnl:+.2f}\n\n"
-			f"📊 <b>Позиции ({len(status['positions'])}/{status.get('max_positions', REAL_MAX_POSITIONS)}):</b>\n"
+			f"📊 <b>Позиции ({len(status['positions'])}/{status.get('max_positions', 'N/A')}):</b>\n"
 		)
 		
 		if positions_text:
