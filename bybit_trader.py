@@ -87,11 +87,8 @@ class BybitTrader:
 			# Для большинства криптовалют достаточно 6-8 знаков
 			rounded_quantity = round(quantity, 6)
 			
-			# Проверяем минимальные лимиты Bybit
-			estimated_value = rounded_quantity * 1.0  # Примерная цена для проверки
-			
-			if estimated_value < REAL_MIN_ORDER_VALUE:
-				raise Exception(f"Order value too small: ${estimated_value:.2f} < ${REAL_MIN_ORDER_VALUE}")
+			# Проверка минимальных лимитов уже выполнена в real_trader.py
+			# с правильной ценой, поэтому здесь пропускаем
 			
 			logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
 			
