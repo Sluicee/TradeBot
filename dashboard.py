@@ -173,15 +173,20 @@ def load_real_trader_state() -> Optional[Dict[str, Any]]:
 		
 		try:
 			import asyncio
-			from bybit_trader import bybit_trader
 			from config import BYBIT_API_KEY, BYBIT_API_SECRET
+			
+			# Отладочная информация
+			logger.info(f"Dashboard: BYBIT_API_KEY = {BYBIT_API_KEY is not None}")
+			logger.info(f"Dashboard: BYBIT_API_SECRET = {BYBIT_API_SECRET is not None}")
 			
 			# Проверяем, что API ключи настроены
 			if not BYBIT_API_KEY or not BYBIT_API_SECRET:
-				logger.warning("BYBIT_API_KEY и BYBIT_API_SECRET не установлены в .env")
+				logger.warning("Dashboard: BYBIT_API_KEY и BYBIT_API_SECRET не установлены в .env")
 				# Используем fallback данные
 				balance = 100.0  # Fallback баланс
 			else:
+				# Импортируем bybit_trader только если ключи есть
+				from bybit_trader import bybit_trader
 				# Безопасный способ вызова асинхронных методов в Streamlit
 				def run_async(coro):
 					try:

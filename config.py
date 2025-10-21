@@ -360,6 +360,12 @@ BYBIT_API_KEY = os.getenv("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET")
 BYBIT_TESTNET = os.getenv("BYBIT_TESTNET", "false").lower() == "true"  # True для testnet
 
+# Отладочная информация для API ключей
+import logging
+logger = logging.getLogger(__name__)
+logger.info(f"Config: BYBIT_API_KEY loaded = {BYBIT_API_KEY is not None}")
+logger.info(f"Config: BYBIT_API_SECRET loaded = {BYBIT_API_SECRET is not None}")
+
 # Real Trading Safety Limits
 REAL_MAX_DAILY_LOSS = 50.0  # Макс убыток в день (USD)
 REAL_MAX_POSITION_SIZE = 100.0  # Макс размер позиции (USD)
