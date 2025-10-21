@@ -209,12 +209,16 @@ class RealTrader:
 				invest_amount = min(usdt_balance * position_size_percent, REAL_MAX_POSITION_SIZE)
 				
 				# Адаптивный расчет для малых балансов
-				# Если рассчитанная сумма меньше минимального лимита, увеличиваем процент
+				# Если рассчитанная сумма меньше минимального лимита Bybit, используем минимальную сумму
 				if invest_amount < REAL_MIN_ORDER_VALUE and usdt_balance >= REAL_MIN_ORDER_VALUE:
-					# Используем минимальную сумму + небольшой запас
-					invest_amount = min(REAL_MIN_ORDER_VALUE * 1.2, usdt_balance * 0.8)  # 20% запас или 80% от баланса
+					# Используем минимальную сумму Bybit ($10) только если процентный расчет дал меньше
+					invest_amount = REAL_MIN_ORDER_VALUE
 					position_size_percent = invest_amount / usdt_balance
-					logger.info(f"[REAL_OPEN] 🔧 Адаптивный расчет для малого баланса: ${invest_amount:.2f} ({position_size_percent*100:.1f}%)")
+					logger.info(f"[REAL_OPEN] 🔧 Адаптивный расчет: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) - минимальная сумма Bybit")
+				elif invest_amount < REAL_MIN_ORDER_VALUE and usdt_balance < REAL_MIN_ORDER_VALUE:
+					# Если баланс меньше минимальной суммы, пропускаем
+					logger.warning(f"[REAL_OPEN] ❌ {symbol}: баланс ${usdt_balance:.2f} < минимальной суммы ${REAL_MIN_ORDER_VALUE}")
+					return None
 				
 				if invest_amount <= 0:
 					logger.error(f"[REAL_OPEN] ❌ {symbol}: invest_amount <= 0")
