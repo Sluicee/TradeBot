@@ -42,8 +42,8 @@ RSI_OVERSOLD = 30  # Порог перепроданности
 RSI_OVERSOLD_NEAR = 40  # Близко к перепроданности
 RSI_OVERBOUGHT = 70  # Порог перекупленности
 RSI_OVERBOUGHT_NEAR = 60  # Близко к перекупленности
-RSI_BUY_RANGE = (30, 70)  # Диапазон для входа в BUY
-RSI_SELL_RANGE = (30, 70)  # Диапазон для входа в SELL
+RSI_BUY_RANGE = (30, 70)  # Диапазон для входа в BUY (перепроданность)
+RSI_SELL_RANGE = (70, 100)  # Диапазон для входа в SELL (перекупленность)
 
 # MACD
 MACD_FAST = 12
