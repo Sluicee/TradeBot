@@ -141,9 +141,19 @@ class BybitTrader:
 				# Для продажи используем точное количество монет
 				# Для покупки округляем до допустимого количества знаков
 				if side == "Sell":
-					# При продаже округляем до допустимого количества знаков
+					# При продаже округляем ВНИЗ до допустимого количества знаков
 					decimals = self._get_symbol_decimals(symbol)
 					rounded_quantity = round(quantity, decimals)
+					# Дополнительно округляем вниз, чтобы не превысить баланс
+					import math
+					rounded_quantity = math.floor(rounded_quantity * (10 ** decimals)) / (10 ** decimals)
+					
+					# Проверяем минимальную сумму (примерно $5)
+					estimated_value = rounded_quantity * (price if price else 1.0)
+					if estimated_value < 5.0:
+						logger.warning(f"Order value too small: ${estimated_value:.2f} < $5.0, skipping {symbol}")
+						raise ValueError(f"Order value too small: ${estimated_value:.2f}")
+					
 					logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
 					
 					response = self.session.place_order(
@@ -151,7 +161,7 @@ class BybitTrader:
 						symbol=symbol,
 						side=side,
 						orderType="Market",
-						qty=str(rounded_quantity),  # Округленное количество монет
+						qty=str(rounded_quantity),  # Округленное вниз количество монет
 						timeInForce="IOC"
 					)
 				else:
@@ -224,9 +234,12 @@ class BybitTrader:
 				# Для продажи используем точное количество монет
 				# Для покупки округляем до допустимого количества знаков
 				if side == "Sell":
-					# При продаже округляем до допустимого количества знаков
+					# При продаже округляем ВНИЗ до допустимого количества знаков
 					decimals = self._get_symbol_decimals(symbol)
 					rounded_quantity = round(quantity, decimals)
+					# Дополнительно округляем вниз, чтобы не превысить баланс
+					import math
+					rounded_quantity = math.floor(rounded_quantity * (10 ** decimals)) / (10 ** decimals)
 					logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {price}")
 					
 					response = self.session.place_order(
@@ -234,7 +247,7 @@ class BybitTrader:
 						symbol=symbol,
 						side=side,
 						orderType="Limit",
-						qty=str(rounded_quantity),  # Округленное количество монет
+						qty=str(rounded_quantity),  # Округленное вниз количество монет
 						price=str(price),
 						timeInForce="GTC"
 					)
