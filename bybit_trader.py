@@ -70,6 +70,11 @@ class BybitTrader:
 			"VETUSDT": 0,
 			"ICPUSDT": 2,
 			"FILUSDT": 2,
+			"PUMPUSDT": 0,  # PUMP требует целые числа
+			"TRXUSDT": 1,   # TRX требует 1 знак
+			"SEIUSDT": 1,   # SEI требует 1 знак
+			"SUIUSDT": 1,   # SUI требует 1 знак
+			"HYPEUSDT": 0,  # HYPE требует целые числа
 		}
 		
 		# Если символ найден в списке - используем его значение
