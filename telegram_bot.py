@@ -583,6 +583,34 @@ class TelegramBot:
 								)
 				
 			# ==========================================
+			# Real Trading: Проверка позиций
+			# ==========================================
+			if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
+				# Проверяем существующие позиции на stop-loss и take-profit
+				try:
+					actions = await self.real_trader.check_positions(current_prices)
+					for action in actions:
+						trade_type = action['type']
+						symbol = action['symbol']
+						price = action['price']
+						profit = action.get('profit', 0)
+						profit_percent = action.get('profit_percent', 0)
+						
+						if trade_type == "STOP-LOSS":
+							msg = f"🛑 <b>REAL STOP-LOSS</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Убыток: ${profit:+.2f} ({profit_percent:+.2f}%)"
+						elif trade_type == "TAKE-PROFIT":
+							msg = f"💎 <b>REAL TAKE-PROFIT</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)"
+						elif trade_type == "TRAILING-STOP":
+							msg = f"🔻 <b>REAL TRAILING STOP</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)"
+						else:
+							msg = f"📊 <b>REAL {trade_type}</b> {symbol} @ {self.handlers.formatters.format_price(price)}"
+							
+						all_messages.append(msg)
+						logger.info(f"[REAL] {trade_type} {symbol} @ {self.handlers.formatters.format_price(price)}")
+				except Exception as e:
+					logger.error(f"Ошибка проверки реальных позиций: {e}", exc_info=True)
+			
+			# ==========================================
 			# Real Trading: Обработка сигналов
 			# ==========================================
 			if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
