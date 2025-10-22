@@ -402,6 +402,7 @@ class TelegramBot:
 							self.paper_trader.save_state()
 				
 				# Анализируем отслеживаемые символы (создаем копию для безопасной итерации)
+				logger.debug(f"Анализируем {len(self.tracked_symbols)} символов: {list(self.tracked_symbols)}")
 				for symbol in list(self.tracked_symbols):
 					try:
 						klines = await provider.fetch_klines(symbol=symbol, interval=self.default_interval, limit=500)
@@ -416,6 +417,8 @@ class TelegramBot:
 						signal = result["signal"]
 						current_price = float(df['close'].iloc[-1])
 						
+						logger.debug(f"Сгенерирован сигнал для {symbol}: {signal} (цена: {current_price})")
+						
 						# Сохраняем для paper trading
 						current_prices[symbol] = current_price
 						trading_signals[symbol] = result
@@ -427,7 +430,6 @@ class TelegramBot:
 							self.last_signals[symbol] = signal
 							log_signal(symbol, self.default_interval, signal, result["reasons"], result["price"])
 							logger.info("Сигнал %s: %s", symbol, signal)
-
 						# -------------------
 						# Волатильность
 						# -------------------
@@ -461,7 +463,8 @@ class TelegramBot:
 								logger.info("Волатильность %s: %.2f%% (cooldown: %.1f мин)", symbol, change*100, VOLATILITY_ALERT_COOLDOWN/60)
 
 					except Exception as e:
-						logger.error("Ошибка фонового анализа %s: %s", symbol, e)
+						logger.error(f"Ошибка генерации сигнала для {symbol}: {e}", exc_info=True)
+						continue
 				
 			# ==========================================
 			# Paper Trading: Обработка сигналов
