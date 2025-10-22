@@ -141,15 +141,17 @@ class BybitTrader:
 				# Для продажи используем точное количество монет
 				# Для покупки округляем до допустимого количества знаков
 				if side == "Sell":
-					# При продаже используем точное количество монет
-					logger.info(f"Placing market order: {side} {quantity} {symbol}")
+					# При продаже округляем до допустимого количества знаков
+					decimals = self._get_symbol_decimals(symbol)
+					rounded_quantity = round(quantity, decimals)
+					logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
 					
 					response = self.session.place_order(
 						category="spot",
 						symbol=symbol,
 						side=side,
 						orderType="Market",
-						qty=str(quantity),  # Точное количество монет
+						qty=str(rounded_quantity),  # Округленное количество монет
 						timeInForce="IOC"
 					)
 				else:
@@ -222,15 +224,17 @@ class BybitTrader:
 				# Для продажи используем точное количество монет
 				# Для покупки округляем до допустимого количества знаков
 				if side == "Sell":
-					# При продаже используем точное количество монет
-					logger.info(f"Placing limit order: {side} {quantity} {symbol} @ {price}")
+					# При продаже округляем до допустимого количества знаков
+					decimals = self._get_symbol_decimals(symbol)
+					rounded_quantity = round(quantity, decimals)
+					logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {price}")
 					
 					response = self.session.place_order(
 						category="spot",
 						symbol=symbol,
 						side=side,
 						orderType="Limit",
-						qty=str(quantity),  # Точное количество монет
+						qty=str(rounded_quantity),  # Округленное количество монет
 						price=str(price),
 						timeInForce="GTC"
 					)
