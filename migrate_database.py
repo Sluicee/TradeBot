@@ -148,27 +148,24 @@ def migrate_real_trading_tables(connection):
         logger.info("✅ bayesian_pending_signals table already exists")
     
     # Create bayesian_signal_stats table
-    if 'bayesian_signal_stats' not in existing_tables:
-        logger.info("Creating bayesian_signal_stats table...")
-        connection.execute(text("""
-            CREATE TABLE bayesian_signal_stats (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                signal_signature TEXT NOT NULL UNIQUE,
-                total_signals INTEGER DEFAULT 0,
-                profitable_signals INTEGER DEFAULT 0,
-                losing_signals INTEGER DEFAULT 0,
-                total_profit REAL DEFAULT 0.0,
-                total_loss REAL DEFAULT 0.0,
-                avg_profit REAL DEFAULT 0.0,
-                avg_loss REAL DEFAULT 0.0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """))
-        connection.commit()
-        logger.info("✅ bayesian_signal_stats table created")
-    else:
-        logger.info("✅ bayesian_signal_stats table already exists")
+    logger.info("Creating bayesian_signal_stats table...")
+    connection.execute(text("""
+        CREATE TABLE IF NOT EXISTS bayesian_signal_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_signature TEXT NOT NULL UNIQUE,
+            total_signals INTEGER DEFAULT 0,
+            profitable_signals INTEGER DEFAULT 0,
+            losing_signals INTEGER DEFAULT 0,
+            total_profit REAL DEFAULT 0.0,
+            total_loss REAL DEFAULT 0.0,
+            avg_profit REAL DEFAULT 0.0,
+            avg_loss REAL DEFAULT 0.0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    connection.commit()
+    logger.info("✅ bayesian_signal_stats table created/verified")
     
     # Create indexes
     logger.info("Creating indexes...")
