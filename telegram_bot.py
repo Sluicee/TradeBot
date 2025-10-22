@@ -505,6 +505,16 @@ class TelegramBot:
 							)
 							
 							if can_buy:
+								# Определяем strategy_type на основе active_mode
+								if active_mode == "MEAN_REVERSION":
+									strategy_type = "MR"
+								elif active_mode == "TREND_FOLLOWING":
+									strategy_type = "TF"
+								elif active_mode == "TRANSITION":
+									strategy_type = "HYBRID"
+								else:
+									strategy_type = "TF"  # По умолчанию
+								
 								trade_info = self.paper_trader.open_position(
 									symbol=symbol,
 									price=price,
@@ -514,7 +524,8 @@ class TelegramBot:
 									reasons=reasons,
 									active_mode=active_mode,
 									bullish_votes=bullish_votes,
-									bearish_votes=bearish_votes
+									bearish_votes=bearish_votes,
+									strategy_type=strategy_type
 								)
 								if trade_info:
 									# Безопасная обработка position_size_percent
@@ -650,6 +661,16 @@ class TelegramBot:
 							
 							if can_buy:
 								try:
+									# Определяем strategy_type на основе active_mode
+									if active_mode == "MEAN_REVERSION":
+										strategy_type = "MR"
+									elif active_mode == "TREND_FOLLOWING":
+										strategy_type = "TF"
+									elif active_mode == "TRANSITION":
+										strategy_type = "HYBRID"
+									else:
+										strategy_type = "TF"  # По умолчанию
+									
 									trade_info = await self.real_trader.open_position(
 										symbol=symbol,
 										price=price,
@@ -659,7 +680,8 @@ class TelegramBot:
 										reasons=reasons,
 										active_mode=active_mode,
 										bullish_votes=bullish_votes,
-										bearish_votes=bearish_votes
+										bearish_votes=bearish_votes,
+										strategy_type=strategy_type
 									)
 									if trade_info:
 										position_size_display = f"{position_size_percent*100:.0f}%" if position_size_percent is not None else "N/A"
