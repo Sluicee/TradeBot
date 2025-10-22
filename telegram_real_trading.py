@@ -435,11 +435,12 @@ class TelegramRealTrading:
 				coin = symbol.replace("USDT", "")
 				
 				# Получаем реальный баланс
-				real_balance = await self.bot.real_trader.bybit_trader.get_coin_balance(coin)
+				from bybit_trader import bybit_trader
+				real_balance = await bybit_trader.get_coin_balance(coin)
 				
 				if real_balance > 0:
 					# Получаем текущую цену
-					current_price = await self.bot.real_trader.bybit_trader.get_current_price(symbol)
+					current_price = await bybit_trader.get_current_price(symbol)
 					remaining_value = real_balance * current_price
 					
 					logger.info(f"[CLEANUP] {coin}: {real_balance:.8f} (${remaining_value:.2f})")
