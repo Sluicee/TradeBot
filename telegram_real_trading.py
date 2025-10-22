@@ -463,6 +463,18 @@ class TelegramRealTrading:
 							logger.error(f"[CLEANUP] ❌ Ошибка очистки {symbol}: {e}")
 					else:
 						logger.info(f"[CLEANUP] 💸 {symbol} остаток слишком мал (${remaining_value:.4f})")
+						# Принудительно удаляем позицию из базы данных
+						if symbol in self.bot.real_trader.positions:
+							del self.bot.real_trader.positions[symbol]
+							cleaned_count += 1
+							logger.info(f"[CLEANUP] 🗑️ Удалена позиция {symbol} из базы данных")
+				else:
+					# Остатка нет вообще - удаляем позицию
+					logger.info(f"[CLEANUP] 💸 {symbol} остатка нет (баланс: {real_balance:.8f})")
+					if symbol in self.bot.real_trader.positions:
+						del self.bot.real_trader.positions[symbol]
+						cleaned_count += 1
+						logger.info(f"[CLEANUP] 🗑️ Удалена позиция {symbol} из базы данных")
 			
 			# Результат
 			if cleaned_count > 0:
