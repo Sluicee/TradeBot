@@ -490,11 +490,11 @@ class RealTrader:
 				emoji = "💚" if profit > 0 else "💔"
 				logger.info(f"[REAL_CLOSE] {emoji} {symbol}: {profit:+.2f} ({profit_percent:+.1f}%) | {holding_time} | WR: {win_rate:.1f}%")
 				
-		return trade_info
-		
-	except Exception as e:
-		logger.error(f"[REAL_CLOSE] ❌ Ошибка при размещении ордера на продажу: {e}")
-		return None
+				return trade_info
+				
+			except Exception as e:
+				logger.error(f"[REAL_CLOSE] ❌ Ошибка при размещении ордера на продажу: {e}")
+				return None
 	
 	async def _check_and_cleanup_remaining_balance(self, symbol: str, coin: str):
 		"""Проверяет и очищает остатки после продажи позиции"""
