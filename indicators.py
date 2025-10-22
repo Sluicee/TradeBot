@@ -112,15 +112,11 @@ class IndicatorsCalculator:
 		else:
 			self.df[f"Volume_MA_{VOLUME_MA_WINDOW}"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
 
-		# Осцилляторы - только самые важные
-		self.df[f"RSI_{RSI_WINDOW}"] = ta.momentum.rsi(close, window=RSI_WINDOW) if len(self.df) >= RSI_WINDOW else pd.Series([np.nan]*len(self.df), index=self.df.index)
+		# Осцилляторы - только самые важные (ИСПРАВЛЕНО: убрано дублирование)
+		self.df["RSI"] = ta.momentum.rsi(close, window=RSI_WINDOW) if len(self.df) >= RSI_WINDOW else pd.Series([np.nan]*len(self.df), index=self.df.index)
 		
-		# ADX - сила тренда (критично!)
-		if (
-			len(self.df) >= ADX_WINDOW
-			and len(self.df.tail(ADX_WINDOW)) == ADX_WINDOW
-			and self.df[["high", "low", "close"]].tail(ADX_WINDOW).isna().sum().sum() == 0
-		):
+		# ADX - сила тренда (ИСПРАВЛЕНО: упрощенная проверка)
+		if len(self.df) >= ADX_WINDOW:
 			try:
 				self.df[f"ADX_{ADX_WINDOW}"] = ta.trend.adx(high, low, close, window=ADX_WINDOW)
 				# Проверяем, что ADX рассчитался корректно
@@ -133,17 +129,17 @@ class IndicatorsCalculator:
 				logger.warning(f"❌ Ошибка расчёта ADX: {e}")
 				self.df[f"ADX_{ADX_WINDOW}"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
 		else:
-			logger.warning(f"❌ ADX не рассчитан: len(df)={len(self.df)}, ADX_WINDOW={ADX_WINDOW}, NaN_count={self.df[['high', 'low', 'close']].tail(ADX_WINDOW).isna().sum().sum()}")
+			logger.warning(f"❌ ADX не рассчитан: недостаточно данных (len={len(self.df)}, требуется={ADX_WINDOW})")
 			self.df[f"ADX_{ADX_WINDOW}"] = pd.Series([np.nan]*len(self.df), index=self.df.index)
 		
 		# Stochastic - для перекупленности/перепроданности
 		self.df["Stoch_K"] = ta.momentum.stoch(high, low, close, window=STOCH_WINDOW, smooth_window=STOCH_SMOOTH_WINDOW) if len(self.df) >= STOCH_WINDOW else pd.Series([np.nan]*len(self.df), index=self.df.index)
 		self.df["Stoch_D"] = ta.momentum.stoch_signal(high, low, close, window=STOCH_WINDOW, smooth_window=STOCH_SMOOTH_WINDOW) if len(self.df) >= STOCH_WINDOW else pd.Series([np.nan]*len(self.df), index=self.df.index)
 
-		# Базовые индикаторы
+		# Базовые индикаторы (ИСПРАВЛЕНО: убрано дублирование RSI)
 		self.df["EMA_short"] = ta.trend.ema_indicator(close, window=ema_short_window) if len(self.df) >= ema_short_window else pd.Series([np.nan]*len(self.df), index=self.df.index)
 		self.df["EMA_long"] = ta.trend.ema_indicator(close, window=ema_long_window) if len(self.df) >= ema_long_window else pd.Series([np.nan]*len(self.df), index=self.df.index)
-		self.df["RSI"] = ta.momentum.rsi(close, window=rsi_window) if len(self.df) >= rsi_window else pd.Series([np.nan]*len(self.df), index=self.df.index)
+		# RSI уже рассчитан выше, не дублируем
 		if len(self.df) >= max(macd_slow, macd_fast, macd_signal):
 			macd = ta.trend.MACD(close, window_slow=macd_slow, window_fast=macd_fast, window_sign=macd_signal)
 			self.df["MACD"] = macd.macd()

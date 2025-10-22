@@ -19,6 +19,7 @@ from config import (
 	MIN_RR_RATIO, ENFORCE_MIN_RR,
 	# Гибридная стратегия
 	STRATEGY_HYBRID_MODE, HYBRID_ADX_MR_THRESHOLD, HYBRID_ADX_TF_THRESHOLD,
+	HYBRID_ADX_MR_EXIT, HYBRID_ADX_TF_EXIT,
 	HYBRID_TRANSITION_MODE, HYBRID_MIN_TIME_IN_MODE,
 	# Индикаторы
 	STOCH_OVERSOLD, STOCH_OVERBOUGHT, ADX_WINDOW, ATR_WINDOW,
@@ -64,14 +65,15 @@ class MeanReversionStrategy:
 		stoch_k = float(last.get("Stoch_K", 0))
 		
 		# ====================================================================
-		# РАСЧЁТ Z-SCORE
+		# РАСЧЁТ Z-SCORE (ИСПРАВЛЕНО)
 		# ====================================================================
 		
 		if len(self.df) >= MR_ZSCORE_WINDOW:
-			close_prices = self.df["close"].iloc[-MR_ZSCORE_WINDOW:].astype(float)
-			sma = close_prices.mean()
-			std = close_prices.std()
-			zscore = (price - sma) / std if std > 0 else 0
+			close_prices = self.df["close"].astype(float)
+			sma = close_prices.rolling(window=MR_ZSCORE_WINDOW).mean()
+			std = close_prices.rolling(window=MR_ZSCORE_WINDOW).std()
+			zscore_series = (close_prices - sma) / std
+			zscore = zscore_series.iloc[-1] if not pd.isna(zscore_series.iloc[-1]) else 0
 		else:
 			zscore = 0
 		

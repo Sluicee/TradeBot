@@ -220,13 +220,13 @@ ENSEMBLE_REGIME_WEIGHT = 0.3  # Вес Regime модели (30%)
 # Режим работы стратегии
 STRATEGY_MODE = "HYBRID"  # "TREND_FOLLOWING", "MEAN_REVERSION", или "HYBRID"
 
-# Параметры Mean Reversion v5.2 (РЕАЛИСТИЧНЫЕ ДЛЯ 1h - ПРОТЕСТИРОВАНЫ)
-MR_RSI_OVERSOLD = 40  # Порог перепроданности (вернули v4 - оптимально!)
+# Параметры Mean Reversion v5.2 (ИСПРАВЛЕНО: приведено в соответствие с общими RSI порогами)
+MR_RSI_OVERSOLD = 35  # Порог перепроданности (смягчено с 40 до 35 для большего количества сигналов)
 MR_RSI_EXIT = 52  # Порог выхода (небольшой momentum)
-MR_ZSCORE_BUY_THRESHOLD = -1.8  # Z-score порог покупки (вернули v4)
+MR_ZSCORE_BUY_THRESHOLD = -1.5  # Z-score порог покупки (смягчено с -1.8 для большего количества сигналов)
 MR_ZSCORE_SELL_THRESHOLD = 0.4  # Z-score порог выхода
-MR_ZSCORE_STRONG_BUY = -2.3  # Сильная перепроданность для 70% позиции
-MR_ADX_MAX = 32  # Максимальный ADX (компромисс 30-35)
+MR_ZSCORE_STRONG_BUY = -2.0  # Сильная перепроданность для 70% позиции (смягчено с -2.3)
+MR_ADX_MAX = 30  # Максимальный ADX (смягчено с 32 для большего количества сигналов)
 MR_EMA_DIVERGENCE_MAX = 0.02  # Максимальная дивергенция EMA (2%) - флэт
 
 # Размеры позиций для Mean Reversion v4
@@ -242,12 +242,12 @@ MR_MAX_HOLDING_HOURS = 24  # Максимум 24 часа удержания (б
 # Z-score параметры для MR
 MR_ZSCORE_WINDOW = 50  # Окно для расчёта среднего
 
-# Фильтры "падающего ножа" v5.4 (ВКЛЮЧЕНЫ с мягкими настройками для продакшена)
+# Фильтры "падающего ножа" v5.4 (ИСПРАВЛЕНО: отключен блокирующий EMA200 фильтр)
 # ⚠️ РИСК: Отключение этих фильтров может привести к входу в "падающий нож"
 # в сильном медвежьем тренде, что исторически приводит к крупным убыткам
 NO_BUY_IF_PRICE_BELOW_N_DAY_LOW_PERCENT = 0.10  # Не входить если цена < min(24h) * 0.90
-NO_BUY_IF_EMA200_SLOPE_NEG = True  # ВКЛЮЧЕН: блокировать при падении EMA200
-EMA200_NEG_SLOPE_THRESHOLD = -0.010  # -1.0% наклон EMA200 (смягчено с -0.5%)
+NO_BUY_IF_EMA200_SLOPE_NEG = False  # ИСПРАВЛЕНО: ОТКЛЮЧЕН (блокировал 100% сигналов!)
+EMA200_NEG_SLOPE_THRESHOLD = -0.010  # -1.0% наклон EMA200 (не используется)
 USE_RED_CANDLES_FILTER = True  # ВКЛЮЧЕН: блокировать при серии красных свечей
 
 # Фильтр объёма v5.3 (смягчён)
@@ -289,12 +289,12 @@ MR_TRAILING_AGGRESSIVE_DISTANCE = 0.008  # 0.8% от максимума
 
 STRATEGY_HYBRID_MODE = "AUTO"  # "AUTO" (переключение по ADX), "MR_ONLY", "TF_ONLY"
 
-# Пороги ADX для переключения режимов (ИСПРАВЛЕНО: убрана мертвая зона)
-HYBRID_ADX_MR_THRESHOLD = 10  # ADX < 10 → Mean Reversion (боковик)
-HYBRID_ADX_MR_EXIT = 20  # ADX > 20 → Выход из MR в TF (гистерезис)
+# Пороги ADX для переключения режимов (ИСПРАВЛЕНО: оптимальные пороги)
+HYBRID_ADX_MR_THRESHOLD = 20  # ADX < 20 → Mean Reversion (боковик)
+HYBRID_ADX_MR_EXIT = 25  # ADX > 25 → Выход из MR в TF (гистерезис)
 HYBRID_ADX_TF_THRESHOLD = 25  # ADX > 25 → Trend Following (тренд)
-HYBRID_ADX_TF_EXIT = 15  # ADX < 15 → Выход из TF в MR (гистерезис)
-# 10 <= ADX <= 25 → переходная зона 15 пунктов (логичная последовательность)
+HYBRID_ADX_TF_EXIT = 20  # ADX < 20 → Выход из TF в MR (гистерезис)
+# 20 <= ADX <= 25 → переходная зона 5 пунктов (оптимальная зона)
 
 HYBRID_TRANSITION_MODE = "HOLD"  # "HOLD" (не входить) или "LAST" (использовать последний режим)
 
