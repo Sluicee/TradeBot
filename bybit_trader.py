@@ -146,10 +146,18 @@ class BybitTrader:
 				# Для продажи используем точное количество монет
 				# Для покупки округляем до допустимого количества знаков
 				if side == "Sell":
-					# При продаже округляем до допустимого количества знаков
+					# При продаже умное округление до допустимого количества знаков
 					decimals = self._get_symbol_decimals(symbol)
-					# Обычное округление до нужного количества знаков
+					import math
+					
+					# Сначала пробуем обычное округление
 					rounded_quantity = round(quantity, decimals)
+					
+					# Если округленное количество больше исходного (округление вверх),
+					# и это может вызвать "Insufficient balance", используем floor
+					if rounded_quantity > quantity:
+						# Округление вверх может превысить баланс - используем floor
+						rounded_quantity = math.floor(quantity * (10 ** decimals)) / (10 ** decimals)
 					
 					# Проверяем минимальную сумму (примерно $5)
 					estimated_value = rounded_quantity * (price if price else 1.0)
@@ -237,10 +245,19 @@ class BybitTrader:
 				# Для продажи используем точное количество монет
 				# Для покупки округляем до допустимого количества знаков
 				if side == "Sell":
-					# При продаже округляем до допустимого количества знаков
+					# При продаже умное округление до допустимого количества знаков
 					decimals = self._get_symbol_decimals(symbol)
-					# Обычное округление до нужного количества знаков
+					import math
+					
+					# Сначала пробуем обычное округление
 					rounded_quantity = round(quantity, decimals)
+					
+					# Если округленное количество больше исходного (округление вверх),
+					# и это может вызвать "Insufficient balance", используем floor
+					if rounded_quantity > quantity:
+						# Округление вверх может превысить баланс - используем floor
+						rounded_quantity = math.floor(quantity * (10 ** decimals)) / (10 ** decimals)
+					
 					logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {price}")
 					
 					response = self.session.place_order(
