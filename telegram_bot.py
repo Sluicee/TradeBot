@@ -628,7 +628,7 @@ class TelegramBot:
 				from signal_diagnostics import diagnostics
 				
 				# Обрабатываем все сигналы для Real Trading (с блокировкой)
-				async with self.paper_trader_lock:  # Используем тот же lock для consistency
+				with self.paper_trader_lock:  # Используем тот же lock для consistency
 					for symbol, result in trading_signals.items():
 						signal = result["signal"]
 						price = current_prices.get(symbol)
