@@ -616,85 +616,86 @@ class TelegramBot:
 			if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
 				from signal_diagnostics import diagnostics
 				
-				# Обрабатываем все сигналы для Real Trading
-				for symbol, result in trading_signals.items():
-					signal = result["signal"]
-					price = current_prices.get(symbol)
-					
-					if price is None:
-						continue
-					
-					# Получаем метаданные сигнала (v5.5 HYBRID)
-					signal_strength = abs(result.get("bullish_votes", 0) - result.get("bearish_votes", 0))
-					atr = result.get("ATR", 0.0)
-					bullish_votes = result.get("bullish_votes", 0)
-					bearish_votes = result.get("bearish_votes", 0)
-					active_mode = result.get("active_mode", "UNKNOWN")
-					reasons = result.get("reasons", [])
-					position_size_percent = result.get("position_size_percent", None)
-					
-					# BUY сигнал - открываем позицию
-					if signal == "BUY" and symbol not in self.real_trader.positions:
-						can_buy = self.real_trader.can_open_position(symbol)
-						block_reason = None if can_buy else "Лимит позиций или баланс"
+				# Обрабатываем все сигналы для Real Trading (с блокировкой)
+				async with self.paper_trader_lock:  # Используем тот же lock для consistency
+					for symbol, result in trading_signals.items():
+						signal = result["signal"]
+						price = current_prices.get(symbol)
 						
-						# Диагностика сигнала
-						diagnostics.log_signal_generation(
-							symbol=symbol,
-							signal_result=result,
-							price=price,
-							can_buy=can_buy,
-							block_reason=block_reason
-						)
+						if price is None:
+							continue
+					
+						# Получаем метаданные сигнала (v5.5 HYBRID)
+						signal_strength = abs(result.get("bullish_votes", 0) - result.get("bearish_votes", 0))
+						atr = result.get("ATR", 0.0)
+						bullish_votes = result.get("bullish_votes", 0)
+						bearish_votes = result.get("bearish_votes", 0)
+						active_mode = result.get("active_mode", "UNKNOWN")
+						reasons = result.get("reasons", [])
+						position_size_percent = result.get("position_size_percent", None)
 						
-						if can_buy:
+						# BUY сигнал - открываем позицию
+						if signal == "BUY" and symbol not in self.real_trader.positions:
+							can_buy = await self.real_trader.can_open_position(symbol)
+							block_reason = None if can_buy else "Лимит позиций или баланс"
+							
+							# Диагностика сигнала
+							diagnostics.log_signal_generation(
+								symbol=symbol,
+								signal_result=result,
+								price=price,
+								can_buy=can_buy,
+								block_reason=block_reason
+							)
+							
+							if can_buy:
+								try:
+									trade_info = await self.real_trader.open_position(
+										symbol=symbol,
+										price=price,
+										signal_strength=signal_strength,
+										atr=atr,
+										position_size_percent=position_size_percent,
+										reasons=reasons,
+										active_mode=active_mode,
+										bullish_votes=bullish_votes,
+										bearish_votes=bearish_votes
+									)
+									if trade_info:
+										position_size_display = f"{position_size_percent*100:.0f}%" if position_size_percent is not None else "N/A"
+										
+										msg = (
+											f"🚀 <b>РЕАЛЬНАЯ ПОКУПКА</b> {symbol} ({active_mode})\n"
+											f"  Цена: {self.handlers.formatters.format_price(price)}\n"
+											f"  Вложено: ${trade_info['invest_amount']:.2f} ({position_size_display})\n"
+											f"  Голоса: +{bullish_votes}/-{bearish_votes} (Δ{bullish_votes-bearish_votes:+d})\n"
+											f"  Order ID: {trade_info.get('order_id', 'N/A')}\n"
+											f"  ⚠️ РЕАЛЬНЫЕ ДЕНЬГИ!"
+										)
+										all_messages.append(msg)
+									self.real_trader.save_state()
+								except Exception as e:
+									logger.error(f"Ошибка реальной покупки {symbol}: {e}")
+									all_messages.append(f"❌ Ошибка реальной покупки {symbol}: {e}")
+						
+						# SELL сигнал - закрываем LONG позицию
+						elif signal == "SELL" and symbol in self.real_trader.positions:
 							try:
-								trade_info = await self.real_trader.open_position(
-									symbol=symbol,
-									price=price,
-									signal_strength=signal_strength,
-									atr=atr,
-									position_size_percent=position_size_percent,
-									reasons=reasons,
-									active_mode=active_mode,
-									bullish_votes=bullish_votes,
-									bearish_votes=bearish_votes
-								)
+								trade_info = await self.real_trader.close_position(symbol, price, "SELL")
 								if trade_info:
-									position_size_display = f"{position_size_percent*100:.0f}%" if position_size_percent is not None else "N/A"
-									
+									profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
 									msg = (
-										f"🚀 <b>РЕАЛЬНАЯ ПОКУПКА</b> {symbol} ({active_mode})\n"
+										f"🔴 <b>РЕАЛЬНАЯ ПРОДАЖА</b> {symbol}\n"
 										f"  Цена: {self.handlers.formatters.format_price(price)}\n"
-										f"  Вложено: ${trade_info['invest_amount']:.2f} ({position_size_display})\n"
-										f"  Голоса: +{bullish_votes}/-{bearish_votes} (Δ{bullish_votes-bearish_votes:+d})\n"
+										f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
 										f"  Order ID: {trade_info.get('order_id', 'N/A')}\n"
 										f"  ⚠️ РЕАЛЬНЫЕ ДЕНЬГИ!"
 									)
 									all_messages.append(msg)
-								self.real_trader.save_state()
+									self.real_trader.save_state()
 							except Exception as e:
-								logger.error(f"Ошибка реальной покупки {symbol}: {e}")
-								all_messages.append(f"❌ Ошибка реальной покупки {symbol}: {e}")
-					
-					# SELL сигнал - закрываем LONG позицию
-					elif signal == "SELL" and symbol in self.real_trader.positions:
-						try:
-							trade_info = await self.real_trader.close_position(symbol, price, "SELL")
-							if trade_info:
-								profit_emoji = "📈" if trade_info['profit'] > 0 else "📉"
-								msg = (
-									f"🔴 <b>РЕАЛЬНАЯ ПРОДАЖА</b> {symbol}\n"
-									f"  Цена: {self.handlers.formatters.format_price(price)}\n"
-									f"  {profit_emoji} Прибыль: ${trade_info['profit']:+.2f} ({trade_info['profit_percent']:+.2f}%)\n"
-									f"  Order ID: {trade_info.get('order_id', 'N/A')}\n"
-									f"  ⚠️ РЕАЛЬНЫЕ ДЕНЬГИ!"
-								)
-								all_messages.append(msg)
-								self.real_trader.save_state()
-						except Exception as e:
-							logger.error(f"Ошибка реальной продажи {symbol}: {e}")
-							all_messages.append(f"❌ Ошибка реальной продажи {symbol}: {e}")
+								logger.error(f"Ошибка реальной продажи {symbol}: {e}")
+								all_messages.append(f"❌ Ошибка реальной продажи {symbol}: {e}")
 			
 			# Отправляем все накопленные сообщения одним батчем
 			if all_messages:
