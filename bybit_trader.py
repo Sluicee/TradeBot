@@ -436,6 +436,37 @@ class BybitTrader:
 		except Exception as e:
 			logger.error(f"Error getting {coin} balance: {e}")
 			return 0.0
+	
+	async def get_current_price(self, symbol: str) -> float:
+		"""Получает текущую цену символа"""
+		try:
+			self._check_session()
+			
+			response = self.session.get_tickers(
+				category="spot",
+				symbol=symbol
+			)
+			
+			if response.get("retCode") != 0:
+				error_msg = response.get("retMsg", "Unknown error")
+				logger.error(f"Bybit API error getting price: {error_msg}")
+				raise Exception(f"Bybit API error: {error_msg}")
+			
+			result = response.get("result", {}).get("list", [])
+			if result:
+				price = float(result[0]["lastPrice"])
+				logger.info(f"Current price for {symbol}: ${price:.4f}")
+				return price
+			else:
+				raise Exception(f"No price data for {symbol}")
+				
+		except Exception as e:
+			logger.error(f"Error getting current price for {symbol}: {e}")
+			# Для testnet возвращаем симуляцию
+			if self.testnet:
+				logger.info(f"Using testnet simulation for {symbol} price")
+				return 1.0  # Симуляция
+			raise
 
 
 # Глобальный экземпляр для использования в других модулях

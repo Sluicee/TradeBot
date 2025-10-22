@@ -480,6 +480,9 @@ class RealTrader:
 						self.bayesian.complete_signal(signal_signature, price, position.entry_price)
 						logger.info(f"[REAL_CLOSE] 📊 Завершен сигнал для обучения: {signal_signature[:50]}... (P&L: {profit_percent:+.1f}%)")
 				
+				# Проверяем остаток после продажи
+				await self._check_and_cleanup_remaining_balance(symbol, coin)
+				
 				# Удаляем позицию
 				del self.positions[symbol]
 				
@@ -487,11 +490,44 @@ class RealTrader:
 				emoji = "💚" if profit > 0 else "💔"
 				logger.info(f"[REAL_CLOSE] {emoji} {symbol}: {profit:+.2f} ({profit_percent:+.1f}%) | {holding_time} | WR: {win_rate:.1f}%")
 				
-				return trade_info
+		return trade_info
+		
+	except Exception as e:
+		logger.error(f"[REAL_CLOSE] ❌ Ошибка при размещении ордера на продажу: {e}")
+		return None
+	
+	async def _check_and_cleanup_remaining_balance(self, symbol: str, coin: str):
+		"""Проверяет и очищает остатки после продажи позиции"""
+		try:
+			# Получаем текущий баланс монеты
+			remaining_balance = await bybit_trader.get_coin_balance(coin)
+			
+			if remaining_balance > 0:
+				# Получаем текущую цену
+				current_price = await bybit_trader.get_current_price(symbol)
 				
-			except Exception as e:
-				logger.error(f"[REAL_CLOSE] ❌ Ошибка при размещении ордера на продажу: {e}")
-				return None
+				# Рассчитываем стоимость остатка в USDT
+				remaining_value = remaining_balance * current_price
+				
+				logger.info(f"[CLEANUP] 🔍 Остаток {coin}: {remaining_balance:.8f} (${remaining_value:.2f})")
+				
+				# Если остаток больше $0.01, пытаемся его продать
+				if remaining_value > 0.01:
+					logger.info(f"[CLEANUP] 🧹 Продаем остаток {coin}: {remaining_balance:.8f}")
+					
+					try:
+						# Пытаемся продать остаток
+						cleanup_result = await bybit_trader.place_market_order(
+							symbol, "Sell", remaining_balance
+						)
+						logger.info(f"[CLEANUP] ✅ Остаток продан: {cleanup_result['order_id']}")
+					except Exception as e:
+						logger.warning(f"[CLEANUP] ⚠️ Не удалось продать остаток: {e}")
+				else:
+					logger.info(f"[CLEANUP] 💸 Остаток слишком мал (${remaining_value:.4f}), пропускаем")
+					
+		except Exception as e:
+			logger.error(f"[CLEANUP] ❌ Ошибка при очистке остатков: {e}")
 	
 	async def check_positions(self, prices: Dict[str, float], strategy_type: str = None) -> List[Dict[str, Any]]:
 		"""Проверяет все позиции на стоп-лоссы, тейк-профиты и время удержания"""
