@@ -147,6 +147,29 @@ def migrate_real_trading_tables(connection):
     else:
         logger.info("✅ bayesian_pending_signals table already exists")
     
+    # Create bayesian_signal_stats table
+    if 'bayesian_signal_stats' not in existing_tables:
+        logger.info("Creating bayesian_signal_stats table...")
+        connection.execute(text("""
+            CREATE TABLE bayesian_signal_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_signature TEXT NOT NULL UNIQUE,
+                total_signals INTEGER DEFAULT 0,
+                profitable_signals INTEGER DEFAULT 0,
+                losing_signals INTEGER DEFAULT 0,
+                total_profit REAL DEFAULT 0.0,
+                total_loss REAL DEFAULT 0.0,
+                avg_profit REAL DEFAULT 0.0,
+                avg_loss REAL DEFAULT 0.0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        connection.commit()
+        logger.info("✅ bayesian_signal_stats table created")
+    else:
+        logger.info("✅ bayesian_signal_stats table already exists")
+    
     # Create indexes
     logger.info("Creating indexes...")
     indexes = [
@@ -154,7 +177,8 @@ def migrate_real_trading_tables(connection):
         "CREATE INDEX IF NOT EXISTS idx_real_trades_timestamp ON real_trades(timestamp)",
         "CREATE INDEX IF NOT EXISTS idx_real_trades_status ON real_trades(status)",
         "CREATE INDEX IF NOT EXISTS idx_bayesian_pending_signature ON bayesian_pending_signals(signal_signature)",
-        "CREATE INDEX IF NOT EXISTS idx_bayesian_pending_created ON bayesian_pending_signals(created_at)"
+        "CREATE INDEX IF NOT EXISTS idx_bayesian_pending_created ON bayesian_pending_signals(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_bayesian_signature ON bayesian_signal_stats(signal_signature)"
     ]
     
     for index_sql in indexes:
