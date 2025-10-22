@@ -414,3 +414,73 @@ class TelegramRealTrading:
 		)
 		
 		await update.message.reply_text(text, parse_mode="HTML")
+	
+	async def real_cleanup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+		"""Очистка маленьких остатков позиций"""
+		if not self._is_authorized(update):
+			await update.message.reply_text("❌ Доступ запрещен")
+			return
+		
+		if not self._check_real_trader(update):
+			return
+		
+		await update.message.reply_text("🧹 Начинаю очистку остатков...")
+		
+		try:
+			# Получаем все позиции
+			positions = self.bot.real_trader.positions.copy()
+			cleaned_count = 0
+			
+			for symbol, position in positions.items():
+				coin = symbol.replace("USDT", "")
+				
+				# Получаем реальный баланс
+				real_balance = await self.bot.real_trader.bybit_trader.get_coin_balance(coin)
+				
+				if real_balance > 0:
+					# Получаем текущую цену
+					current_price = await self.bot.real_trader.bybit_trader.get_current_price(symbol)
+					remaining_value = real_balance * current_price
+					
+					logger.info(f"[CLEANUP] {coin}: {real_balance:.8f} (${remaining_value:.2f})")
+					
+					# Если остаток больше $0.01, продаем его
+					if remaining_value > 0.01:
+						try:
+							# Принудительно закрываем позицию
+							trade_info = await self.bot.real_trader.close_position(
+								symbol, current_price, "CLEANUP"
+							)
+							
+							if trade_info:
+								cleaned_count += 1
+								logger.info(f"[CLEANUP] ✅ Очищена позиция {symbol}")
+							else:
+								logger.warning(f"[CLEANUP] ⚠️ Не удалось очистить {symbol}")
+								
+						except Exception as e:
+							logger.error(f"[CLEANUP] ❌ Ошибка очистки {symbol}: {e}")
+					else:
+						logger.info(f"[CLEANUP] 💸 {symbol} остаток слишком мал (${remaining_value:.4f})")
+			
+			# Результат
+			if cleaned_count > 0:
+				text = (
+					f"🧹 <b>ОЧИСТКА ЗАВЕРШЕНА</b>\n\n"
+					f"Очищено позиций: {cleaned_count}\n"
+					f"✅ Остатки проданы\n\n"
+					f"Проверьте статус: /real_status"
+				)
+			else:
+				text = (
+					f"🧹 <b>ОЧИСТКА ЗАВЕРШЕНА</b>\n\n"
+					f"Очищено позиций: 0\n"
+					f"💸 Все остатки слишком малы (< $0.01)\n\n"
+					f"Проверьте статус: /real_status"
+				)
+			
+			await update.message.reply_text(text, parse_mode="HTML")
+			
+		except Exception as e:
+			logger.error(f"Ошибка очистки: {e}")
+			await update.message.reply_text(f"❌ Ошибка очистки: {e}")

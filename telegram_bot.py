@@ -214,6 +214,7 @@ class TelegramBot:
 			self.application.add_handler(CommandHandler("real_trades", real_trading.real_trades))
 			self.application.add_handler(CommandHandler("real_limits", real_trading.real_limits))
 			self.application.add_handler(CommandHandler("real_emergency_stop", real_trading.real_emergency_stop))
+			self.application.add_handler(CommandHandler("real_cleanup", real_trading.real_cleanup))
 		
 		# Kelly Criterion и Averaging
 		self.application.add_handler(CommandHandler("kelly_info", self.handlers.kelly_info))
