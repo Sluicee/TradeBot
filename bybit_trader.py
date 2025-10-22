@@ -143,10 +143,9 @@ class BybitTrader:
 				if side == "Sell":
 					# При продаже округляем ВНИЗ до допустимого количества знаков
 					decimals = self._get_symbol_decimals(symbol)
-					rounded_quantity = round(quantity, decimals)
-					# Дополнительно округляем вниз, чтобы не превысить баланс
 					import math
-					rounded_quantity = math.floor(rounded_quantity * (10 ** decimals)) / (10 ** decimals)
+					# Сначала округляем вниз, потом до нужного количества знаков
+					rounded_quantity = math.floor(quantity * (10 ** decimals)) / (10 ** decimals)
 					
 					# Проверяем минимальную сумму (примерно $5)
 					estimated_value = rounded_quantity * (price if price else 1.0)
@@ -236,10 +235,9 @@ class BybitTrader:
 				if side == "Sell":
 					# При продаже округляем ВНИЗ до допустимого количества знаков
 					decimals = self._get_symbol_decimals(symbol)
-					rounded_quantity = round(quantity, decimals)
-					# Дополнительно округляем вниз, чтобы не превысить баланс
 					import math
-					rounded_quantity = math.floor(rounded_quantity * (10 ** decimals)) / (10 ** decimals)
+					# Сначала округляем вниз, потом до нужного количества знаков
+					rounded_quantity = math.floor(quantity * (10 ** decimals)) / (10 ** decimals)
 					logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {price}")
 					
 					response = self.session.place_order(
