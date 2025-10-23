@@ -576,6 +576,20 @@ class RealTrader:
 					if trade_info:
 						actions.append(trade_info)
 					continue
+				
+				# 5. Проверяем малые позиции (< $0.01) для автоматической очистки
+				position_value = position.amount * current_price
+				if position_value < 0.01:
+					logger.info(f"[AUTO_CLEANUP] 💸 {symbol} позиция слишком мала (${position_value:.4f}), удаляем")
+					# Получаем монету из символа
+					coin = symbol.replace("USDT", "")
+					# Проверяем реальный баланс
+					real_balance = await bybit_trader.get_coin_balance(coin)
+					if real_balance <= 0 or (real_balance * current_price) < 0.01:
+						# Удаляем позицию из памяти
+						del self.positions[symbol]
+						logger.info(f"[AUTO_CLEANUP] 🗑️ Удалена позиция {symbol} из базы данных")
+					continue
 					
 			except Exception as e:
 				# Изолируем ошибки отдельных позиций
