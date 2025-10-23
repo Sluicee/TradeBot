@@ -420,6 +420,10 @@ class TelegramBot:
 						
 						logger.debug(f"Сгенерирован сигнал для {symbol}: {signal} (цена: {current_price})")
 						
+						# Логируем сигнал в диагностику
+						from signal_diagnostics import diagnostics
+						diagnostics.log_signal_generation(symbol, result, current_price)
+						
 						# Сохраняем для paper trading
 						current_prices[symbol] = current_price
 						trading_signals[symbol] = result
