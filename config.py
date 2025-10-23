@@ -86,10 +86,10 @@ RANGING_OSCILLATOR_WEIGHT = 2  # Вес осцилляторов во флэте
 TRANSITIONING_TREND_WEIGHT = 2  # Вес трендовых индикаторов при переходе
 TRANSITIONING_OSCILLATOR_WEIGHT = 2  # Вес осцилляторов при переходе
 
-# Пороги голосования для генерации сигнала (v5.6 - оптимизированы для стабильности)
-VOTE_THRESHOLD_TRENDING = 1
-VOTE_THRESHOLD_RANGING = 3
-VOTE_THRESHOLD_TRANSITIONING = 4
+# Пороги голосования для генерации сигнала (ОПТИМИЗИРОВАНО: снижение с 423 до ~75 сигналов/час)
+VOTE_THRESHOLD_TRENDING = 2      # Было 1, стало 2 (снижение с 423 до ~75 сигналов/час)
+VOTE_THRESHOLD_RANGING = 4       # Было 3, стало 4 (снижение с 423 до ~75 сигналов/час)
+VOTE_THRESHOLD_TRANSITIONING = 5 # Было 4, стало 5 (снижение с 423 до ~75 сигналов/час)
 
 # Минимальное количество пройденных фильтров для сигнала
 MIN_FILTERS = 2  # Из 5 возможных фильтров
