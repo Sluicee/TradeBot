@@ -529,6 +529,88 @@ class RealTrader:
 		except Exception as e:
 			logger.error(f"[CLEANUP] ❌ Ошибка при очистке остатков: {e}")
 	
+	async def partial_close_position(
+		self,
+		symbol: str,
+		price: float
+	) -> Optional[Dict[str, Any]]:
+		"""Частично закрывает позицию (тейк-профит) в реальном трейдинге"""
+		if symbol not in self.positions:
+			return None
+			
+		position = self.positions[symbol]
+		
+		if position.partial_closed:
+			return None
+			
+		# Закрываем часть
+		close_amount = position.amount * PARTIAL_CLOSE_PERCENT
+		keep_amount = position.amount - close_amount
+		
+		# Размещаем ордер на частичную продажу
+		async with aiohttp.ClientSession() as session:
+			try:
+				if REAL_ORDER_TYPE == "MARKET":
+					order_result = await bybit_trader.place_market_order(
+						symbol, "Sell", close_amount
+					)
+				else:  # LIMIT
+					limit_price = price * (1 - REAL_LIMIT_ORDER_OFFSET_PERCENT)
+					order_result = await bybit_trader.place_limit_order(
+						symbol, "Sell", close_amount, limit_price
+					)
+				
+				order_id = order_result["order_id"]
+				logger.info(f"[REAL_PARTIAL_TP] ✅ Частичная продажа размещена: {order_id}")
+				
+				# Рассчитываем прибыль для проданной части
+				total_investment = position.total_invested if position.averaging_count > 0 else position.invest_amount
+				partial_invested = total_investment * PARTIAL_CLOSE_PERCENT
+				
+				sell_value = close_amount * price
+				commission = sell_value * COMMISSION_RATE
+				net_value = sell_value - commission
+				profit = net_value - partial_invested
+				profit_percent = ((price - position.average_entry_price) / position.average_entry_price) * 100 if position.average_entry_price > 0 else 0
+				
+				# Обновляем статистику
+				self.stats["total_commission"] += commission
+				self.stats["take_profit_triggers"] += 1
+				
+				# Обновляем позицию
+				position.amount = keep_amount
+				position.partial_closed = True
+				position.max_price = price
+				position.partial_close_profit = profit
+				
+				# Добавляем в историю
+				trade_info = {
+					"type": "PARTIAL-TP",
+					"symbol": symbol,
+					"price": price,
+					"amount": close_amount,
+					"sell_value": net_value,
+					"commission": commission,
+					"profit": profit,
+					"profit_percent": profit_percent,
+					"closed_percent": PARTIAL_CLOSE_PERCENT * 100,
+					"time": datetime.now().isoformat(),
+					"order_id": order_id
+				}
+				self.trades_history.append(trade_info)
+				
+				# Очищаем остатки после частичной продажи
+				coin = symbol.replace("USDT", "")
+				await self._check_and_cleanup_remaining_balance(symbol, coin)
+				
+				logger.info(f"[REAL_PARTIAL_TP] 💎 {symbol}: {profit:+.2f} ({profit_percent:+.1f}%) | Закрыто: {PARTIAL_CLOSE_PERCENT*100:.0f}%")
+				
+				return trade_info
+				
+			except Exception as e:
+				logger.error(f"[REAL_PARTIAL_TP] ❌ Ошибка частичной продажи {symbol}: {e}")
+				return None
+	
 	async def check_positions(self, prices: Dict[str, float], strategy_type: str = None) -> List[Dict[str, Any]]:
 		"""Проверяет все позиции на стоп-лоссы, тейк-профиты и время удержания"""
 		actions = []
@@ -570,9 +652,8 @@ class RealTrader:
 					
 				# 4. Проверяем тейк-профит (частичное закрытие)
 				if position.check_take_profit(current_price):
-					# Для реального трейдинга частичное закрытие сложнее
-					# Пока что закрываем полностью при достижении TP
-					trade_info = await self.close_position(symbol, current_price, "TAKE-PROFIT")
+					# Реализуем частичное закрытие как в paper trading
+					trade_info = await self.partial_close_position(symbol, current_price)
 					if trade_info:
 						actions.append(trade_info)
 					continue
