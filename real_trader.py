@@ -611,6 +611,131 @@ class RealTrader:
 				logger.error(f"[REAL_PARTIAL_TP] ❌ Ошибка частичной продажи {symbol}: {e}")
 				return None
 	
+	async def average_position(
+		self,
+		symbol: str,
+		price: float,
+		signal_strength: int,
+		adx: float,
+		atr: float,
+		reason: str
+	) -> Optional[Dict[str, Any]]:
+		"""
+		Докупает существующую позицию (averaging down/pyramid up) в реальном трейдинге.
+		"""
+		if not ENABLE_AVERAGING:
+			return None
+		
+		if symbol not in self.positions:
+			return None
+		
+		position = self.positions[symbol]
+		
+		# Проверка возможности докупания
+		can_average, mode = position.can_average_down(price, adx)
+		if not can_average:
+			return None
+		
+		# Определение размера докупания
+		if mode == "PYRAMID_UP":
+			# Пирамидинг вверх - размер зависит от силы сигнала
+			size_multiplier = (signal_strength / SIGNAL_STRENGTH_STRONG) if signal_strength > 0 and SIGNAL_STRENGTH_STRONG > 0 else 0.5
+			size_percent = AVERAGING_SIZE_PERCENT * size_multiplier * 0.6  # ~30% от исходного
+			position.pyramid_mode = True
+		else:
+			# Усреднение вниз - фиксированный размер
+			size_percent = AVERAGING_SIZE_PERCENT  # 50% от исходного
+			position.pyramid_mode = False
+		
+		# Рассчитываем сумму докупания
+		original_invest = position.invest_amount  # Исходная инвестиция (без докупаний)
+		new_invest = original_invest * size_percent
+		
+		# Проверка общего риска
+		total_invested_after = position.total_invested + new_invest
+		if total_invested_after > position.invest_amount * MAX_TOTAL_RISK_MULTIPLIER:
+			return None
+		
+		# Проверка баланса на бирже
+		async with aiohttp.ClientSession() as session:
+			try:
+				usdt_balance = await bybit_trader.get_balance()
+				if new_invest > usdt_balance:
+					logger.warning(f"[REAL_AVERAGING] ⚠️ Недостаточно баланса для докупания {symbol}: ${new_invest:.2f} > ${usdt_balance:.2f}")
+					return None
+				
+				# Рассчитываем количество монет для докупания
+				commission = new_invest * COMMISSION_RATE
+				net_invest = new_invest - commission
+				new_amount = net_invest / price
+				
+				# Размещаем ордер на покупку
+				if REAL_ORDER_TYPE == "MARKET":
+					order_result = await bybit_trader.place_market_order(
+						symbol, "Buy", new_amount
+					)
+				else:  # LIMIT
+					limit_price = price * (1 + REAL_LIMIT_ORDER_OFFSET_PERCENT)
+					order_result = await bybit_trader.place_limit_order(
+						symbol, "Buy", new_amount, limit_price
+					)
+				
+				order_id = order_result["order_id"]
+				logger.info(f"[REAL_AVERAGING] ✅ Докупание размещено: {order_id}")
+				
+				# Обновляем позицию
+				old_total_invested = position.total_invested
+				old_amount = position.amount
+				old_avg_price = position.average_entry_price
+				
+				# Новые значения
+				position.total_invested += new_invest
+				position.amount += new_amount
+				position.averaging_count += 1
+				position.average_entry_price = (old_avg_price * old_amount + price * new_amount) / position.amount
+				
+				# Добавляем запись о докупании
+				averaging_entry = {
+					"time": datetime.now().isoformat(),
+					"price": price,
+					"amount": new_amount,
+					"invest": new_invest,
+					"commission": commission,
+					"mode": mode,
+					"signal_strength": signal_strength,
+					"adx": adx,
+					"reason": reason
+				}
+				position.averaging_entries.append(averaging_entry)
+				
+				# Обновляем статистику
+				self.stats["total_commission"] += commission
+				self.stats["averaging_triggers"] = self.stats.get("averaging_triggers", 0) + 1
+				
+				# Добавляем в историю
+				trade_info = {
+					"type": "AVERAGING",
+					"symbol": symbol,
+					"price": price,
+					"amount": new_amount,
+					"invest": new_invest,
+					"commission": commission,
+					"mode": mode,
+					"averaging_count": position.averaging_count,
+					"new_avg_price": position.average_entry_price,
+					"time": datetime.now().isoformat(),
+					"order_id": order_id
+				}
+				self.trades_history.append(trade_info)
+				
+				logger.info(f"[REAL_AVERAGING] 📈 {symbol}: {mode} | Цена: ${price:.4f} | Количество: {new_amount:.6f} | Средняя: ${position.average_entry_price:.4f}")
+				
+				return trade_info
+				
+			except Exception as e:
+				logger.error(f"[REAL_AVERAGING] ❌ Ошибка докупания {symbol}: {e}")
+				return None
+	
 	async def check_positions(self, prices: Dict[str, float], strategy_type: str = None) -> List[Dict[str, Any]]:
 		"""Проверяет все позиции на стоп-лоссы, тейк-профиты и время удержания"""
 		actions = []

@@ -723,6 +723,39 @@ class TelegramBot:
 							except Exception as e:
 								logger.error(f"Ошибка реальной продажи {symbol}: {e}")
 								all_messages.append(f"❌ Ошибка реальной продажи {symbol}: {e}")
+						
+						# BUY сигнал для существующей позиции - проверяем докупание
+						elif signal == "BUY" and symbol in self.real_trader.positions:
+							try:
+								# Получаем ADX для проверки пирамидинга
+								adx = result.get("ADX", 0.0)
+								
+								# Пытаемся докупить позицию
+								trade_info = await self.real_trader.average_position(
+									symbol=symbol,
+									price=price,
+									signal_strength=signal_strength,
+									adx=adx,
+									atr=atr,
+									reason="BUY_SIGNAL"
+								)
+								
+								if trade_info:
+									mode_emoji = "📈" if trade_info['mode'] == "PYRAMID_UP" else "📉"
+									msg = (
+										f"{mode_emoji} <b>РЕАЛЬНОЕ ДОКУПАНИЕ</b> {symbol} ({trade_info['mode']})\n"
+										f"  Цена: {self.handlers.formatters.format_price(price)}\n"
+										f"  Вложено: ${trade_info['invest']:.2f} ({trade_info['amount']:.6f} монет)\n"
+										f"  Новая средняя: ${trade_info['new_avg_price']:.4f}\n"
+										f"  Докупаний: {trade_info['averaging_count']}\n"
+										f"  Order ID: {trade_info.get('order_id', 'N/A')}\n"
+										f"  ⚠️ РЕАЛЬНЫЕ ДЕНЬГИ!"
+									)
+									all_messages.append(msg)
+									self.real_trader.save_state()
+							except Exception as e:
+								logger.error(f"Ошибка докупания {symbol}: {e}")
+								# Не добавляем в сообщения, так как это не критическая ошибка
 			
 			# Отправляем все накопленные сообщения одним батчем
 			if all_messages:
