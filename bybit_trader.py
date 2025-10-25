@@ -156,17 +156,17 @@ class BybitTrader:
 					# Округляем до правильного количества знаков
 					rounded_quantity = round(quantity, decimals)
 					
-					# Если округление дало 0, используем минимальное количество
+					# Если округление дало 0, используем реальное количество
 					if rounded_quantity <= 0:
-						rounded_quantity = 10 ** (-decimals)  # Минимальное количество для данного символа
-						logger.warning(f"[BYBIT_WARNING] ⚠️ Округление дало 0, используем минимум: {rounded_quantity}")
+						rounded_quantity = quantity  # Используем исходное количество
+						logger.warning(f"[BYBIT_WARNING] ⚠️ Округление дало 0, используем исходное: {rounded_quantity}")
 					
 					# Если округленное количество больше исходного, используем floor
 					if rounded_quantity > quantity:
 						rounded_quantity = math.floor(quantity * (10 ** decimals)) / (10 ** decimals)
 						# Проверяем, что floor не дал 0
 						if rounded_quantity <= 0:
-							rounded_quantity = 10 ** (-decimals)
+							rounded_quantity = quantity  # Используем исходное количество
 					
 					logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
 					
