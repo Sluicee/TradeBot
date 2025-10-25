@@ -399,6 +399,30 @@ class RealTrader:
 			logger.warning(f"[REAL_CLOSE] ⚠️ Несоответствие: позиция={position.amount:.8f}, баланс={real_balance:.8f}")
 			logger.info(f"[REAL_CLOSE] 🔧 Используем реальный баланс: {sell_amount:.8f}")
 		
+		# Проверяем размер позиции перед закрытием
+		position_value = sell_amount * price
+		if position_value < REAL_MIN_ORDER_VALUE:
+			if position_value < 1.0:
+				# Принудительно закрываем малые позиции (< $1)
+				logger.warning(f"[FORCE_CLOSE] 💸 Принудительное закрытие малой позиции {symbol}: ${position_value:.2f}")
+				# Удаляем позицию из памяти без ордера на бирже
+				del self.positions[symbol]
+				logger.info(f"[FORCE_CLOSE] 🗑️ Позиция {symbol} удалена из памяти (слишком мала)")
+				return {
+					"type": "FORCE-CLOSE",
+					"symbol": symbol,
+					"price": price,
+					"amount": sell_amount,
+					"profit": 0.0,
+					"profit_percent": 0.0,
+					"reason": reason,
+					"time": datetime.now().isoformat()
+				}
+			else:
+				# Позиция слишком мала для ордера, но не критично
+				logger.warning(f"[REAL_CLOSE] ⚠️ Позиция {symbol} слишком мала для ордера: ${position_value:.2f} < ${REAL_MIN_ORDER_VALUE}")
+				return None
+		
 		# Размещаем ордер на продажу
 		async with aiohttp.ClientSession() as session:
 			try:

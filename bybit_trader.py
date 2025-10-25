@@ -159,11 +159,17 @@ class BybitTrader:
 						# Округление вверх может превысить баланс - используем floor
 						rounded_quantity = math.floor(quantity * (10 ** decimals)) / (10 ** decimals)
 					
-					# Проверяем минимальную сумму (примерно $5)
+					# Проверяем минимальную сумму
 					estimated_value = rounded_quantity * (price if price else 1.0)
-					if estimated_value < 5.0:
-						logger.warning(f"Order value too small: ${estimated_value:.2f} < $5.0, skipping {symbol}")
-						raise ValueError(f"Order value too small: ${estimated_value:.2f}")
+					if estimated_value < REAL_MIN_ORDER_VALUE:
+						# Для малых позиций (< $1) принудительно закрываем
+						if estimated_value < 1.0:
+							logger.warning(f"[FORCE_CLOSE] 💸 Принудительное закрытие малой позиции: ${estimated_value:.2f} < $1.0")
+							# Используем минимальное количество для закрытия
+							rounded_quantity = 0.000001  # Минимальное количество
+						else:
+							logger.warning(f"Order value too small: ${estimated_value:.2f} < ${REAL_MIN_ORDER_VALUE}, skipping {symbol}")
+							raise ValueError(f"Order value too small: ${estimated_value:.2f}")
 					
 					logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
 					
