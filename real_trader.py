@@ -402,26 +402,21 @@ class RealTrader:
 		# Проверяем размер позиции перед закрытием
 		position_value = sell_amount * price
 		if position_value < REAL_MIN_ORDER_VALUE:
-			if position_value < 1.0:
-				# Принудительно закрываем малые позиции (< $1)
-				logger.warning(f"[FORCE_CLOSE] 💸 Принудительное закрытие малой позиции {symbol}: ${position_value:.2f}")
-				# Удаляем позицию из памяти без ордера на бирже
-				del self.positions[symbol]
-				logger.info(f"[FORCE_CLOSE] 🗑️ Позиция {symbol} удалена из памяти (слишком мала)")
-				return {
-					"type": "FORCE-CLOSE",
-					"symbol": symbol,
-					"price": price,
-					"amount": sell_amount,
-					"profit": 0.0,
-					"profit_percent": 0.0,
-					"reason": reason,
-					"time": datetime.now().isoformat()
-				}
-			else:
-				# Позиция слишком мала для ордера, но не критично
-				logger.warning(f"[REAL_CLOSE] ⚠️ Позиция {symbol} слишком мала для ордера: ${position_value:.2f} < ${REAL_MIN_ORDER_VALUE}")
-				return None
+			# Принудительно закрываем позиции меньше минимума
+			logger.warning(f"[FORCE_CLOSE] 💸 Принудительное закрытие позиции {symbol}: ${position_value:.2f} < ${REAL_MIN_ORDER_VALUE}")
+			# Удаляем позицию из памяти без ордера на бирже
+			del self.positions[symbol]
+			logger.info(f"[FORCE_CLOSE] 🗑️ Позиция {symbol} удалена из памяти (слишком мала для ордера)")
+			return {
+				"type": "FORCE-CLOSE",
+				"symbol": symbol,
+				"price": price,
+				"amount": sell_amount,
+				"profit": 0.0,
+				"profit_percent": 0.0,
+				"reason": reason,
+				"time": datetime.now().isoformat()
+			}
 		
 		# Размещаем ордер на продажу
 		async with aiohttp.ClientSession() as session:
@@ -570,6 +565,13 @@ class RealTrader:
 		# Закрываем часть
 		close_amount = position.amount * PARTIAL_CLOSE_PERCENT
 		keep_amount = position.amount - close_amount
+		
+		# Проверяем размер частичной продажи
+		close_value = close_amount * price
+		if close_value < REAL_MIN_ORDER_VALUE:
+			# Частичная продажа слишком мала, закрываем всю позицию
+			logger.warning(f"[PARTIAL_CLOSE] ⚠️ Частичная продажа слишком мала (${close_value:.2f}), закрываем всю позицию")
+			return await self.close_position(symbol, price, "PARTIAL_TOO_SMALL")
 		
 		# Размещаем ордер на частичную продажу
 		async with aiohttp.ClientSession() as session:
