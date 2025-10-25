@@ -430,8 +430,22 @@ class TelegramBot:
 
 						last = self.last_signals.get(symbol)
 						if last != signal:
-							text = self.handlers.formatters.format_analysis(result, symbol, self.default_interval)
-							all_messages.append(text)
+							# НОВОЕ: Отправляем только подтвержденные сигналы в Telegram
+							# Проверяем подтверждение сигнала для Real Trading
+							if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
+								# Проверяем, подтвержден ли сигнал
+								if self.real_trader.check_signal_confirmation(symbol, signal, min_confirmations=3):
+									text = self.handlers.formatters.format_analysis(result, symbol, self.default_interval)
+									all_messages.append(text)
+									logger.info(f"[TELEGRAM] ✅ {symbol}: отправляем подтвержденный сигнал {signal}")
+								else:
+									logger.debug(f"[TELEGRAM] ⏳ {symbol}: сигнал {signal} еще не подтвержден, пропускаем")
+							else:
+								# Для Paper Trading отправляем все сигналы как раньше
+								text = self.handlers.formatters.format_analysis(result, symbol, self.default_interval)
+								all_messages.append(text)
+								logger.info(f"[TELEGRAM] 📊 {symbol}: отправляем сигнал {signal} (Paper Trading)")
+							
 							self.last_signals[symbol] = signal
 							log_signal(symbol, self.default_interval, signal, result["reasons"], result["price"])
 							logger.info("Сигнал %s: %s", symbol, signal)
