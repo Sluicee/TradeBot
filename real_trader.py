@@ -384,7 +384,6 @@ class RealTrader:
 		position = self.positions[symbol]
 		
 		logger.info(f"[REAL_CLOSE] 📊 Вход: ${position.entry_price:.4f}, Количество: {position.amount:.6f}")
-		logger.info(f"[REAL_CLOSE] 🔍 DEBUG: Передаем в place_market_order: symbol={symbol}, side=Sell, quantity={sell_amount:.8f}, price={price:.4f}")
 		
 		# Получаем реальный баланс монет с биржи
 		coin = symbol.replace("USDT", "")
@@ -395,6 +394,8 @@ class RealTrader:
 		
 		# Используем реальный баланс, если он больше 0
 		sell_amount = real_balance if real_balance > 0 else position.amount
+		
+		logger.info(f"[REAL_CLOSE] 🔍 DEBUG: Передаем в place_market_order: symbol={symbol}, side=Sell, quantity={sell_amount:.8f}, price={price:.4f}")
 		
 		if real_balance > 0 and abs(real_balance - position.amount) > 0.001:
 			logger.warning(f"[REAL_CLOSE] ⚠️ Несоответствие: позиция={position.amount:.8f}, баланс={real_balance:.8f}")
