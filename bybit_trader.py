@@ -503,18 +503,11 @@ class BybitTrader:
 		try:
 			self._check_session()
 			
-			# Определяем список монет для запроса
-			if required_coins:
-				# Используем переданный список (например, из открытых позиций)
-				coins_to_check = list(set(required_coins + ["USDT"]))  # Всегда включаем USDT
-			else:
-				# Fallback к популярным монетам
-				coins_to_check = ["USDT", "BTC", "ETH", "BNB", "ADA", "XRP", "SOL", "DOGE", "MATIC", "AVAX"]
+			logger.debug(f"[BULK_BALANCES] Запрашиваем ВСЕ балансы (без фильтрации по монетам)")
 			
-			logger.debug(f"[BULK_BALANCES] Запрашиваем балансы для: {coins_to_check}")
-			
-			# Получаем балансы для указанных монет
-			balances = self.session.get_coins_balance(accountType="UNIFIED", coin=coins_to_check)
+			# Получаем ВСЕ балансы без фильтрации по монетам
+			# Bybit API не поддерживает фильтрацию по списку монет
+			balances = self.session.get_coins_balance(accountType="UNIFIED")
 			
 			if balances.get("retCode") != 0:
 				error_msg = balances.get("retMsg", "Unknown error")
