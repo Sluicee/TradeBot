@@ -384,6 +384,7 @@ class RealTrader:
 		position = self.positions[symbol]
 		
 		logger.info(f"[REAL_CLOSE] 📊 Вход: ${position.entry_price:.4f}, Количество: {position.amount:.6f}")
+		logger.info(f"[REAL_CLOSE] 🔍 DEBUG: Передаем в place_market_order: symbol={symbol}, side=Sell, quantity={sell_amount:.8f}, price={price:.4f}")
 		
 		# Получаем реальный баланс монет с биржи
 		coin = symbol.replace("USDT", "")

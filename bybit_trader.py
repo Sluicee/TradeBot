@@ -125,6 +125,7 @@ class BybitTrader:
 		"""Размещает рыночный ордер"""
 		try:
 			self._check_session()
+			logger.info(f"[BYBIT_DEBUG] 🚀 place_market_order вызван: symbol={symbol}, side={side}, quantity={quantity:.8f}, price={price}")
 			
 			# Для spot торговли нужно передавать сумму в USDT, а не количество монет
 			if price is not None:
