@@ -499,36 +499,62 @@ class BybitTrader:
 			raise
 	
 	def get_all_balances(self, required_coins: List[str] = None) -> Dict[str, float]:
-		"""Получает балансы всех монет одним запросом"""
+		"""Получает балансы всех монет одним запросом (с пакетной обработкой для >10 монет)"""
 		try:
 			self._check_session()
 			
-			# Определяем список монет для запроса (максимум 10)
+			# Определяем список монет для запроса
 			if required_coins:
-				# Ограничиваем до 10 монет (лимит Bybit API)
-				coins_to_check = list(set(required_coins + ["USDT"]))[:10]
+				# Добавляем USDT и убираем дубликаты
+				all_coins = list(set(required_coins + ["USDT"]))
 			else:
-				# Fallback к популярным монетам (максимум 10)
-				coins_to_check = ["USDT", "BTC", "ETH", "BNB", "ADA", "XRP", "SOL", "DOGE", "MATIC", "AVAX"]
+				# Fallback к популярным монетам
+				all_coins = ["USDT", "BTC", "ETH", "BNB", "ADA", "XRP", "SOL", "DOGE", "MATIC", "AVAX"]
 			
-			logger.debug(f"[BULK_BALANCES] Запрашиваем балансы для: {coins_to_check} (лимит 10 монет)")
+			# Если монет <= 10, делаем один запрос
+			if len(all_coins) <= 10:
+				logger.debug(f"[BULK_BALANCES] Запрашиваем балансы для: {all_coins} (≤10 монет)")
+				balances = self.session.get_coins_balance(accountType="UNIFIED", coin=all_coins)
+				
+				if balances.get("retCode") != 0:
+					error_msg = balances.get("retMsg", "Unknown error")
+					logger.error(f"Bybit API error getting all balances: {error_msg}")
+					raise Exception(f"Bybit API error: {error_msg}")
+				
+				balance_dict = {}
+				for coin in balances["result"]["list"]:
+					coin_name = coin["coin"]
+					balance = float(coin["walletBalance"])
+					balance_dict[coin_name] = balance
+				
+				logger.debug(f"Retrieved balances for {len(balance_dict)} coins")
+				return balance_dict
 			
-			# Получаем балансы для указанных монет (максимум 10)
-			balances = self.session.get_coins_balance(accountType="UNIFIED", coin=coins_to_check)
-			
-			if balances.get("retCode") != 0:
-				error_msg = balances.get("retMsg", "Unknown error")
-				logger.error(f"Bybit API error getting all balances: {error_msg}")
-				raise Exception(f"Bybit API error: {error_msg}")
-			
-			balance_dict = {}
-			for coin in balances["result"]["list"]:
-				coin_name = coin["coin"]
-				balance = float(coin["walletBalance"])
-				balance_dict[coin_name] = balance
-			
-			logger.debug(f"Retrieved balances for {len(balance_dict)} coins")
-			return balance_dict
+			# Если монет > 10, разбиваем на пакеты по 10
+			else:
+				logger.debug(f"[BULK_BALANCES] Монет >10 ({len(all_coins)}), разбиваем на пакеты по 10")
+				balance_dict = {}
+				
+				# Разбиваем на пакеты по 10 монет
+				for i in range(0, len(all_coins), 10):
+					batch = all_coins[i:i+10]
+					logger.debug(f"[BULK_BALANCES] Пакет {i//10 + 1}: {batch}")
+					
+					balances = self.session.get_coins_balance(accountType="UNIFIED", coin=batch)
+					
+					if balances.get("retCode") != 0:
+						error_msg = balances.get("retMsg", "Unknown error")
+						logger.error(f"Bybit API error getting batch {i//10 + 1}: {error_msg}")
+						continue  # Пропускаем проблемный пакет
+					
+					# Добавляем результаты в общий словарь
+					for coin in balances["result"]["list"]:
+						coin_name = coin["coin"]
+						balance = float(coin["walletBalance"])
+						balance_dict[coin_name] = balance
+				
+				logger.debug(f"Retrieved balances for {len(balance_dict)} coins from {len(all_coins)} requested")
+				return balance_dict
 			
 		except Exception as e:
 			logger.error(f"Error getting all balances: {e}")
