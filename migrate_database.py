@@ -9,6 +9,35 @@ from sqlalchemy import text, create_engine
 from logger import logger
 
 
+def migrate_tracked_symbols(connection):
+    """Add new columns to tracked_symbols table"""
+    
+    logger.info("🔄 Migrating tracked_symbols table...")
+    
+    # Check existing columns
+    result = connection.execute(text("PRAGMA table_info(tracked_symbols)"))
+    existing_columns = [row[1] for row in result.fetchall()]
+    
+    # New columns to add
+    new_columns = [
+        ("min_order_value", "REAL"),
+        ("min_order_qty", "REAL"), 
+        ("price_decimals", "INTEGER"),
+        ("qty_decimals", "INTEGER"),
+        ("last_info_update", "DATETIME")
+    ]
+    
+    for column_name, column_type in new_columns:
+        if column_name not in existing_columns:
+            logger.info(f"➕ Adding column: {column_name}")
+            connection.execute(text(f"ALTER TABLE tracked_symbols ADD COLUMN {column_name} {column_type}"))
+        else:
+            logger.info(f"✅ Column already exists: {column_name}")
+    
+    connection.commit()
+    logger.info("✅ tracked_symbols migration completed")
+
+
 def migrate_real_trading_tables(connection):
     """Create Real Trading tables if they don't exist"""
     
@@ -211,7 +240,11 @@ def migrate_database():
             logger.info("Checking Real Trading tables...")
             migrate_real_trading_tables(connection)
             
-            # 2. Check and add missing columns to trades_history
+            # 2. Migrate tracked_symbols table
+            logger.info("Migrating tracked_symbols table...")
+            migrate_tracked_symbols(connection)
+            
+            # 3. Check and add missing columns to trades_history
             # Check if columns exist
             result = connection.execute(text("""
                 SELECT COUNT(*) as count 
