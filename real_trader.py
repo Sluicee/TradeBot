@@ -718,6 +718,10 @@ class RealTrader:
 				position.averaging_count += 1
 				position.average_entry_price = (old_avg_price * old_amount + price * new_amount) / position.amount
 				
+				# ВАЖНО: Обновляем TP от новой средней цены
+				position.take_profit_price = position.average_entry_price * (1 + TAKE_PROFIT_PERCENT)
+				logger.info(f"[REAL_AVERAGING] 📈 {symbol}: TP обновлен до ${position.take_profit_price:.4f} (от средней ${position.average_entry_price:.4f})")
+				
 				# Добавляем запись о докупании
 				averaging_entry = {
 					"time": datetime.now().isoformat(),
@@ -800,12 +804,19 @@ class RealTrader:
 					continue
 					
 				# 4. Проверяем тейк-профит (частичное закрытие)
-				if position.check_take_profit(current_price):
+				# Отладочная информация для TP
+				tp_triggered = position.check_take_profit(current_price)
+				if tp_triggered:
+					logger.info(f"[TP_CHECK] 💎 {symbol}: TP сработал! Цена: ${current_price:.4f} >= TP: ${position.take_profit_price:.4f}")
 					# Реализуем частичное закрытие как в paper trading
 					trade_info = await self.partial_close_position(symbol, current_price)
 					if trade_info:
 						actions.append(trade_info)
 					continue
+				else:
+					# Логируем состояние TP для отладки
+					if current_price > position.average_entry_price * 1.05:  # Если прибыль > 5%
+						logger.debug(f"[TP_CHECK] 🔍 {symbol}: Цена ${current_price:.4f}, TP ${position.take_profit_price:.4f}, Средняя ${position.average_entry_price:.4f}")
 				
 				# 5. Проверяем малые позиции (< $0.01) для автоматической очистки
 				position_value = position.amount * current_price
