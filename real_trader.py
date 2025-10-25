@@ -355,6 +355,12 @@ class RealTrader:
 				# Сохраняем в БД
 				try:
 					db.add_real_trade(trade_info)
+					# Сохраняем позицию в БД
+					pos_data = position.to_dict()
+					if isinstance(pos_data.get("entry_time"), str):
+						pos_data["entry_time"] = datetime.fromisoformat(pos_data["entry_time"])
+					db.save_position(pos_data)
+					logger.info(f"[REAL_OPEN] 💾 Позиция {symbol} сохранена в БД")
 				except Exception as e:
 					logger.error(f"[REAL_OPEN] ❌ Ошибка сохранения сделки в БД: {e}")
 				
@@ -415,6 +421,14 @@ class RealTrader:
 			logger.warning(f"[FORCE_CLOSE] 💸 Принудительное закрытие позиции {symbol}: ${position_value:.2f} < ${REAL_MIN_ORDER_VALUE}")
 			# Удаляем позицию из памяти без ордера на бирже
 			del self.positions[symbol]
+			
+			# Удаляем позицию из БД
+			try:
+				db.delete_position(symbol)
+				logger.info(f"[FORCE_CLOSE] 💾 Позиция {symbol} удалена из БД")
+			except Exception as e:
+				logger.error(f"[FORCE_CLOSE] ❌ Ошибка удаления позиции из БД: {e}")
+			
 			logger.info(f"[FORCE_CLOSE] 🗑️ Позиция {symbol} удалена из памяти (слишком мала для ордера)")
 			return {
 				"type": "FORCE-CLOSE",
@@ -513,6 +527,13 @@ class RealTrader:
 				
 				# Удаляем позицию
 				del self.positions[symbol]
+				
+				# Удаляем позицию из БД
+				try:
+					db.delete_position(symbol)
+					logger.info(f"[REAL_CLOSE] 💾 Позиция {symbol} удалена из БД")
+				except Exception as e:
+					logger.error(f"[REAL_CLOSE] ❌ Ошибка удаления позиции из БД: {e}")
 				
 				# Краткий лог результата
 				emoji = "💚" if profit > 0 else "💔"
@@ -841,6 +862,14 @@ class RealTrader:
 					if real_balance <= 0 or (real_balance * current_price) < 0.01:
 						# Удаляем позицию из памяти
 						del self.positions[symbol]
+						
+						# Удаляем позицию из БД
+						try:
+							db.delete_position(symbol)
+							logger.info(f"[AUTO_CLEANUP] 💾 Позиция {symbol} удалена из БД")
+						except Exception as e:
+							logger.error(f"[AUTO_CLEANUP] ❌ Ошибка удаления позиции из БД: {e}")
+						
 						logger.info(f"[AUTO_CLEANUP] 🗑️ Удалена позиция {symbol} из базы данных")
 					continue
 					
