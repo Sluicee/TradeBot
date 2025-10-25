@@ -47,7 +47,11 @@ class BybitTrader:
 			raise Exception("BybitTrader не инициализирован. Проверьте API ключи.")
 	
 	def _get_symbol_decimals(self, symbol: str) -> int:
-		"""Определяет количество знаков после запятой для символа"""
+		"""Определяет количество знаков после запятой для символа (использует API)"""
+		return self._get_symbol_decimals_from_api(symbol)
+	
+	def _get_symbol_decimals_fallback(self, symbol: str) -> int:
+		"""Fallback метод с хардкодом для популярных символов"""
 		# Основные правила для популярных символов
 		symbol_decimals = {
 			"BTCUSDT": 5,
@@ -463,6 +467,41 @@ class BybitTrader:
 				logger.info(f"Using testnet simulation for {symbol} price")
 				return 1.0  # Симуляция
 			raise
+	
+	def _get_symbol_decimals_from_api(self, symbol: str) -> int:
+		"""Получает количество знаков после запятой для символа из Bybit API"""
+		try:
+			if not self.session:
+				# Fallback к хардкоду если сессия не инициализирована
+				return self._get_symbol_decimals_fallback(symbol)
+			
+			# Получаем информацию о символах
+			response = self.session.get_instruments_info(category="spot")
+			
+			if response.get("retCode") != 0:
+				logger.warning(f"[BYBIT_API] Ошибка получения информации о символах: {response.get('retMsg')}")
+				return self._get_symbol_decimals_fallback(symbol)
+			
+			# Ищем наш символ
+			instruments = response.get("result", {}).get("list", [])
+			for instrument in instruments:
+				if instrument.get("symbol") == symbol:
+					lot_size_filter = instrument.get("lotSizeFilter", {})
+					base_precision = lot_size_filter.get("basePrecision", "0.000001")
+					
+					# Конвертируем строку в количество знаков
+					# Например: "0.000001" -> 6 знаков
+					if "." in base_precision:
+						decimals = len(base_precision.split(".")[1])
+						logger.debug(f"[BYBIT_API] {symbol}: {base_precision} -> {decimals} знаков")
+						return decimals
+			
+			logger.warning(f"[BYBIT_API] Символ {symbol} не найден в API")
+			return self._get_symbol_decimals_fallback(symbol)
+			
+		except Exception as e:
+			logger.warning(f"[BYBIT_API] Ошибка получения decimals для {symbol}: {e}")
+			return self._get_symbol_decimals_fallback(symbol)
 
 
 # Глобальный экземпляр для использования в других модулях
