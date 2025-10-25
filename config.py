@@ -373,9 +373,22 @@ logger.info(f"Config: BYBIT_API_SECRET loaded = {BYBIT_API_SECRET is not None}")
 # Real Trading Safety Limits
 REAL_MAX_DAILY_LOSS = 50.0  # Макс убыток в день (USD)
 REAL_MAX_POSITION_SIZE = 100.0  # Макс размер позиции (USD)
-REAL_MIN_ORDER_VALUE = 5.0  # Минимальная сумма ордера (USD) для spot торговли
+REAL_MIN_ORDER_VALUE = 1.0  # Минимальная сумма ордера (USD) для spot торговли (обновлено с 5.0)
 REAL_ORDER_TYPE = "MARKET"  # "MARKET" или "LIMIT"
 REAL_LIMIT_ORDER_OFFSET_PERCENT = 0.001  # 0.1% оффсет для лимитных ордеров
+
+# ====================================================================
+# МАЛЫЕ БАЛАНСЫ - АДАПТИВНЫЙ РАСЧЕТ РАЗМЕРА ПОЗИЦИЙ
+# ====================================================================
+
+# Пороги для малых балансов
+SMALL_BALANCE_THRESHOLD = 50.0  # Порог малого баланса (USD)
+SMALL_BALANCE_MIN_ORDER = 5.0  # Минимум для малых балансов (USD)
+SMALL_BALANCE_POSITION_MULTIPLIER = 1.2  # Увеличенный процент для малых балансов
+
+# Динамические минимумы для торговых пар
+USE_DYNAMIC_MIN_ORDER = True  # Использовать минимумы из БД для каждой пары
+SYMBOL_INFO_UPDATE_HOURS = 24  # Обновлять информацию о парах раз в сутки
 
 # ====================================================================
 # ДИНАМИЧЕСКИЙ РАСЧЕТ MAX_POSITIONS

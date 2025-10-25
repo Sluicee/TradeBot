@@ -21,7 +21,9 @@ from config import (
 	# Real Trading configs
 	REAL_MAX_DAILY_LOSS, REAL_MAX_POSITION_SIZE,
 	REAL_ORDER_TYPE, REAL_LIMIT_ORDER_OFFSET_PERCENT, REAL_MIN_ORDER_VALUE,
-	get_dynamic_max_positions
+	get_dynamic_max_positions,
+	# Small Balance Settings
+	SMALL_BALANCE_THRESHOLD
 )
 
 # Импорты из новых модулей
@@ -248,27 +250,37 @@ class RealTrader:
 					logger.error(f"[REAL_OPEN] ❌ {symbol}: недостаточно USDT баланса (${usdt_balance:.2f})")
 					return None
 				
-				# Рассчитываем Kelly multiplier
+				# Рассчитываем Kelly multiplier (отключен для малых балансов)
 				atr_percent = (atr / price) * 100 if atr > 0 and price > 0 else 1.5
-				kelly_multiplier = calculate_kelly_fraction(self.trades_history, atr_percent)
+				kelly_multiplier = calculate_kelly_fraction(self.trades_history, atr_percent, usdt_balance)
 				
 				# Используем переданный position_size_percent или рассчитываем
 				if position_size_percent is None:
-					position_size_percent = get_position_size_percent(signal_strength, atr, price, kelly_multiplier)
+					position_size_percent = get_position_size_percent(
+						signal_strength, atr, price, kelly_multiplier, usdt_balance, symbol
+					)
+				
+				# Получаем минимальную сумму для символа
+				min_order_value = bybit_trader.get_min_order_value(symbol)
 				
 				# Ограничиваем размер позиции лимитами безопасности
 				invest_amount = min(usdt_balance * position_size_percent, REAL_MAX_POSITION_SIZE)
 				
 				# Адаптивный расчет для малых балансов
+				# Логируем режим расчета
+				if usdt_balance < SMALL_BALANCE_THRESHOLD:
+					logger.info(f"[REAL_OPEN] 🔧 Малый баланс режим: ${usdt_balance:.2f} < ${SMALL_BALANCE_THRESHOLD}")
+					logger.info(f"[REAL_OPEN] 📊 Рассчитано: ${invest_amount:.2f} ({position_size_percent*100:.1f}%)")
+				
 				# Если рассчитанная сумма меньше минимального лимита Bybit, используем минимальную сумму
-				if invest_amount < REAL_MIN_ORDER_VALUE and usdt_balance >= REAL_MIN_ORDER_VALUE:
-					# Используем минимальную сумму Bybit ($10) только если процентный расчет дал меньше
-					invest_amount = REAL_MIN_ORDER_VALUE
+				if invest_amount < min_order_value and usdt_balance >= min_order_value:
+					# Используем минимальную сумму для символа только если процентный расчет дал меньше
+					invest_amount = min_order_value
 					position_size_percent = invest_amount / usdt_balance
-					logger.info(f"[REAL_OPEN] 🔧 Адаптивный расчет: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) - минимальная сумма Bybit")
-				elif invest_amount < REAL_MIN_ORDER_VALUE and usdt_balance < REAL_MIN_ORDER_VALUE:
+					logger.info(f"[REAL_OPEN] 🔧 Адаптивный расчет: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) - минимальная сумма для {symbol}")
+				elif invest_amount < min_order_value and usdt_balance < min_order_value:
 					# Если баланс меньше минимальной суммы, пропускаем
-					logger.warning(f"[REAL_OPEN] ❌ {symbol}: баланс ${usdt_balance:.2f} < минимальной суммы ${REAL_MIN_ORDER_VALUE}")
+					logger.warning(f"[REAL_OPEN] ❌ {symbol}: баланс ${usdt_balance:.2f} < минимальной суммы ${min_order_value:.2f}")
 					return None
 				
 				if invest_amount <= 0:
@@ -416,9 +428,11 @@ class RealTrader:
 		
 		# Проверяем размер позиции перед закрытием
 		position_value = sell_amount * price
-		if position_value < REAL_MIN_ORDER_VALUE:
-			# Принудительно закрываем позиции меньше минимума
-			logger.warning(f"[FORCE_CLOSE] 💸 Принудительное закрытие позиции {symbol}: ${position_value:.2f} < ${REAL_MIN_ORDER_VALUE}")
+		# Используем более мягкий порог для принудительного закрытия (50% от минимума)
+		force_close_threshold = REAL_MIN_ORDER_VALUE * 0.5
+		if position_value < force_close_threshold:
+			# Принудительно закрываем только очень маленькие позиции
+			logger.warning(f"[FORCE_CLOSE] 💸 Принудительное закрытие позиции {symbol}: ${position_value:.2f} < ${force_close_threshold:.2f}")
 			# Удаляем позицию из памяти без ордера на бирже
 			del self.positions[symbol]
 			
@@ -561,7 +575,9 @@ class RealTrader:
 				logger.info(f"[CLEANUP] 🔍 Остаток {coin}: {remaining_balance:.8f} (${remaining_value:.2f})")
 				
 				# Если остаток больше минимума, пытаемся его продать
-				if remaining_value >= REAL_MIN_ORDER_VALUE:
+				# Используем более мягкий порог для cleanup (50% от минимума)
+				cleanup_threshold = REAL_MIN_ORDER_VALUE * 0.5
+				if remaining_value >= cleanup_threshold:
 					logger.info(f"[CLEANUP] 🧹 Продаем остаток {coin}: {remaining_balance:.8f}")
 					
 					try:
@@ -598,7 +614,9 @@ class RealTrader:
 		
 		# Проверяем размер частичной продажи
 		close_value = close_amount * price
-		if close_value < REAL_MIN_ORDER_VALUE:
+		# Используем более мягкий порог для частичной продажи (50% от минимума)
+		partial_threshold = REAL_MIN_ORDER_VALUE * 0.5
+		if close_value < partial_threshold:
 			# Частичная продажа слишком мала, закрываем всю позицию
 			logger.warning(f"[PARTIAL_CLOSE] ⚠️ Частичная продажа слишком мала (${close_value:.2f}), закрываем всю позицию")
 			return await self.close_position(symbol, price, "PARTIAL_TOO_SMALL")

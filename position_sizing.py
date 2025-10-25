@@ -5,7 +5,9 @@ from config import (
 	VOLATILITY_HIGH_THRESHOLD, VOLATILITY_LOW_THRESHOLD, VOLATILITY_ADJUSTMENT_MAX,
 	# Kelly Criterion
 	USE_KELLY_CRITERION, KELLY_FRACTION, MIN_TRADES_FOR_KELLY, KELLY_LOOKBACK_WINDOW,
-	KELLY_NEGATIVE_MULTIPLIER
+	KELLY_NEGATIVE_MULTIPLIER,
+	# Small Balance Settings
+	SMALL_BALANCE_THRESHOLD, SMALL_BALANCE_MIN_ORDER, SMALL_BALANCE_POSITION_MULTIPLIER
 )
 
 
@@ -13,12 +15,18 @@ def get_position_size_percent(
 	signal_strength: int,
 	atr: float = 0,
 	price: float = 0,
-	kelly_multiplier: float = 1.0
+	kelly_multiplier: float = 1.0,
+	balance: float = None,
+	symbol: str = None
 ) -> float:
 	"""
 	Возвращает процент от баланса для входа в позицию.
 	Учитывает силу сигнала, волатильность (ATR) и Kelly Criterion.
+	Для малых балансов использует адаптивный расчет.
 	"""
+	# Для малых балансов используем специальную логику
+	if balance is not None and balance < SMALL_BALANCE_THRESHOLD:
+		return calculate_position_size_for_small_balance(balance, signal_strength, atr, price, symbol)
 	# Базовый размер по силе сигнала
 	if signal_strength >= SIGNAL_STRENGTH_STRONG:
 		base_size = POSITION_SIZE_STRONG
@@ -51,14 +59,19 @@ def get_position_size_percent(
 	return final_size
 
 
-def calculate_kelly_fraction(trades_history: List[Dict[str, Any]], atr_percent: float) -> float:
+def calculate_kelly_fraction(trades_history: List[Dict[str, Any]], atr_percent: float, balance: float = None) -> float:
 	"""
 	Рассчитывает Kelly fraction для оптимального размера позиции.
 	Использует скользящее окно последних сделок.
 	Нормализуется по волатильности актива.
+	Отключается для малых балансов (<$50-100).
 	"""
 	if not USE_KELLY_CRITERION:
 		return 1.0  # Нейтральный множитель
+	
+	# Отключаем Kelly для малых балансов (недостаточно истории)
+	if balance is not None and balance < SMALL_BALANCE_THRESHOLD:
+		return 1.0  # Нейтральный множитель для малых балансов
 	
 	# Берём только закрытые сделки (BUY и соответствующие closes)
 	closed_trades = [
@@ -120,3 +133,65 @@ def calculate_kelly_fraction(trades_history: List[Dict[str, Any]], atr_percent: 
 	kelly_multiplier = max(0.5, min(1.5, kelly))
 	
 	return kelly_multiplier
+
+
+def calculate_position_size_for_small_balance(
+	balance: float,
+	signal_strength: int,
+	atr: float = 0,
+	price: float = 0,
+	symbol: str = None
+) -> float:
+	"""
+	Рассчитывает размер позиции для малых балансов с учетом минимумов Bybit.
+	Использует гибридный подход: минимум $5, но растет с силой сигнала.
+	
+	Args:
+		balance: Текущий баланс в USDT
+		signal_strength: Сила сигнала (0-15)
+		atr: ATR для корректировки волатильности
+		price: Цена актива
+		symbol: Торговая пара (для получения минимума из БД)
+	
+	Returns:
+		Процент от баланса для входа в позицию
+	"""
+	# Если баланс больше порога - используем стандартный расчет
+	if balance >= SMALL_BALANCE_THRESHOLD:
+		return get_position_size_percent(signal_strength, atr, price)
+	
+	# Для малых балансов используем гибридный подход
+	# Базовые размеры в зависимости от силы сигнала
+	if signal_strength >= SIGNAL_STRENGTH_STRONG:
+		base_amount = 8.0  # $8 для сильного сигнала
+	elif signal_strength >= SIGNAL_STRENGTH_MEDIUM:
+		base_amount = 6.0  # $6 для среднего сигнала
+	else:
+		base_amount = 5.0  # $5 для слабого сигнала
+	
+	# Корректировка на волатильность (если есть ATR)
+	if atr > 0 and price > 0:
+		atr_percent = (atr / price) * 100
+		
+		# При высокой волатильности уменьшаем размер
+		if atr_percent > VOLATILITY_HIGH_THRESHOLD:
+			volatility_factor = VOLATILITY_HIGH_THRESHOLD / atr_percent
+			base_amount *= volatility_factor
+		# При низкой волатильности можно чуть увеличить
+		elif atr_percent < VOLATILITY_LOW_THRESHOLD:
+			volatility_adjustment = min(VOLATILITY_ADJUSTMENT_MAX, VOLATILITY_LOW_THRESHOLD / atr_percent)
+			base_amount *= volatility_adjustment
+	
+	# Ограничиваем минимальным и максимальным размером
+	base_amount = max(SMALL_BALANCE_MIN_ORDER, min(base_amount, balance * 0.5))
+	
+	# Конвертируем в процент от баланса
+	position_percent = base_amount / balance
+	
+	# Применяем множитель для малых балансов
+	position_percent *= SMALL_BALANCE_POSITION_MULTIPLIER
+	
+	# Ограничиваем максимумом
+	position_percent = min(position_percent, 0.8)  # Максимум 80% от баланса
+	
+	return position_percent

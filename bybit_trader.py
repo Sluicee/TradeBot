@@ -7,7 +7,8 @@ import os
 import time
 from typing import Dict, Any, List, Optional
 from logger import logger
-from config import BYBIT_API_KEY, BYBIT_API_SECRET, BYBIT_TESTNET, REAL_MIN_ORDER_VALUE
+from config import BYBIT_API_KEY, BYBIT_API_SECRET, BYBIT_TESTNET, REAL_MIN_ORDER_VALUE, USE_DYNAMIC_MIN_ORDER, SYMBOL_INFO_UPDATE_HOURS
+from database import db
 
 try:
 	from pybit.unified_trading import HTTP
@@ -88,6 +89,93 @@ class BybitTrader:
 		# По умолчанию используем 2 знака для неизвестных символов
 		return 2
 	
+	def get_instrument_info(self, symbol: str) -> Dict[str, Any]:
+		"""Получить информацию о торговой паре через API"""
+		try:
+			self._check_session()
+			
+			# Получаем информацию о торговой паре
+			response = self.session.get_instruments_info(
+				category="spot",
+				symbol=symbol
+			)
+			
+			if response.get("retCode") != 0:
+				logger.warning(f"Не удалось получить info для {symbol}: {response.get('retMsg')}")
+				return {}
+			
+			instruments = response.get("result", {}).get("list", [])
+			if not instruments:
+				return {}
+			
+			instrument = instruments[0]
+			
+			# Извлекаем нужную информацию
+			info = {
+				"min_order_value": float(instrument.get("minOrderAmt", 1.0)),  # Минимум в USDT
+				"min_order_qty": float(instrument.get("minOrderQty", 0.0)),  # Минимальное количество
+				"price_decimals": int(instrument.get("priceScale", 2)),  # Знаков после запятой для цены
+				"qty_decimals": int(instrument.get("qtyScale", 2))  # Знаков после запятой для количества
+			}
+			
+			logger.info(f"Получена информация о {symbol}: min_order_value={info['min_order_value']}")
+			return info
+			
+		except Exception as e:
+			logger.error(f"Ошибка получения информации о {symbol}: {e}")
+			return {}
+	
+	def update_symbol_info_in_db(self, symbol: str):
+		"""Обновить информацию о символе в БД"""
+		try:
+			# Получаем информацию через API
+			info = self.get_instrument_info(symbol)
+			if not info:
+				return False
+			
+			# Обновляем в БД
+			db.update_symbol_info(
+				symbol=symbol,
+				min_order_value=info.get("min_order_value"),
+				min_order_qty=info.get("min_order_qty"),
+				price_decimals=info.get("price_decimals"),
+				qty_decimals=info.get("qty_decimals")
+			)
+			
+			logger.info(f"Обновлена информация о {symbol} в БД")
+			return True
+			
+		except Exception as e:
+			logger.error(f"Ошибка обновления информации о {symbol}: {e}")
+			return False
+	
+	def get_min_order_value(self, symbol: str) -> float:
+		"""Получить минимальную сумму ордера для символа"""
+		if not USE_DYNAMIC_MIN_ORDER:
+			return REAL_MIN_ORDER_VALUE
+		
+		try:
+			# Получаем информацию из БД
+			info = db.get_symbol_info(symbol)
+			if info and info.get("min_order_value"):
+				return float(info["min_order_value"])
+			
+			# Если нет в БД, пытаемся получить через API
+			logger.info(f"Информация о {symbol} не найдена в БД, получаем через API")
+			if self.update_symbol_info_in_db(symbol):
+				# Повторно получаем из БД
+				info = db.get_symbol_info(symbol)
+				if info and info.get("min_order_value"):
+					return float(info["min_order_value"])
+			
+			# Fallback на глобальный минимум
+			logger.warning(f"Используем fallback минимум для {symbol}: ${REAL_MIN_ORDER_VALUE}")
+			return REAL_MIN_ORDER_VALUE
+			
+		except Exception as e:
+			logger.error(f"Ошибка получения минимума для {symbol}: {e}")
+			return REAL_MIN_ORDER_VALUE
+	
 	async def get_balance(self) -> Dict[str, float]:
 		"""Получает баланс аккаунта"""
 		try:
@@ -129,7 +217,17 @@ class BybitTrader:
 		"""Размещает рыночный ордер"""
 		try:
 			self._check_session()
-			logger.info(f"[BYBIT_DEBUG] 🚀 place_market_order вызван: symbol={symbol}, side={side}, quantity={quantity:.8f}, price={price}")
+			
+			# Получаем минимальную сумму для символа
+			min_order_value = self.get_min_order_value(symbol)
+			
+			# Валидация минимальной суммы
+			if side == "Buy" and price:
+				order_value = quantity * price
+				if order_value < min_order_value:
+					raise ValueError(f"Сумма ордера ${order_value:.2f} меньше минимума ${min_order_value:.2f} для {symbol}")
+			
+			logger.info(f"[BYBIT_DEBUG] 🚀 place_market_order вызван: symbol={symbol}, side={side}, quantity={quantity:.8f}, price={price}, min_value={min_order_value}")
 			
 			# Для spot торговли: покупка = сумма в USDT, продажа = количество монет
 			if price is not None:

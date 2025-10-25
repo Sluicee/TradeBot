@@ -183,6 +183,13 @@ class TrackedSymbol(Base):
 	symbol = Column(String(20), nullable=False, unique=True, index=True)
 	added_at = Column(DateTime, default=datetime.now)
 	is_active = Column(Boolean, default=True)
+	
+	# Информация о торговой паре для оптимизации размера позиций
+	min_order_value = Column(Float, nullable=True)  # Минимум USDT для ордера
+	min_order_qty = Column(Float, nullable=True)  # Минимальное количество
+	price_decimals = Column(Integer, nullable=True)  # Знаков после запятой для цены
+	qty_decimals = Column(Integer, nullable=True)  # Знаков после запятой для количества
+	last_info_update = Column(DateTime, nullable=True)  # Последнее обновление info
 
 
 class BotSettings(Base):
@@ -642,6 +649,38 @@ class DatabaseManager:
 			if sym:
 				sym.is_active = False
 				session.commit()
+	
+	def update_symbol_info(self, symbol: str, min_order_value: float = None, 
+						   min_order_qty: float = None, price_decimals: int = None, 
+						   qty_decimals: int = None):
+		"""Обновить информацию о торговой паре"""
+		with self.session_scope() as session:
+			sym = session.query(TrackedSymbol).filter_by(symbol=symbol).first()
+			if sym:
+				if min_order_value is not None:
+					sym.min_order_value = min_order_value
+				if min_order_qty is not None:
+					sym.min_order_qty = min_order_qty
+				if price_decimals is not None:
+					sym.price_decimals = price_decimals
+				if qty_decimals is not None:
+					sym.qty_decimals = qty_decimals
+				sym.last_info_update = datetime.now()
+				session.commit()
+	
+	def get_symbol_info(self, symbol: str) -> Dict[str, Any]:
+		"""Получить информацию о торговой паре"""
+		with self.session_scope() as session:
+			sym = session.query(TrackedSymbol).filter_by(symbol=symbol).first()
+			if sym:
+				return {
+					"min_order_value": sym.min_order_value,
+					"min_order_qty": sym.min_order_qty,
+					"price_decimals": sym.price_decimals,
+					"qty_decimals": sym.qty_decimals,
+					"last_info_update": sym.last_info_update
+				}
+			return {}
 	
 	# ================================================================
 	# BOT SETTINGS
