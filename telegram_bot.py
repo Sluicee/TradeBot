@@ -14,7 +14,7 @@ from config import (
 	POLL_VOLATILITY_HIGH_THRESHOLD, POLL_VOLATILITY_LOW_THRESHOLD, VOLATILITY_ALERT_COOLDOWN,
 	INITIAL_BALANCE, STRATEGY_MODE, ADX_WINDOW,
 	MODE_MEAN_REVERSION, MODE_TREND_FOLLOWING, MODE_TRANSITION,
-	USE_STATISTICAL_MODELS, ENABLE_REAL_TRADING
+	USE_STATISTICAL_MODELS, ENABLE_REAL_TRADING, SIGNAL_DIAG_COMPACT
 )
 from signal_logger import log_signal
 from data_provider import DataProvider
@@ -422,7 +422,7 @@ class TelegramBot:
 						
 						# Логируем сигнал в диагностику
 						from signal_diagnostics import diagnostics
-						diagnostics.log_signal_generation(symbol, result, current_price, compact=config.SIGNAL_DIAG_COMPACT)
+						diagnostics.log_signal_generation(symbol, result, current_price, compact=SIGNAL_DIAG_COMPACT)
 						
 						# Сохраняем для paper trading
 						current_prices[symbol] = current_price
