@@ -309,17 +309,21 @@ MR_TRAILING_AGGRESSIVE_DISTANCE = 0.008  # 0.8% от максимума
 
 STRATEGY_HYBRID_MODE = "AUTO"  # "AUTO" (переключение по ADX), "MR_ONLY", "TF_ONLY"
 
-# Пороги ADX для переключения режимов (ИСПРАВЛЕНО: оптимальные пороги)
-HYBRID_ADX_MR_THRESHOLD = 20  # ADX < 20 → Mean Reversion (боковик)
-HYBRID_ADX_MR_EXIT = 25  # ADX > 25 → Выход из MR в TF (гистерезис)
-HYBRID_ADX_TF_THRESHOLD = 25  # ADX > 25 → Trend Following (тренд)
-HYBRID_ADX_TF_EXIT = 20  # ADX < 20 → Выход из TF в MR (гистерезис)
-# 20 <= ADX <= 25 → переходная зона 5 пунктов (оптимальная зона)
+# Пороги ADX для переключения режимов (ИСПРАВЛЕНО: расширенные пороги для стабильности)
+HYBRID_ADX_MR_THRESHOLD = 15  # ADX < 15 → Mean Reversion (боковик) - более четкий боковик
+HYBRID_ADX_MR_EXIT = 22  # ADX > 22 → Выход из MR в TF (гистерезис)
+HYBRID_ADX_TF_THRESHOLD = 30  # ADX > 30 → Trend Following (тренд) - более четкий тренд
+HYBRID_ADX_TF_EXIT = 18  # ADX < 18 → Выход из TF в MR (гистерезис)
+# 15 <= ADX <= 30 → переходная зона 15 пунктов (стабильная зона)
 
 HYBRID_TRANSITION_MODE = "HOLD"  # КРИТИЧЕСКИ: только HOLD (запрет входов в переходной зоне)
 
 # Минимальное время в режиме (защита от частого переключения)
-HYBRID_MIN_TIME_IN_MODE = 0.5  # v5.6: 30 минут минимум (стабильное переключение)
+HYBRID_MIN_TIME_IN_MODE = 2.0  # v5.7: 2 часа минимум (стабильное переключение)
+
+# Кулдаун между сделками для одного символа (защита от частых сделок)
+TRADE_COOLDOWN_MINUTES = 30  # Минимум 30 минут между сделками по одному символу
+ENABLE_TRADE_COOLDOWN = True  # Включить кулдаун между сделками
 
 # ====================================================================
 # MULTI-TIMEFRAME ANALYSIS
