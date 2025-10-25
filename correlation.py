@@ -19,6 +19,9 @@ CORRELATION_GROUPS = {
 }
 
 # Символы с высокой корреляцией с BTC (включая альткоины)
+# ВНИМАНИЕ: В крипторынке ВСЕ альткоины коррелируют с BTC (0.7-0.9)
+# Слишком строгие ограничения блокируют 90% сделок
+# Рекомендуется отключить BTC-корреляцию или увеличить лимит
 HIGH_BTC_CORRELATION_GROUPS = ["ETH", "BNB", "SOL", "XRP", "ADA", "L1", "DEFI"]
 
 
@@ -53,6 +56,9 @@ def check_correlation_risk(new_symbol: str, existing_positions: Dict[str, Any]) 
 	"""
 	Проверяет риск корреляции.
 	Возвращает True если можно открывать позицию, False если риск высокий.
+	
+	ВНИМАНИЕ: BTC-корреляция может блокировать 90% сделок в крипторынке.
+	Рекомендуется отключить ENABLE_BTC_CORRELATION_CHECK или увеличить MAX_BTC_CORRELATED_POSITIONS.
 	"""
 	if not existing_positions:
 		return True
@@ -65,7 +71,7 @@ def check_correlation_risk(new_symbol: str, existing_positions: Dict[str, Any]) 
 		logger.info(f"[CORRELATION] ✅ {new_symbol}: неизвестная корреляция, разрешаем")
 		return True
 	
-	# Проверка BTC-корреляции
+	# Проверка BTC-корреляции (может быть слишком строгой для крипторынка)
 	if ENABLE_BTC_CORRELATION_CHECK:
 		btc_symbols = CORRELATION_GROUPS["BTC"]
 		has_btc_position = any(pos_symbol in btc_symbols for pos_symbol in existing_positions.keys())
@@ -73,6 +79,7 @@ def check_correlation_risk(new_symbol: str, existing_positions: Dict[str, Any]) 
 		# Если есть позиция в BTC и пытаемся открыть альткоин с высокой корреляцией
 		if has_btc_position and new_group in HIGH_BTC_CORRELATION_GROUPS:
 			logger.warning(f"[CORRELATION] ❌ {new_symbol}: высокая корреляция с BTC (уже есть позиция в BTC)")
+			logger.warning(f"[CORRELATION] 💡 Совет: отключите ENABLE_BTC_CORRELATION_CHECK для более гибкой торговли")
 			return False
 		
 		# Проверяем лимит BTC-коррелированных позиций
@@ -80,9 +87,10 @@ def check_correlation_risk(new_symbol: str, existing_positions: Dict[str, Any]) 
 			btc_correlated_count = count_btc_correlated_positions(existing_positions)
 			if btc_correlated_count >= MAX_BTC_CORRELATED_POSITIONS:
 				logger.warning(f"[CORRELATION] ❌ {new_symbol}: превышен лимит BTC-коррелированных позиций ({btc_correlated_count}/{MAX_BTC_CORRELATED_POSITIONS})")
+				logger.warning(f"[CORRELATION] 💡 Совет: увеличьте MAX_BTC_CORRELATED_POSITIONS для большего разнообразия")
 				return False
 	
-	# Проверяем конфликты внутри групп корреляции
+	# Проверяем конфликты внутри групп корреляции (это разумно)
 	for pos_symbol in existing_positions.keys():
 		pos_group = get_symbol_group(pos_symbol)
 		if pos_group == new_group:
