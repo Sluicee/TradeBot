@@ -882,6 +882,12 @@ class RealTrader:
 	
 	async def get_status(self) -> Dict[str, Any]:
 		"""Возвращает текущий статус реального трейдинга"""
+		# Загружаем актуальные позиции из БД
+		try:
+			self.load_state()
+		except Exception as e:
+			logger.error(f"Ошибка загрузки состояния из БД: {e}")
+		
 		# Получаем актуальные данные с биржи
 		async with aiohttp.ClientSession() as session:
 			try:
