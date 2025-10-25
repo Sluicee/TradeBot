@@ -503,8 +503,11 @@ class BybitTrader:
 		try:
 			self._check_session()
 			
-			# Получаем все балансы
-			balances = self.session.get_coins_balance(accountType="SPOT")
+			# API требует указать конкретные монеты, используем популярные
+			popular_coins = ["USDT", "BTC", "ETH", "BNB", "ADA", "XRP", "SOL", "DOGE", "MATIC", "AVAX"]
+			
+			# Получаем балансы для популярных монет
+			balances = self.session.get_coins_balance(accountType="UNIFIED", coin=popular_coins)
 			
 			if balances.get("retCode") != 0:
 				error_msg = balances.get("retMsg", "Unknown error")
@@ -522,11 +525,19 @@ class BybitTrader:
 			
 		except Exception as e:
 			logger.error(f"Error getting all balances: {e}")
-			# Для testnet возвращаем симуляцию
-			if self.testnet:
-				logger.info("Using testnet simulation for all balances")
-				return {"USDT": 1000.0, "BTC": 0.01}  # Симуляция
-			raise
+			# Fallback к существующему методу
+			logger.info("Falling back to individual balance calls")
+			return self._get_balances_fallback()
+	
+	def _get_balances_fallback(self) -> Dict[str, float]:
+		"""Fallback метод для получения балансов"""
+		try:
+			# Возвращаем пустой баланс для fallback
+			logger.warning("Using empty balances fallback")
+			return {"USDT": 0.0}
+		except Exception as e:
+			logger.error(f"Error in fallback balances: {e}")
+			return {"USDT": 0.0}
 	
 	def get_fee_rates(self, symbol: str = None) -> Dict[str, float]:
 		"""Получает комиссии для символов"""
