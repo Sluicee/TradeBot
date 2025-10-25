@@ -422,7 +422,7 @@ class TelegramBot:
 						
 						# Логируем сигнал в диагностику
 						from signal_diagnostics import diagnostics
-						diagnostics.log_signal_generation(symbol, result, current_price)
+						diagnostics.log_signal_generation(symbol, result, current_price, compact=config.SIGNAL_DIAG_COMPACT)
 						
 						# Сохраняем для paper trading
 						current_prices[symbol] = current_price
