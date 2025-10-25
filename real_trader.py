@@ -392,9 +392,9 @@ class RealTrader:
 		
 		logger.info(f"[REAL_CLOSE] 📊 Вход: ${position.entry_price:.4f}, Количество: {position.amount:.6f}")
 		
-		# Получаем реальный баланс монет с биржи
+		# Получаем реальный баланс монет с биржи (оптимизированно)
 		coin = symbol.replace("USDT", "")
-		real_balance = await bybit_trader.get_coin_balance(coin)
+		real_balance = await self.get_coin_balance_optimized(coin)
 		
 		logger.info(f"[REAL_CLOSE] 📊 Реальный баланс {coin}: {real_balance:.8f}")
 		logger.info(f"[REAL_CLOSE] 📊 Позиция в памяти: {position.amount:.8f}")
@@ -527,8 +527,8 @@ class RealTrader:
 	async def _check_and_cleanup_remaining_balance(self, symbol: str, coin: str):
 		"""Проверяет и очищает остатки после продажи позиции"""
 		try:
-			# Получаем текущий баланс монеты
-			remaining_balance = await bybit_trader.get_coin_balance(coin)
+			# Получаем текущий баланс монеты (оптимизированно)
+			remaining_balance = await self.get_coin_balance_optimized(coin)
 			
 			if remaining_balance > 0:
 				# Получаем текущую цену (оптимизированно)
@@ -836,8 +836,8 @@ class RealTrader:
 					logger.info(f"[AUTO_CLEANUP] 💸 {symbol} позиция слишком мала (${position_value:.4f}), удаляем")
 					# Получаем монету из символа
 					coin = symbol.replace("USDT", "")
-					# Проверяем реальный баланс
-					real_balance = await bybit_trader.get_coin_balance(coin)
+					# Проверяем реальный баланс (оптимизированно)
+					real_balance = await self.get_coin_balance_optimized(coin)
 					if real_balance <= 0 or (real_balance * current_price) < 0.01:
 						# Удаляем позицию из памяти
 						del self.positions[symbol]
@@ -1086,7 +1086,27 @@ class RealTrader:
 		
 		# Обновляем кэш
 		try:
-			self.balances_cache = await bybit_trader.get_all_balances()
+			# Получаем список монет из отслеживаемых символов в БД
+			tracked_symbols = db.get_tracked_symbols()
+			required_coins = []
+			
+			# Извлекаем монеты из отслеживаемых символов
+			for symbol in tracked_symbols:
+				if symbol.endswith("USDT"):
+					coin = symbol.replace("USDT", "")
+					required_coins.append(coin)
+			
+			# Добавляем монеты из открытых позиций
+			for symbol in self.positions.keys():
+				coin = symbol.replace("USDT", "")
+				required_coins.append(coin)
+			
+			# Добавляем популярные монеты для полноты
+			popular_coins = ["BTC", "ETH", "BNB", "ADA", "XRP", "SOL", "DOGE", "MATIC", "AVAX"]
+			all_coins = list(set(required_coins + popular_coins))
+			
+			logger.debug(f"[CACHE] Запрашиваем балансы для монет из отслеживаемых символов: {required_coins}")
+			self.balances_cache = bybit_trader.get_all_balances(required_coins=all_coins)
 			self.balances_cache_time = current_time
 			logger.debug(f"[CACHE] Обновлен кэш балансов: {len(self.balances_cache)} монет")
 			return self.balances_cache
@@ -1105,6 +1125,11 @@ class RealTrader:
 		if coin:
 			return {coin: balances.get(coin, 0.0)}
 		return balances
+	
+	async def get_coin_balance_optimized(self, coin: str) -> float:
+		"""Оптимизированное получение баланса конкретной монеты"""
+		balances = await self._get_cached_balances()
+		return balances.get(coin, 0.0)
 	
 	async def get_balance(self, session=None):
 		"""Получает баланс с биржи (оптимизированно)"""

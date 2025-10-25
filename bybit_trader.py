@@ -498,16 +498,23 @@ class BybitTrader:
 				return {"BTCUSDT": 1.0, "ETHUSDT": 1.0}  # Симуляция
 			raise
 	
-	def get_all_balances(self) -> Dict[str, float]:
+	def get_all_balances(self, required_coins: List[str] = None) -> Dict[str, float]:
 		"""Получает балансы всех монет одним запросом"""
 		try:
 			self._check_session()
 			
-			# API требует указать конкретные монеты, используем популярные
-			popular_coins = ["USDT", "BTC", "ETH", "BNB", "ADA", "XRP", "SOL", "DOGE", "MATIC", "AVAX"]
+			# Определяем список монет для запроса
+			if required_coins:
+				# Используем переданный список (например, из открытых позиций)
+				coins_to_check = list(set(required_coins + ["USDT"]))  # Всегда включаем USDT
+			else:
+				# Fallback к популярным монетам
+				coins_to_check = ["USDT", "BTC", "ETH", "BNB", "ADA", "XRP", "SOL", "DOGE", "MATIC", "AVAX"]
 			
-			# Получаем балансы для популярных монет
-			balances = self.session.get_coins_balance(accountType="UNIFIED", coin=popular_coins)
+			logger.debug(f"[BULK_BALANCES] Запрашиваем балансы для: {coins_to_check}")
+			
+			# Получаем балансы для указанных монет
+			balances = self.session.get_coins_balance(accountType="UNIFIED", coin=coins_to_check)
 			
 			if balances.get("retCode") != 0:
 				error_msg = balances.get("retMsg", "Unknown error")
