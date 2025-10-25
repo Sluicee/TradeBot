@@ -80,6 +80,10 @@ class RealTrader:
 			# Мигрируем данные из JSON если есть
 			self.bayesian.migrate_from_json()
 			logger.info("Статистические модели инициализированы с поддержкой БД")
+		
+		# Механизмы предотвращения частых сделок
+		self.last_trade_time: Dict[str, float] = {}  # symbol -> timestamp (cooldown)
+		self.signal_confirmation: Dict[str, Dict] = {}  # symbol -> {"signal": "BUY", "first_seen": timestamp, "count": 3}
 	
 	def _get_signal_signature(self, trade_info: Dict[str, Any] = None, position: Position = None) -> str:
 		"""Создает сигнатуру сигнала для Bayesian модели"""
@@ -180,6 +184,15 @@ class RealTrader:
 	
 	async def can_open_position(self, symbol: str) -> bool:
 		"""Проверяет, можно ли открыть позицию"""
+		import time
+		
+		# Cooldown: минимум 5 минут между сделками
+		if symbol in self.last_trade_time:
+			time_since_last = time.time() - self.last_trade_time[symbol]
+			if time_since_last < 300:  # 5 минут
+				logger.info(f"[COOLDOWN] {symbol}: последняя операция {time_since_last:.0f}с назад, нужно ждать еще {300-time_since_last:.0f}с")
+				return False
+		
 		# Проверяем лимиты безопасности
 		if not self.safety_limits.check_position_limits(symbol, self.positions):
 			return False
@@ -205,6 +218,49 @@ class RealTrader:
 			return False
 		
 		return True
+	
+	def check_signal_confirmation(self, symbol: str, signal: str, min_confirmations: int = 3) -> bool:
+		"""
+		Проверяет, что сигнал держится min_confirmations циклов подряд.
+		Возвращает True если сигнал подтвержден, False если еще рано.
+		"""
+		import time
+		current_time = time.time()
+		
+		if symbol not in self.signal_confirmation:
+			# Первый раз видим этот сигнал
+			self.signal_confirmation[symbol] = {
+				"signal": signal,
+				"first_seen": current_time,
+				"count": 1
+			}
+			logger.info(f"[CONFIRM] {symbol}: новый сигнал {signal}, счетчик: 1/{min_confirmations}")
+			return False
+		
+		prev = self.signal_confirmation[symbol]
+		
+		if prev["signal"] == signal:
+			# Сигнал тот же - увеличиваем счетчик
+			prev["count"] += 1
+			time_held = current_time - prev["first_seen"]
+			
+			if prev["count"] >= min_confirmations:
+				logger.info(f"[CONFIRM] ✅ {symbol}: сигнал {signal} подтвержден! ({prev['count']} циклов, {time_held:.0f}с)")
+				# Сбрасываем после подтверждения
+				del self.signal_confirmation[symbol]
+				return True
+			else:
+				logger.info(f"[CONFIRM] {symbol}: сигнал {signal} держится, счетчик: {prev['count']}/{min_confirmations} ({time_held:.0f}с)")
+				return False
+		else:
+			# Сигнал изменился - сбрасываем и начинаем заново
+			logger.info(f"[CONFIRM] 🔄 {symbol}: смена сигнала {prev['signal']} → {signal}, сброс счетчика")
+			self.signal_confirmation[symbol] = {
+				"signal": signal,
+				"first_seen": current_time,
+				"count": 1
+			}
+			return False
 	
 	async def open_position(
 		self,
@@ -385,6 +441,10 @@ class RealTrader:
 				
 				logger.info(f"[REAL_OPEN] ✅ {symbol}: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) | SL: {position.stop_loss_percent*100:.1f}% | TP: {TAKE_PROFIT_PERCENT*100:.1f}%")
 				
+				# Обновляем timestamp после успешного открытия позиции
+				import time
+				self.last_trade_time[symbol] = time.time()
+				
 				return trade_info
 				
 			except Exception as e:
@@ -552,6 +612,10 @@ class RealTrader:
 				# Краткий лог результата
 				emoji = "💚" if profit > 0 else "💔"
 				logger.info(f"[REAL_CLOSE] {emoji} {symbol}: {profit:+.2f} ({profit_percent:+.1f}%) | {holding_time} | WR: {win_rate:.1f}%")
+				
+				# Обновляем timestamp после успешного закрытия позиции
+				import time
+				self.last_trade_time[symbol] = time.time()
 				
 				return trade_info
 				

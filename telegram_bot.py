@@ -632,9 +632,19 @@ class TelegramBot:
 			if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
 				from signal_diagnostics import diagnostics
 				
-				# Обрабатываем все сигналы для Real Trading (с блокировкой)
+				# Фильтруем только подтвержденные сигналы (3 цикла подряд)
+				confirmed_signals = {}
+				for symbol, result in trading_signals.items():
+					signal = result["signal"]
+					if self.real_trader.check_signal_confirmation(symbol, signal, min_confirmations=3):
+						confirmed_signals[symbol] = result
+						logger.info(f"[REAL_TRADING] ✅ {symbol}: сигнал {signal} подтвержден и готов к исполнению")
+					else:
+						logger.debug(f"[REAL_TRADING] ⏳ {symbol}: сигнал {signal} еще не подтвержден")
+				
+				# Обрабатываем только подтвержденные сигналы (с блокировкой)
 				with self.paper_trader_lock:  # Используем тот же lock для consistency
-					for symbol, result in trading_signals.items():
+					for symbol, result in confirmed_signals.items():
 						signal = result["signal"]
 						price = current_prices.get(symbol)
 						
