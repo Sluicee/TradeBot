@@ -127,52 +127,32 @@ class BybitTrader:
 			self._check_session()
 			logger.info(f"[BYBIT_DEBUG] 🚀 place_market_order вызван: symbol={symbol}, side={side}, quantity={quantity:.8f}, price={price}")
 			
-			# Для spot торговли нужно передавать сумму в USDT, а не количество монет
+			# Для spot торговли: покупка = сумма в USDT, продажа = количество монет
 			if price is not None:
-				# Рассчитываем сумму в USDT
-				usdt_amount = quantity * price
-				rounded_amount = round(usdt_amount, 2)
-				logger.info(f"Placing market order: {side} ${rounded_amount} worth of {symbol}")
-				
-				# Размещаем ордер через официальную библиотеку
-				response = self.session.place_order(
-					category="spot",
-					symbol=symbol,
-					side=side,
-					orderType="Market",
-					qty=str(rounded_amount),  # Сумма в USDT
-					timeInForce="IOC"
-				)
-			else:
-				# Для продажи используем точное количество монет
-				# Для покупки округляем до допустимого количества знаков
-				if side == "Sell":
-					# При продаже умное округление до допустимого количества знаков
+				if side == "Buy":
+					# Для покупки: сумма в USDT
+					usdt_amount = quantity * price
+					rounded_amount = round(usdt_amount, 2)
+					logger.info(f"Placing market order: {side} ${rounded_amount} worth of {symbol}")
+					
+					response = self.session.place_order(
+						category="spot",
+						symbol=symbol,
+						side=side,
+						orderType="Market",
+						qty=str(rounded_amount),  # Сумма в USDT
+						timeInForce="IOC"
+					)
+				else:  # Sell
+					# Для продажи: количество монет
 					decimals = self._get_symbol_decimals(symbol)
 					import math
 					
-					# Сначала пробуем обычное округление
+					# Умное округление для продажи
 					rounded_quantity = round(quantity, decimals)
-					
-					# Если округленное количество больше исходного (округление вверх),
-					# и это может вызвать "Insufficient balance", используем floor
 					if rounded_quantity > quantity:
-						# Округление вверх может превысить баланс - используем floor
 						rounded_quantity = math.floor(quantity * (10 ** decimals)) / (10 ** decimals)
 					
-					# Проверяем минимальную сумму
-					estimated_value = rounded_quantity * (price if price else 1.0)
-					logger.info(f"[BYBIT_DEBUG] 🔍 {symbol}: quantity={quantity:.8f}, rounded={rounded_quantity:.8f}, price={price:.2f}, value=${estimated_value:.2f}")
-					if estimated_value < REAL_MIN_ORDER_VALUE:
-						# Для малых позиций (< $1) принудительно закрываем
-						if estimated_value < 1.0:
-							logger.warning(f"[FORCE_CLOSE] 💸 Принудительное закрытие малой позиции: ${estimated_value:.2f} < $1.0")
-							# Используем минимальное количество для закрытия
-							rounded_quantity = 0.000001  # Минимальное количество
-						else:
-							logger.warning(f"Order value too small: ${estimated_value:.2f} < ${REAL_MIN_ORDER_VALUE}, skipping {symbol}")
-							raise ValueError(f"Order value too small: ${estimated_value:.2f}")
-					
 					logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
 					
 					response = self.session.place_order(
@@ -180,23 +160,13 @@ class BybitTrader:
 						symbol=symbol,
 						side=side,
 						orderType="Market",
-						qty=str(rounded_quantity),  # Округленное вниз количество монет
+						qty=str(rounded_quantity),  # Количество монет
 						timeInForce="IOC"
 					)
-				else:
-					# При покупке округляем до допустимого количества знаков
-					decimals = self._get_symbol_decimals(symbol)
-					rounded_quantity = round(quantity, decimals)
-					logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
-					
-					response = self.session.place_order(
-						category="spot",
-						symbol=symbol,
-						side=side,
-						orderType="Market",
-						qty=str(rounded_quantity),
-						timeInForce="IOC"
-					)
+			else:
+				# Fallback для случаев без цены (не должно происходить)
+				logger.warning(f"[BYBIT_WARNING] ⚠️ place_market_order вызван без цены: {symbol}")
+				raise ValueError("Price is required for market orders")
 			
 			if response.get("retCode") != 0:
 				error_msg = response.get("retMsg", "Unknown error")
