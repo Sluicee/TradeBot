@@ -468,6 +468,99 @@ class BybitTrader:
 				return 1.0  # Симуляция
 			raise
 	
+	def get_all_prices(self) -> Dict[str, float]:
+		"""Получает цены всех spot символов одним запросом"""
+		try:
+			self._check_session()
+			
+			# Получаем все тикеры spot
+			tickers = self.session.get_tickers(category="spot")
+			
+			if tickers.get("retCode") != 0:
+				error_msg = tickers.get("retMsg", "Unknown error")
+				logger.error(f"Bybit API error getting all prices: {error_msg}")
+				raise Exception(f"Bybit API error: {error_msg}")
+			
+			prices = {}
+			for ticker in tickers["result"]["list"]:
+				symbol = ticker["symbol"]
+				price = float(ticker["lastPrice"])
+				prices[symbol] = price
+			
+			logger.debug(f"Retrieved {len(prices)} spot prices")
+			return prices
+			
+		except Exception as e:
+			logger.error(f"Error getting all prices: {e}")
+			# Для testnet возвращаем симуляцию
+			if self.testnet:
+				logger.info("Using testnet simulation for all prices")
+				return {"BTCUSDT": 1.0, "ETHUSDT": 1.0}  # Симуляция
+			raise
+	
+	def get_all_balances(self) -> Dict[str, float]:
+		"""Получает балансы всех монет одним запросом"""
+		try:
+			self._check_session()
+			
+			# Получаем все балансы
+			balances = self.session.get_coins_balance(accountType="SPOT")
+			
+			if balances.get("retCode") != 0:
+				error_msg = balances.get("retMsg", "Unknown error")
+				logger.error(f"Bybit API error getting all balances: {error_msg}")
+				raise Exception(f"Bybit API error: {error_msg}")
+			
+			balance_dict = {}
+			for coin in balances["result"]["list"]:
+				coin_name = coin["coin"]
+				balance = float(coin["walletBalance"])
+				balance_dict[coin_name] = balance
+			
+			logger.debug(f"Retrieved balances for {len(balance_dict)} coins")
+			return balance_dict
+			
+		except Exception as e:
+			logger.error(f"Error getting all balances: {e}")
+			# Для testnet возвращаем симуляцию
+			if self.testnet:
+				logger.info("Using testnet simulation for all balances")
+				return {"USDT": 1000.0, "BTC": 0.01}  # Симуляция
+			raise
+	
+	def get_fee_rates(self, symbol: str = None) -> Dict[str, float]:
+		"""Получает комиссии для символов"""
+		try:
+			self._check_session()
+			
+			# Получаем комиссии
+			fees = self.session.get_fee_rates(category="spot", symbol=symbol)
+			
+			if fees.get("retCode") != 0:
+				error_msg = fees.get("retMsg", "Unknown error")
+				logger.error(f"Bybit API error getting fee rates: {error_msg}")
+				raise Exception(f"Bybit API error: {error_msg}")
+			
+			fee_dict = {}
+			for fee in fees["result"]["list"]:
+				symbol_name = fee["symbol"]
+				maker_fee = float(fee["makerFeeRate"])
+				taker_fee = float(fee["takerFeeRate"])
+				fee_dict[symbol_name] = {
+					"maker": maker_fee,
+					"taker": taker_fee
+				}
+			
+			logger.debug(f"Retrieved fee rates for {len(fee_dict)} symbols")
+			return fee_dict
+			
+		except Exception as e:
+			logger.error(f"Error getting fee rates: {e}")
+			# Fallback к хардкоду
+			if symbol:
+				return {symbol: {"maker": 0.001, "taker": 0.001}}
+			return {}
+	
 	def _get_symbol_decimals_from_api(self, symbol: str) -> int:
 		"""Получает количество знаков после запятой для символа из Bybit API"""
 		try:
