@@ -32,32 +32,50 @@ class CompactFormatter(logging.Formatter):
     """Компактный форматтер для сокращения логов"""
     
     def format(self, record):
-        # Сокращаем длинные сообщения
-        message = record.getMessage()
+        # Сначала получаем полное сообщение
+        original_message = record.getMessage()
         
         # Сокращаем диагностические сообщения
-        if "[SIGNAL_DIAG]" in message:
-            if "📊" in message and "@" in message:
+        if "[SIGNAL_DIAG]" in original_message:
+            if "📊" in original_message and "@" in original_message:
                 # Извлекаем только основную информацию
-                parts = message.split("|")
+                parts = original_message.split("|")
                 if len(parts) >= 2:
                     symbol_part = parts[0].split("📊")[-1].strip()
                     signal_part = parts[1].strip() if len(parts) > 1 else ""
                     message = f"SIGNAL: {symbol_part} | {signal_part}"
-            elif "Голоса:" in message:
+                else:
+                    message = original_message
+            elif "Голоса:" in original_message:
                 # Сокращаем информацию о голосах
-                message = message.replace("Голоса: ", "Votes: ").replace("Bullish=", "B=").replace("Bearish=", "S=").replace("Delta=", "D=")
-            elif "Топ-3 причины:" in message:
-                message = "REASONS: " + message.split("Топ-3 причины:")[-1].strip()[:50] + "..."
-            elif "=" * 80 in message:
+                message = original_message.replace("Голоса: ", "Votes: ").replace("Bullish=", "B=").replace("Bearish=", "S=").replace("Delta=", "D=")
+            elif "Топ-3 причины:" in original_message:
+                message = "REASONS: " + original_message.split("Топ-3 причины:")[-1].strip()[:50] + "..."
+            elif "=" * 80 in original_message:
                 message = "---"
+            else:
+                message = original_message
+        else:
+            message = original_message
         
         # Сокращаем другие длинные сообщения
         if len(message) > 100:
             message = message[:97] + "..."
-            
-        record.msg = message
-        return super().format(record)
+        
+        # Создаем новый record с измененным сообщением
+        new_record = logging.LogRecord(
+            record.name, record.levelno, record.pathname, record.lineno,
+            message, (), record.exc_info, record.funcName
+        )
+        new_record.created = record.created
+        new_record.msecs = record.msecs
+        new_record.relativeCreated = record.relativeCreated
+        new_record.thread = record.thread
+        new_record.threadName = record.threadName
+        new_record.processName = record.processName
+        new_record.process = record.process
+        
+        return super().format(new_record)
 
 # Настройка логгера
 logger = logging.getLogger("crypto_signal_bot")
