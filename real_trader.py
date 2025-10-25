@@ -532,8 +532,8 @@ class RealTrader:
 				
 				logger.info(f"[CLEANUP] 🔍 Остаток {coin}: {remaining_balance:.8f} (${remaining_value:.2f})")
 				
-				# Если остаток больше $0.01, пытаемся его продать
-				if remaining_value > 0.01:
+				# Если остаток больше минимума, пытаемся его продать
+				if remaining_value >= REAL_MIN_ORDER_VALUE:
 					logger.info(f"[CLEANUP] 🧹 Продаем остаток {coin}: {remaining_balance:.8f}")
 					
 					try:
@@ -545,7 +545,7 @@ class RealTrader:
 					except Exception as e:
 						logger.warning(f"[CLEANUP] ⚠️ Не удалось продать остаток: {e}")
 				else:
-					logger.info(f"[CLEANUP] 💸 Остаток слишком мал (${remaining_value:.4f}), пропускаем")
+					logger.info(f"[CLEANUP] 💸 Остаток слишком мал (${remaining_value:.4f} < ${REAL_MIN_ORDER_VALUE}), пропускаем")
 					
 		except Exception as e:
 			logger.error(f"[CLEANUP] ❌ Ошибка при очистке остатков: {e}")
