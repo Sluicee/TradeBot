@@ -59,6 +59,13 @@ class RealTrader:
 		self.start_time = None
 		self.safety_limits = SafetyLimits()
 		
+		# Кэш для bulk операций
+		self.prices_cache = {}
+		self.prices_cache_time = 0
+		self.balances_cache = {}
+		self.balances_cache_time = 0
+		self.cache_duration = 10  # Кэш на 10 секунд
+		
 		# Проверяем API ключи
 		from config import BYBIT_API_KEY, BYBIT_API_SECRET
 		self.api_key = BYBIT_API_KEY
@@ -180,8 +187,8 @@ class RealTrader:
 			return False
 		
 		# Проверяем динамический лимит позиций
-		# Получаем текущий баланс для расчета
-		balance = await bybit_trader.get_balance()
+		# Получаем текущий баланс для расчета (оптимизированно)
+		balance = await self._get_balance_optimized()
 		usdt_balance = balance.get("USDT", 0.0)
 		
 		# Рассчитываем общий баланс (свободный + в позициях)
@@ -234,7 +241,7 @@ class RealTrader:
 		# Получаем баланс с биржи
 		async with aiohttp.ClientSession() as session:
 			try:
-				balance_data = await bybit_trader.get_balance()
+				balance_data = await self._get_balance_optimized()
 				usdt_balance = balance_data.get("USDT", 0.0)
 				
 				if usdt_balance <= 0:
@@ -524,8 +531,8 @@ class RealTrader:
 			remaining_balance = await bybit_trader.get_coin_balance(coin)
 			
 			if remaining_balance > 0:
-				# Получаем текущую цену
-				current_price = await bybit_trader.get_current_price(symbol)
+				# Получаем текущую цену (оптимизированно)
+				current_price = await self._get_price_optimized(symbol)
 				
 				# Рассчитываем стоимость остатка в USDT
 				remaining_value = remaining_balance * current_price
@@ -687,7 +694,8 @@ class RealTrader:
 		# Проверка баланса на бирже
 		async with aiohttp.ClientSession() as session:
 			try:
-				usdt_balance = await bybit_trader.get_balance()
+				balance_data = await self._get_balance_optimized()
+				usdt_balance = balance_data.get("USDT", 0.0)
 				if new_invest > usdt_balance:
 					logger.warning(f"[REAL_AVERAGING] ⚠️ Недостаточно баланса для докупания {symbol}: ${new_invest:.2f} > ${usdt_balance:.2f}")
 					return None
@@ -848,7 +856,7 @@ class RealTrader:
 		# Получаем актуальные данные с биржи
 		async with aiohttp.ClientSession() as session:
 			try:
-				balance_data = await bybit_trader.get_balance()
+				balance_data = await self._get_balance_optimized()
 				if not balance_data:
 					raise Exception("Не удалось получить данные баланса")
 				usdt_balance = balance_data.get("USDT", 0.0)
@@ -1048,10 +1056,60 @@ class RealTrader:
 			logger.error(f"Ошибка загрузки состояния из БД: {e}")
 			raise
 	
-	async def get_balance(self, session=None):
-		"""Получает баланс с биржи"""
+	async def _get_cached_prices(self) -> Dict[str, float]:
+		"""Получает цены с кэшированием"""
+		import time
+		current_time = time.time()
+		
+		# Проверяем кэш
+		if (current_time - self.prices_cache_time) < self.cache_duration and self.prices_cache:
+			return self.prices_cache
+		
+		# Обновляем кэш
 		try:
-			return await bybit_trader.get_balance()
+			self.prices_cache = await bybit_trader.get_all_prices()
+			self.prices_cache_time = current_time
+			logger.debug(f"[CACHE] Обновлен кэш цен: {len(self.prices_cache)} символов")
+			return self.prices_cache
+		except Exception as e:
+			logger.warning(f"[CACHE] Ошибка получения цен: {e}")
+			return self.prices_cache  # Возвращаем старый кэш
+	
+	async def _get_cached_balances(self) -> Dict[str, float]:
+		"""Получает балансы с кэшированием"""
+		import time
+		current_time = time.time()
+		
+		# Проверяем кэш
+		if (current_time - self.balances_cache_time) < self.cache_duration and self.balances_cache:
+			return self.balances_cache
+		
+		# Обновляем кэш
+		try:
+			self.balances_cache = await bybit_trader.get_all_balances()
+			self.balances_cache_time = current_time
+			logger.debug(f"[CACHE] Обновлен кэш балансов: {len(self.balances_cache)} монет")
+			return self.balances_cache
+		except Exception as e:
+			logger.warning(f"[CACHE] Ошибка получения балансов: {e}")
+			return self.balances_cache  # Возвращаем старый кэш
+	
+	async def _get_price_optimized(self, symbol: str) -> float:
+		"""Оптимизированное получение цены"""
+		prices = await self._get_cached_prices()
+		return prices.get(symbol, 0.0)
+	
+	async def _get_balance_optimized(self, coin: str = None) -> Dict[str, float]:
+		"""Оптимизированное получение баланса"""
+		balances = await self._get_cached_balances()
+		if coin:
+			return {coin: balances.get(coin, 0.0)}
+		return balances
+	
+	async def get_balance(self, session=None):
+		"""Получает баланс с биржи (оптимизированно)"""
+		try:
+			return await self._get_balance_optimized()
 		except Exception as e:
 			logger.error(f"Ошибка получения баланса: {e}")
 			return {}
