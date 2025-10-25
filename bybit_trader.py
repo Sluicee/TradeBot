@@ -161,6 +161,7 @@ class BybitTrader:
 					
 					# Проверяем минимальную сумму
 					estimated_value = rounded_quantity * (price if price else 1.0)
+					logger.info(f"[BYBIT_DEBUG] 🔍 {symbol}: quantity={quantity:.8f}, rounded={rounded_quantity:.8f}, price={price:.2f}, value=${estimated_value:.2f}")
 					if estimated_value < REAL_MIN_ORDER_VALUE:
 						# Для малых позиций (< $1) принудительно закрываем
 						if estimated_value < 1.0:

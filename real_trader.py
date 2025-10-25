@@ -428,7 +428,7 @@ class RealTrader:
 			try:
 				if REAL_ORDER_TYPE == "MARKET":
 					order_result = await bybit_trader.place_market_order(
-						symbol, "Sell", sell_amount
+						symbol, "Sell", sell_amount, price
 					)
 				else:  # LIMIT
 					limit_price = price * (1 - REAL_LIMIT_ORDER_OFFSET_PERCENT)
@@ -542,7 +542,7 @@ class RealTrader:
 					try:
 						# Пытаемся продать остаток
 						cleanup_result = await bybit_trader.place_market_order(
-							symbol, "Sell", remaining_balance
+							symbol, "Sell", remaining_balance, current_price
 						)
 						logger.info(f"[CLEANUP] ✅ Остаток продан: {cleanup_result['order_id']}")
 					except Exception as e:
@@ -576,7 +576,7 @@ class RealTrader:
 			try:
 				if REAL_ORDER_TYPE == "MARKET":
 					order_result = await bybit_trader.place_market_order(
-						symbol, "Sell", close_amount
+						symbol, "Sell", close_amount, price
 					)
 				else:  # LIMIT
 					limit_price = price * (1 - REAL_LIMIT_ORDER_OFFSET_PERCENT)
