@@ -428,8 +428,8 @@ class RealTrader:
 		
 		# Проверяем размер позиции перед закрытием
 		position_value = sell_amount * price
-		# Используем более мягкий порог для принудительного закрытия (50% от минимума)
-		force_close_threshold = REAL_MIN_ORDER_VALUE * 0.5
+		# Используем более мягкий порог для принудительного закрытия (80% от минимума)
+		force_close_threshold = REAL_MIN_ORDER_VALUE * 0.8
 		if position_value < force_close_threshold:
 			# Принудительно закрываем только очень маленькие позиции
 			logger.warning(f"[FORCE_CLOSE] 💸 Принудительное закрытие позиции {symbol}: ${position_value:.2f} < ${force_close_threshold:.2f}")
@@ -575,8 +575,8 @@ class RealTrader:
 				logger.info(f"[CLEANUP] 🔍 Остаток {coin}: {remaining_balance:.8f} (${remaining_value:.2f})")
 				
 				# Если остаток больше минимума, пытаемся его продать
-				# Используем более мягкий порог для cleanup (50% от минимума)
-				cleanup_threshold = REAL_MIN_ORDER_VALUE * 0.5
+				# Используем более мягкий порог для cleanup (80% от минимума)
+				cleanup_threshold = REAL_MIN_ORDER_VALUE * 0.8
 				if remaining_value >= cleanup_threshold:
 					logger.info(f"[CLEANUP] 🧹 Продаем остаток {coin}: {remaining_balance:.8f}")
 					

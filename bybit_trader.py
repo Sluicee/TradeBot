@@ -133,6 +133,9 @@ class BybitTrader:
 			if not info:
 				return False
 			
+			# Сначала добавляем символ в отслеживаемые, если его нет
+			db.add_tracked_symbol(symbol)
+			
 			# Обновляем в БД
 			db.update_symbol_info(
 				symbol=symbol,
@@ -226,6 +229,11 @@ class BybitTrader:
 				order_value = quantity * price
 				if order_value < min_order_value:
 					raise ValueError(f"Сумма ордера ${order_value:.2f} меньше минимума ${min_order_value:.2f} для {symbol}")
+			elif side == "Sell" and price:
+				# Для продажи проверяем стоимость позиции
+				order_value = quantity * price
+				if order_value < min_order_value:
+					raise ValueError(f"Стоимость позиции ${order_value:.2f} меньше минимума ${min_order_value:.2f} для {symbol}")
 			
 			logger.info(f"[BYBIT_DEBUG] 🚀 place_market_order вызван: symbol={symbol}, side={side}, quantity={quantity:.8f}, price={price}, min_value={min_order_value}")
 			
