@@ -28,10 +28,10 @@ from config import (
 	REAL_MAX_POSITION_SIZE
 )
 
-# Торговые пары для бэктеста
+# Торговые пары для бэктеста (PUMPUSDT исключен - слишком волатильная)
 TRADING_PAIRS = [
 	"SUIUSDT", "SOLUSDT", "XRPUSDT", "HYPEUSDT", "TRXUSDT",
-	"SEIUSDT", "BTCUSDT", "ADAUSDT", "PUMPUSDT", "BNBUSDT"
+	"SEIUSDT", "BTCUSDT", "ADAUSDT", "BNBUSDT"
 ]
 
 @dataclass
@@ -158,7 +158,8 @@ class RealTraderBacktest:
 			return False
 		
 		# Проверяем динамический лимит позиций
-		total_balance = self.balance + sum(pos.get_pnl(0.0)["pnl"] for pos in self.positions.values())
+		# ВАЖНО: Используем текущие цены для расчета P&L (fallback к entry_price если нет текущей цены)
+		total_balance = self.balance + sum(pos.get_pnl(pos.entry_price)["pnl"] for pos in self.positions.values())
 		dynamic_max_positions = get_dynamic_max_positions(total_balance)
 		
 		if len(self.positions) >= dynamic_max_positions:
@@ -414,6 +415,7 @@ class RealTraderBacktest:
 		position.total_invested += new_invest
 		position.amount += new_amount
 		position.averaging_count += 1
+		# ИСПРАВЛЕНО: Правильная формула взвешенной средней цены
 		position.average_entry_price = (old_avg_price * old_amount + price * new_amount) / position.amount
 		position.take_profit_price = position.average_entry_price * (1 + TAKE_PROFIT_PERCENT)
 		
@@ -494,9 +496,17 @@ class RealTraderBacktest:
 		
 		return actions
 	
-	def update_drawdown(self):
+	def update_drawdown(self, current_prices: Dict[str, float] = None):
 		"""Обновляет максимальный drawdown"""
-		current_balance = self.balance + sum(pos.get_pnl(0.0)["pnl"] for pos in self.positions.values())
+		if current_prices:
+			# Используем реальные цены для расчета P&L
+			current_balance = self.balance + sum(
+				pos.get_pnl(current_prices.get(pos.symbol, pos.entry_price))["pnl"] 
+				for pos in self.positions.values()
+			)
+		else:
+			# Fallback: используем цены входа (не идеально, но лучше чем 0.0)
+			current_balance = self.balance + sum(pos.get_pnl(pos.entry_price)["pnl"] for pos in self.positions.values())
 		
 		if current_balance > self.peak_balance:
 			self.peak_balance = current_balance
@@ -562,8 +572,8 @@ async def run_real_trader_backtest():
 					# СНАЧАЛА проверяем позиции (критично!)
 					actions = backtester.check_positions({symbol: price}, current_time)
 					
-					# Обрабатываем сигнал только если нет активных позиций
-					if signal == "BUY" and symbol not in backtester.positions:
+					# Обрабатываем сигнал только если нет активных позиций и можем открыть
+					if signal == "BUY" and symbol not in backtester.positions and backtester.can_open_position(symbol):
 						backtester.open_position(
 							symbol=symbol,
 							price=price,
@@ -587,8 +597,8 @@ async def run_real_trader_backtest():
 							reason="SIGNAL_AVERAGING"
 						)
 					
-					# Обновляем drawdown
-					backtester.update_drawdown()
+					# Обновляем drawdown с текущими ценами
+					backtester.update_drawdown({symbol: price})
 				
 				# Закрываем оставшиеся позиции
 				for symbol_pos in list(backtester.positions.keys()):

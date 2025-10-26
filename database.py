@@ -1095,6 +1095,32 @@ class DatabaseManager:
 				for t in trades
 			]
 	
+	def get_last_real_trade_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+		"""Получить последнюю сделку по символу"""
+		with self.session_scope() as session:
+			trade = session.query(RealTrade).filter(
+				RealTrade.symbol == symbol
+			).order_by(RealTrade.timestamp.desc()).first()
+			
+			if not trade:
+				return None
+			
+			return {
+				"id": trade.id,
+				"symbol": trade.symbol,
+				"side": trade.side,
+				"order_type": trade.order_type,
+				"quantity": trade.quantity,
+				"price": trade.price,
+				"order_id": trade.order_id,
+				"status": trade.status,
+				"commission": trade.commission,
+				"realized_pnl": trade.realized_pnl,
+				"timestamp": trade.timestamp,
+				"reason": trade.reason,
+				"created_at": trade.created_at
+			}
+
 	def get_all_bayesian_stats(self) -> List[Dict[str, Any]]:
 		"""Получить всю статистику Bayesian модели"""
 		with self.session_scope() as session:

@@ -68,9 +68,6 @@ class RealTrader:
 		self.balances_cache_time = 0
 		self.cache_duration = 10  # Кэш на 10 секунд
 		
-		# Кулдаун между сделками для одного символа
-		self.symbol_last_trade_time = {}  # symbol -> timestamp последней сделки
-		
 		# Проверяем API ключи
 		from config import BYBIT_API_KEY, BYBIT_API_SECRET
 		self.api_key = BYBIT_API_KEY
@@ -193,15 +190,34 @@ class RealTrader:
 		
 		# Проверяем кулдаун между сделками
 		from config import ENABLE_TRADE_COOLDOWN, TRADE_COOLDOWN_MINUTES
-		if ENABLE_TRADE_COOLDOWN and symbol in self.symbol_last_trade_time:
-			import time
-			last_trade_time = self.symbol_last_trade_time[symbol]
-			time_since_last_trade = (time.time() - last_trade_time) / 60  # в минутах
-			
-			if time_since_last_trade < TRADE_COOLDOWN_MINUTES:
-				remaining_time = TRADE_COOLDOWN_MINUTES - time_since_last_trade
-				logger.warning(f"[CAN_OPEN] ❌ {symbol}: кулдаун {remaining_time:.1f}м осталось (последняя сделка {time_since_last_trade:.1f}м назад)")
-				return False
+		if ENABLE_TRADE_COOLDOWN:
+			# Получаем время последней сделки по символу из БД
+			last_trade = db.get_last_real_trade_by_symbol(symbol)
+			if last_trade:
+				import time
+				from datetime import datetime
+				# Получаем timestamp последней сделки
+				last_trade_time = last_trade.get("timestamp")
+				last_trade_side = last_trade.get("side", "UNKNOWN")
+				
+				# Отладочный лог
+				logger.debug(f"[COOLDOWN] {symbol}: последняя сделка {last_trade_time} ({last_trade_side})")
+				
+				if isinstance(last_trade_time, str):
+					last_trade_dt = datetime.fromisoformat(last_trade_time)
+					last_trade_timestamp = last_trade_dt.timestamp()
+				else:
+					last_trade_timestamp = last_trade_time.timestamp()
+				
+				time_since_last_trade = (time.time() - last_trade_timestamp) / 60  # в минутах
+				
+				# Отладочный лог
+				logger.debug(f"[COOLDOWN] {symbol}: прошло {time_since_last_trade:.2f}м с последней сделки (требуется {TRADE_COOLDOWN_MINUTES}м)")
+				
+				if time_since_last_trade < TRADE_COOLDOWN_MINUTES:
+					remaining_time = TRADE_COOLDOWN_MINUTES - time_since_last_trade
+					logger.warning(f"[CAN_OPEN] ❌ {symbol}: кулдаун {remaining_time:.1f}м осталось (последняя сделка {last_trade_side} {time_since_last_trade:.1f}м назад)")
+					return False
 		
 		# Проверяем динамический лимит позиций
 		# Получаем текущий баланс для расчета (оптимизированно)
@@ -398,10 +414,6 @@ class RealTrader:
 						self.bayesian.record_signal(signal_signature, "BUY", price)
 						logger.info(f"[REAL_OPEN] 📊 Записан сигнал для обучения: {signal_signature[:50]}...")
 				
-				# Обновляем время последней сделки для кулдауна
-				import time
-				self.symbol_last_trade_time[symbol] = time.time()
-				
 				logger.info(f"[REAL_OPEN] ✅ {symbol}: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) | SL: {position.stop_loss_percent*100:.1f}% | TP: {TAKE_PROFIT_PERCENT*100:.1f}%")
 				
 				return trade_info
@@ -555,10 +567,6 @@ class RealTrader:
 					if signal_signature:
 						self.bayesian.complete_signal(signal_signature, price, position.entry_price)
 						logger.info(f"[REAL_CLOSE] 📊 Завершен сигнал для обучения: {signal_signature[:50]}... (P&L: {profit_percent:+.1f}%)")
-				
-				# Обновляем время последней сделки для кулдауна
-				import time
-				self.symbol_last_trade_time[symbol] = time.time()
 				
 				# Проверяем остаток после продажи
 				await self._check_and_cleanup_remaining_balance(symbol, coin)
