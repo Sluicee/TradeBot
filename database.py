@@ -68,7 +68,7 @@ class RealTrade(Base):
 	order_type = Column(String(10), nullable=False)  # MARKET/LIMIT
 	quantity = Column(Float, nullable=False)
 	price = Column(Float, nullable=False)
-	order_id = Column(String(50), nullable=False, index=True)  # Bybit order ID
+	order_id = Column(String(50), nullable=True, index=True)  # Bybit order ID - nullable для совместимости
 	status = Column(String(20), nullable=False)  # FILLED/PARTIAL/CANCELLED
 	commission = Column(Float, default=0.0)
 	realized_pnl = Column(Float, default=0.0)
@@ -1030,13 +1030,18 @@ class DatabaseManager:
 	def add_real_trade(self, trade_data: Dict[str, Any]):
 		"""Добавить реальную сделку"""
 		with self.session_scope() as session:
+			# Обеспечиваем корректное значение для order_id
+			order_id = trade_data.get("order_id")
+			if not order_id or order_id == "":
+				order_id = None  # Используем NULL вместо пустой строки
+			
 			trade = RealTrade(
 				symbol=trade_data.get("symbol"),
 				side=trade_data.get("type", "BUY"),  # BUY/SELL
 				order_type=trade_data.get("order_type", "MARKET"),
 				quantity=trade_data.get("amount", 0),
 				price=trade_data.get("price", 0),
-				order_id=trade_data.get("order_id", ""),
+				order_id=order_id,
 				status=trade_data.get("status", "SUBMITTED"),
 				commission=trade_data.get("commission", 0.0),
 				realized_pnl=trade_data.get("profit", 0.0),

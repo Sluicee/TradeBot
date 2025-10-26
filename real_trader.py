@@ -366,9 +366,6 @@ class RealTrader:
 					strategy_type=strategy_type
 				)
 				
-				# Сохраняем позицию
-				self.positions[symbol] = position
-				
 				# Добавляем в историю
 				commission = actual_invest_amount * COMMISSION_RATE
 				self.stats["total_commission"] += commission
@@ -392,10 +389,8 @@ class RealTrader:
 					"position_size_percent": position_size_percent,
 					"reasons": reasons[:3] if reasons else []
 				}
-				self.trades_history.append(trade_info)
-				self.stats["total_trades"] += 1
 				
-				# Сохраняем в БД
+				# Сохраняем в БД ПЕРЕД добавлением в память
 				try:
 					db.add_real_trade(trade_info)
 					# Сохраняем позицию в БД
@@ -403,9 +398,17 @@ class RealTrader:
 					if isinstance(pos_data.get("entry_time"), str):
 						pos_data["entry_time"] = datetime.fromisoformat(pos_data["entry_time"])
 					db.save_position(pos_data)
-					logger.info(f"[REAL_OPEN] 💾 Позиция {symbol} сохранена в БД")
+					logger.info(f"[REAL_OPEN] 💾 Сделка и позиция {symbol} сохранены в БД")
 				except Exception as e:
-					logger.error(f"[REAL_OPEN] ❌ Ошибка сохранения сделки в БД: {e}")
+					logger.error(f"[REAL_OPEN] ❌ КРИТИЧЕСКАЯ ошибка сохранения в БД: {e}")
+					logger.error(f"[REAL_OPEN] 📋 trade_info: {trade_info}")
+					# НЕ добавляем позицию если не удалось сохранить в БД
+					return None
+				
+				# ТОЛЬКО после успешного сохранения в БД добавляем в память
+				self.positions[symbol] = position
+				self.trades_history.append(trade_info)
+				self.stats["total_trades"] += 1
 				
 				# Записываем сигнал для обучения Bayesian модели
 				if self.bayesian:
@@ -548,14 +551,18 @@ class RealTrader:
 					"status": "SUBMITTED",
 					"holding_time": holding_time
 				}
-				self.trades_history.append(trade_info)
-				self.stats["total_trades"] += 1
 				
 				# Сохраняем в БД
 				try:
 					db.add_real_trade(trade_info)
+					logger.info(f"[REAL_CLOSE] 💾 Сделка {symbol} сохранена в БД")
 				except Exception as e:
 					logger.error(f"[REAL_CLOSE] ❌ Ошибка сохранения сделки в БД: {e}")
+					logger.error(f"[REAL_CLOSE] 📋 trade_info: {trade_info}")
+				
+				# Добавляем в память после попытки сохранения
+				self.trades_history.append(trade_info)
+				self.stats["total_trades"] += 1
 				
 				# Win Rate
 				total_closed = self.stats["winning_trades"] + self.stats["losing_trades"]
