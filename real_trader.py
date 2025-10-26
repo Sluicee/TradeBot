@@ -537,6 +537,7 @@ class RealTrader:
 					"holding_time": holding_time
 				}
 				self.trades_history.append(trade_info)
+				self.stats["total_trades"] += 1
 				
 				# Сохраняем в БД
 				try:
@@ -695,6 +696,7 @@ class RealTrader:
 					"order_id": order_id
 				}
 				self.trades_history.append(trade_info)
+				self.stats["total_trades"] += 1
 				
 				# Очищаем остатки после частичной продажи
 				coin = symbol.replace("USDT", "")
@@ -829,6 +831,7 @@ class RealTrader:
 					"order_id": order_id
 				}
 				self.trades_history.append(trade_info)
+				self.stats["total_trades"] += 1
 				
 				logger.info(f"[REAL_AVERAGING] 📈 {symbol}: {mode} | Цена: ${price:.4f} | Количество: {new_amount:.6f} | Средняя: ${position.average_entry_price:.4f}")
 				
