@@ -1053,14 +1053,18 @@ class DatabaseManager:
 				{
 					"id": t.id,
 					"symbol": t.symbol,
+					"type": t.side,  # Используем side как type для совместимости
 					"side": t.side,
 					"order_type": t.order_type,
+					"amount": t.quantity,  # Используем quantity как amount для совместимости
 					"quantity": t.quantity,
 					"price": t.price,
 					"order_id": t.order_id,
 					"status": t.status,
 					"commission": t.commission,
+					"profit": t.realized_pnl,  # Используем realized_pnl как profit для совместимости
 					"realized_pnl": t.realized_pnl,
+					"time": t.timestamp.isoformat() if t.timestamp else None,  # Используем timestamp как time для совместимости
 					"timestamp": t.timestamp.isoformat() if t.timestamp else None,
 					"reason": t.reason,
 					"created_at": t.created_at.isoformat() if t.created_at else None
@@ -1079,15 +1083,18 @@ class DatabaseManager:
 				{
 					"id": t.id,
 					"symbol": t.symbol,
+					"type": t.side,  # Используем side как type для совместимости
 					"side": t.side,
 					"order_type": t.order_type,
+					"amount": t.quantity,  # Используем quantity как amount для совместимости
 					"quantity": t.quantity,
 					"price": t.price,
 					"order_id": t.order_id,
 					"status": t.status,
 					"commission": t.commission,
-					"realized_pnl": t.realized_pnl,
 					"profit": t.realized_pnl,  # Для совместимости
+					"realized_pnl": t.realized_pnl,
+					"time": t.timestamp.isoformat() if t.timestamp else None,  # Используем timestamp как time для совместимости
 					"timestamp": t.timestamp.isoformat() if t.timestamp else None,
 					"reason": t.reason,
 					"created_at": t.created_at.isoformat() if t.created_at else None

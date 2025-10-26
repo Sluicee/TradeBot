@@ -317,6 +317,11 @@ class TelegramRealTrading:
 		text = f"<b>📝 Последние {len(trades)} реальных сделок:</b>\n\n"
 		
 		for trade in reversed(trades):
+			# Проверяем наличие поля 'type' в записи
+			if 'type' not in trade:
+				logger.warning(f"[REAL_TRADES] Запись без поля 'type': {trade}")
+				continue
+				
 			trade_type = trade['type']
 			symbol = trade.get('symbol', 'N/A')
 			price = trade.get('price', 0)
@@ -327,14 +332,35 @@ class TelegramRealTrading:
 				details = f"  Купил {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  Вложено: ${trade['invest_amount']:.2f}\n  Order ID: {order_id}"
 			elif trade_type in ["SELL", "MANUAL-CLOSE"]:
 				emoji = "🔴"
-				profit_emoji = "📈" if trade['profit'] >= 0 else "📉"
-				details = f"  Продал {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  {profit_emoji} Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)\n  Order ID: {order_id}"
+				profit = trade.get('profit', 0)
+				profit_percent = trade.get('profit_percent', 0)
+				profit_emoji = "📈" if profit >= 0 else "📉"
+				details = f"  Продал {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  {profit_emoji} Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)\n  Order ID: {order_id}"
 			elif trade_type == "STOP-LOSS":
 				emoji = "🛑"
-				details = f"  Стоп-лосс {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  📉 Убыток: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)\n  Order ID: {order_id}"
+				profit = trade.get('profit', 0)
+				profit_percent = trade.get('profit_percent', 0)
+				details = f"  Стоп-лосс {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  📉 Убыток: ${profit:+.2f} ({profit_percent:+.2f}%)\n  Order ID: {order_id}"
 			elif trade_type == "TAKE-PROFIT":
 				emoji = "💎"
-				details = f"  Тейк-профит {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  📈 Прибыль: ${trade['profit']:+.2f} ({trade['profit_percent']:+.2f}%)\n  Order ID: {order_id}"
+				profit = trade.get('profit', 0)
+				profit_percent = trade.get('profit_percent', 0)
+				details = f"  Тейк-профит {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  📈 Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)\n  Order ID: {order_id}"
+			elif trade_type == "PARTIAL-TP":
+				emoji = "💎"
+				profit = trade.get('profit', 0)
+				profit_percent = trade.get('profit_percent', 0)
+				closed_percent = trade.get('closed_percent', 0)
+				details = f"  Частичный тейк-профит {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  📈 Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%) | Закрыто: {closed_percent:.0f}%\n  Order ID: {order_id}"
+			elif trade_type == "AVERAGING":
+				emoji = "📈"
+				mode = trade.get('mode', 'UNKNOWN')
+				averaging_count = trade.get('averaging_count', 0)
+				new_avg_price = trade.get('new_avg_price', 0)
+				details = f"  Усреднение ({mode}) {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  📊 Новая средняя: ${new_avg_price:.4f} | Попытка: {averaging_count}\n  Order ID: {order_id}"
+			elif trade_type == "FORCE-CLOSE":
+				emoji = "💸"
+				details = f"  Принудительное закрытие {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  💸 Позиция слишком мала для ордера\n  Order ID: {order_id}"
 			else:
 				emoji = "⚪"
 				details = f"  {trade.get('amount', 0):.6f} @ {self.formatters.format_price(price)}\n  Order ID: {order_id}"
