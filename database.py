@@ -1064,6 +1064,7 @@ class DatabaseManager:
 					"commission": t.commission,
 					"profit": t.realized_pnl,  # Используем realized_pnl как profit для совместимости
 					"realized_pnl": t.realized_pnl,
+					"invest_amount": t.quantity * t.price if t.side == "BUY" else 0,  # Рассчитываем invest_amount для BUY сделок
 					"time": t.timestamp.isoformat() if t.timestamp else None,  # Используем timestamp как time для совместимости
 					"timestamp": t.timestamp.isoformat() if t.timestamp else None,
 					"reason": t.reason,
@@ -1094,6 +1095,7 @@ class DatabaseManager:
 					"commission": t.commission,
 					"profit": t.realized_pnl,  # Для совместимости
 					"realized_pnl": t.realized_pnl,
+					"invest_amount": t.quantity * t.price if t.side == "BUY" else 0,  # Рассчитываем invest_amount для BUY сделок
 					"time": t.timestamp.isoformat() if t.timestamp else None,  # Используем timestamp как time для совместимости
 					"timestamp": t.timestamp.isoformat() if t.timestamp else None,
 					"reason": t.reason,

@@ -329,7 +329,8 @@ class TelegramRealTrading:
 			
 			if trade_type == "BUY":
 				emoji = "🟢"
-				details = f"  Купил {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  Вложено: ${trade['invest_amount']:.2f}\n  Order ID: {order_id}"
+				invest_amount = trade.get('invest_amount', 0)
+				details = f"  Купил {trade['amount']:.6f} @ {self.formatters.format_price(price)}\n  Вложено: ${invest_amount:.2f}\n  Order ID: {order_id}"
 			elif trade_type in ["SELL", "MANUAL-CLOSE"]:
 				emoji = "🔴"
 				profit = trade.get('profit', 0)
