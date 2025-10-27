@@ -487,6 +487,30 @@ class HybridStrategy:
 					reasons.append(f"✅ MR: сильный сигнал (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_RANGING}, RSI={rsi:.1f}, ADX={adx:.1f})")
 					logger.info(f"✅ MR BUY: сильный сигнал (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_RANGING}, RSI={rsi:.1f}, ADX={adx:.1f})")
 			
+			# Если MR стратегия генерирует SELL, проверяем порог и дополнительные условия
+			elif signal_result.get("signal") == "SELL":
+				# Проверяем силу сигнала (для SELL votes_delta отрицательный)
+				if votes_delta > -VOTE_THRESHOLD_RANGING:
+					signal_result["signal"] = "HOLD"
+					signal_result["signal_emoji"] = "⚠️"
+					reasons.append(f"⏸ MR: слабый SELL сигнал (Delta={votes_delta:+d} > -{VOTE_THRESHOLD_RANGING})")
+					logger.info(f"❌ MR BLOCK: слабый SELL сигнал (Delta={votes_delta:+d} > -{VOTE_THRESHOLD_RANGING})")
+				# Проверяем RSI для MR SELL (должен быть в зоне перекупленности)
+				elif rsi < 60:  # RSI слишком низкий для SELL
+					signal_result["signal"] = "HOLD"
+					signal_result["signal_emoji"] = "⚠️"
+					reasons.append(f"⏸ MR: RSI слишком низкий ({rsi:.1f} < 60) для SELL в Mean Reversion")
+					logger.info(f"❌ MR BLOCK: RSI слишком низкий ({rsi:.1f} < 60) для SELL в Mean Reversion")
+				# Проверяем ADX для MR (должен быть низким)
+				elif adx > 25:  # ADX слишком высокий для MR
+					signal_result["signal"] = "HOLD"
+					signal_result["signal_emoji"] = "⚠️"
+					reasons.append(f"⏸ MR: ADX слишком высокий ({adx:.1f} > 25) для Mean Reversion")
+					logger.info(f"❌ MR BLOCK: ADX слишком высокий ({adx:.1f} > 25) для Mean Reversion")
+				else:
+					reasons.append(f"✅ MR: сильный SELL сигнал (Delta={votes_delta:+d} <= -{VOTE_THRESHOLD_RANGING}, RSI={rsi:.1f}, ADX={adx:.1f})")
+					logger.info(f"✅ MR SELL: сильный сигнал (Delta={votes_delta:+d} <= -{VOTE_THRESHOLD_RANGING}, RSI={rsi:.1f}, ADX={adx:.1f})")
+			
 			signal_result["active_mode"] = MODE_MEAN_REVERSION
 			signal_result["strategy"] = "HYBRID"
 			# Добавляем информацию о времени в режиме
@@ -531,6 +555,30 @@ class HybridStrategy:
 				else:
 					reasons.append(f"✅ TF: сильный сигнал (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_TRENDING}, RSI={rsi:.1f}, ADX={adx:.1f})")
 					logger.info(f"✅ TF BUY: сильный сигнал (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_TRENDING}, RSI={rsi:.1f}, ADX={adx:.1f})")
+			
+			# Если TF стратегия генерирует SELL, проверяем порог и дополнительные условия
+			elif signal_result.get("signal") == "SELL":
+				# Проверяем силу сигнала (для SELL votes_delta отрицательный)
+				if votes_delta > -VOTE_THRESHOLD_TRENDING:
+					signal_result["signal"] = "HOLD"
+					signal_result["signal_emoji"] = "⚠️"
+					reasons.append(f"⏸ TF: слабый SELL сигнал (Delta={votes_delta:+d} > -{VOTE_THRESHOLD_TRENDING})")
+					logger.info(f"❌ TF BLOCK: слабый SELL сигнал (Delta={votes_delta:+d} > -{VOTE_THRESHOLD_TRENDING})")
+				# Проверяем RSI для TF (не должен быть в экстремальных зонах)
+				elif rsi < 30 or rsi > 70:  # RSI в экстремальных зонах для TF
+					signal_result["signal"] = "HOLD"
+					signal_result["signal_emoji"] = "⚠️"
+					reasons.append(f"⏸ TF: RSI в экстремальной зоне ({rsi:.1f}) для Trend Following")
+					logger.info(f"❌ TF BLOCK: RSI в экстремальной зоне ({rsi:.1f}) для Trend Following")
+				# Проверяем ADX для TF (должен быть достаточно высоким)
+				elif adx < 20:  # ADX слишком низкий для TF
+					signal_result["signal"] = "HOLD"
+					signal_result["signal_emoji"] = "⚠️"
+					reasons.append(f"⏸ TF: ADX слишком низкий ({adx:.1f} < 20) для Trend Following")
+					logger.info(f"❌ TF BLOCK: ADX слишком низкий ({adx:.1f} < 20) для Trend Following")
+				else:
+					reasons.append(f"✅ TF: сильный SELL сигнал (Delta={votes_delta:+d} <= -{VOTE_THRESHOLD_TRENDING}, RSI={rsi:.1f}, ADX={adx:.1f})")
+					logger.info(f"✅ TF SELL: сильный сигнал (Delta={votes_delta:+d} <= -{VOTE_THRESHOLD_TRENDING}, RSI={rsi:.1f}, ADX={adx:.1f})")
 			
 			signal_result["active_mode"] = MODE_TREND_FOLLOWING
 			signal_result["strategy"] = "HYBRID"

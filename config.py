@@ -393,7 +393,7 @@ logger.info(f"Config: BYBIT_API_SECRET loaded = {BYBIT_API_SECRET is not None}")
 # Real Trading Safety Limits
 REAL_MAX_DAILY_LOSS = 50.0  # Макс убыток в день (USD)
 REAL_MAX_POSITION_SIZE = 100.0  # Макс размер позиции (USD)
-REAL_MIN_ORDER_VALUE = 1.0  # Минимальная сумма ордера (USD) для spot торговли (fallback, реальные лимиты получаются динамически)
+REAL_MIN_ORDER_VALUE = 5.0  # Минимальная сумма ордера (USD) для spot торговли (fallback, реальные лимиты получаются динамически)
 REAL_ORDER_TYPE = "MARKET"  # "MARKET" или "LIMIT"
 REAL_LIMIT_ORDER_OFFSET_PERCENT = 0.001  # 0.1% оффсет для лимитных ордеров
 

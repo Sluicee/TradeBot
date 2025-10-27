@@ -171,9 +171,11 @@ class BybitTrader:
 				if info and info.get("min_order_value"):
 					return float(info["min_order_value"])
 			
-			# Fallback на глобальный минимум
-			logger.warning(f"Используем fallback минимум для {symbol}: ${REAL_MIN_ORDER_VALUE}")
-			return REAL_MIN_ORDER_VALUE
+			# Fallback: используем максимум между API и глобальным минимумом
+			api_min = float(info["min_order_value"]) if info and info.get("min_order_value") else 0
+			fallback_min = max(api_min, REAL_MIN_ORDER_VALUE)
+			logger.warning(f"Используем fallback минимум для {symbol}: ${fallback_min} (API: ${api_min}, Global: ${REAL_MIN_ORDER_VALUE})")
+			return fallback_min
 			
 		except Exception as e:
 			logger.error(f"Ошибка получения минимума для {symbol}: {e}")
