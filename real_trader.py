@@ -532,6 +532,8 @@ class RealTrader:
 					self.stats["stop_loss_triggers"] += 1
 				elif reason == "TRAILING-STOP":
 					self.stats["trailing_stop_triggers"] += 1
+				elif reason == "TAKE-PROFIT":
+					self.stats["take_profit_triggers"] += 1
 				
 				holding_time = self._calculate_holding_time(position.entry_time)
 				
@@ -555,6 +557,8 @@ class RealTrader:
 				# Сохраняем в БД
 				try:
 					db.add_real_trade(trade_info)
+					# Сохраняем обновленное состояние (для обновления статистики)
+					self.save_state()
 					logger.info(f"[REAL_CLOSE] 💾 Сделка {symbol} сохранена в БД")
 				except Exception as e:
 					logger.error(f"[REAL_CLOSE] ❌ Ошибка сохранения сделки в БД: {e}")
@@ -695,6 +699,8 @@ class RealTrader:
 				# Обновляем статистику
 				self.stats["total_commission"] += commission
 				self.stats["take_profit_triggers"] += 1
+				# НЕ обновляем winning_trades/losing_trades - позиция еще не закрыта полностью
+				# Win/loss считается только при полном закрытии (close_position)
 				
 				# Обновляем позицию
 				position.amount = keep_amount
@@ -718,6 +724,15 @@ class RealTrader:
 				}
 				self.trades_history.append(trade_info)
 				self.stats["total_trades"] += 1
+				
+				# Сохраняем в БД
+				try:
+					db.add_real_trade(trade_info)
+					# Сохраняем обновленное состояние (для обновления статистики)
+					self.save_state()
+					logger.info(f"[REAL_PARTIAL_TP] 💾 Частичная продажа {symbol} сохранена в БД")
+				except Exception as e:
+					logger.error(f"[REAL_PARTIAL_TP] ❌ Ошибка сохранения в БД: {e}")
 				
 				# Очищаем остатки после частичной продажи
 				coin = symbol.replace("USDT", "")

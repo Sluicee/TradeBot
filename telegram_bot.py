@@ -615,9 +615,11 @@ class TelegramBot:
 						if trade_type == "STOP-LOSS":
 							msg = f"🛑 <b>REAL STOP-LOSS</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Убыток: ${profit:+.2f} ({profit_percent:+.2f}%)"
 						elif trade_type == "TAKE-PROFIT":
-							msg = f"💎 <b>REAL TAKE-PROFIT</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)"
+							msg = f"💎 <b>REAL TAKE-PROFIT</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)\n  ✅ Позиция закрыта полностью"
+						elif trade_type == "PARTIAL-TP":
+							msg = f"💎 <b>REAL PARTIAL TP</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)\n  Закрыто: 50%, активен trailing stop"
 						elif trade_type == "TRAILING-STOP":
-							msg = f"🔻 <b>REAL TRAILING STOP</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)"
+							msg = f"🔻 <b>REAL TRAILING STOP</b> {symbol}\n  Цена: {self.handlers.formatters.format_price(price)}\n  Прибыль: ${profit:+.2f} ({profit_percent:+.2f}%)\n  ✅ Позиция закрыта полностью"
 						else:
 							msg = f"📊 <b>REAL {trade_type}</b> {symbol} @ {self.handlers.formatters.format_price(price)}"
 							
