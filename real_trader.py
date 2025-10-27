@@ -653,12 +653,13 @@ class RealTrader:
 		
 		# Проверяем размер частичной продажи
 		close_value = close_amount * price
-		# Используем более мягкий порог для частичной продажи (50% от минимума)
-		partial_threshold = REAL_MIN_ORDER_VALUE * 0.5
-		if close_value < partial_threshold:
+		# Получаем минимальную сумму для символа
+		min_order_value = bybit_trader.get_min_order_value(symbol)
+		
+		if close_value < min_order_value:
 			# Частичная продажа слишком мала, закрываем всю позицию
-			logger.warning(f"[PARTIAL_CLOSE] ⚠️ Частичная продажа слишком мала (${close_value:.2f}), закрываем всю позицию")
-			return await self.close_position(symbol, price, "PARTIAL_TOO_SMALL")
+			logger.warning(f"[PARTIAL_TP] ⚠️ Частичное закрытие слишком мало (${close_value:.2f} < ${min_order_value:.2f}), закрываем полностью")
+			return await self.close_position(symbol, price, "TP-FULL")
 		
 		# Размещаем ордер на частичную продажу
 		async with aiohttp.ClientSession() as session:
@@ -899,7 +900,11 @@ class RealTrader:
 				# Отладочная информация для TP
 				tp_triggered = position.check_take_profit(current_price)
 				if tp_triggered:
-					logger.info(f"[TP_CHECK] 💎 {symbol}: TP сработал! Цена: ${current_price:.4f} >= TP: ${position.take_profit_price:.4f}")
+					logger.info(f"[TP_CHECK] 💎 {symbol}: TP сработал!")
+					logger.info(f"[TP_CHECK]   Текущая цена: ${current_price:.4f}")
+					logger.info(f"[TP_CHECK]   TP цена: ${position.take_profit_price:.4f}")
+					logger.info(f"[TP_CHECK]   Размер позиции: {position.amount:.8f} (${position.amount * current_price:.2f})")
+					logger.info(f"[TP_CHECK]   Partial closed: {position.partial_closed}")
 					# Реализуем частичное закрытие как в paper trading
 					trade_info = await self.partial_close_position(symbol, current_price)
 					if trade_info:

@@ -192,7 +192,14 @@ class SignalGenerator:
 				signal_emoji = "🔴"
 				reasons.append(f"✅ SELL: Голосов {bearish} vs {bullish}, фильтров {sell_filters_passed}/{min_filters}")
 		else:
-			reasons.append(f"⏸ HOLD: Бычьи {bullish} vs Медвежьи {bearish}, фильтров BUY:{buy_filters_passed} SELL:{sell_filters_passed}, режим: {market_regime}")
+			# НОВОЕ: SELL при сильной перекупленности (закрытие LONG)
+			rsi = indicators_data.get("RSI", 50)
+			if rsi > RSI_OVERBOUGHT and bearish - bullish >= 2:
+				signal = "SELL"
+				signal_emoji = "🔴"
+				reasons.append(f"✅ SELL: Перекупленность RSI={rsi:.1f} и медвежий настрой ({bearish}vs{bullish})")
+			else:
+				reasons.append(f"⏸ HOLD: Бычьи {bullish} vs Медвежьи {bearish}, фильтров BUY:{buy_filters_passed} SELL:{sell_filters_passed}, режим: {market_regime}")
 
 		# Формируем результат
 		base_result = {
