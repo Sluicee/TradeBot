@@ -654,7 +654,9 @@ class RealTrader:
 		# Проверяем размер частичной продажи
 		close_value = close_amount * price
 		# Получаем минимальную сумму для символа
-		min_order_value = bybit_trader.get_min_order_value(symbol)
+		api_min_order_value = bybit_trader.get_min_order_value(symbol)
+		# Используем реальный минимум $5.0, так как API возвращает $1.0, но Bybit требует больше
+		min_order_value = max(api_min_order_value, 5.0)
 		
 		if close_value < min_order_value:
 			# Частичная продажа слишком мала, закрываем всю позицию
