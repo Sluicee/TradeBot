@@ -9,7 +9,7 @@ from config import (
 	RANGING_TREND_WEIGHT, RANGING_OSCILLATOR_WEIGHT,
 	TRANSITIONING_TREND_WEIGHT, TRANSITIONING_OSCILLATOR_WEIGHT,
 	VOTE_THRESHOLD_TRENDING, VOTE_THRESHOLD_RANGING, VOTE_THRESHOLD_TRANSITIONING,
-	MIN_FILTERS, RSI_BUY_RANGE, RSI_SELL_RANGE, VOLUME_MODERATE_RATIO
+	MIN_FILTERS, MIN_FILTERS_SELL, RSI_BUY_RANGE, RSI_SELL_RANGE, VOLUME_MODERATE_RATIO
 )
 
 class MarketRegimeDetector:
@@ -313,5 +313,6 @@ class MarketRegimeDetector:
 		return {
 			"buy_filters_passed": buy_filters_passed,
 			"sell_filters_passed": sell_filters_passed,
-			"min_filters": MIN_FILTERS
+			"min_filters": MIN_FILTERS,
+			"min_filters_sell": MIN_FILTERS_SELL
 		}
