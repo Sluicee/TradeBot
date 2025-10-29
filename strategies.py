@@ -603,13 +603,18 @@ class HybridStrategy:
 			# Детальное логирование для отладки TRANSITION режима
 			logger.info(f"🔍 TRANSITION DEBUG: original_signal={original_signal}, bullish={bullish_votes}, bearish={bearish_votes}, delta={votes_delta:+d}")
 			
-			# Разрешаем BUY в TRANSITION при сильном bullish сигнале (Delta >= VOTE_THRESHOLD_TRANSITIONING)
+			# Разрешаем BUY/SELL в TRANSITION при сильных сигналах
 			# НЕЗАВИСИМО от того, что генерирует TF стратегия
 			if votes_delta >= VOTE_THRESHOLD_TRANSITIONING:
 				signal_result["signal"] = "BUY"  # Разрешаем сильный BUY в TRANSITION
 				signal_result["signal_emoji"] = "🟢"
 				reasons.append(f"🎯 TRANSITION: принудительный BUY (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_TRANSITIONING})")
 				logger.info(f"✅ TRANSITION BUY: принудительный BUY (Delta={votes_delta:+d} >= {VOTE_THRESHOLD_TRANSITIONING})")
+			elif votes_delta <= -VOTE_THRESHOLD_TRANSITIONING:
+				signal_result["signal"] = "SELL"  # Разрешаем сильный SELL в TRANSITION
+				signal_result["signal_emoji"] = "🔴"
+				reasons.append(f"🎯 TRANSITION: принудительный SELL (Delta={votes_delta:+d} <= -{VOTE_THRESHOLD_TRANSITIONING})")
+				logger.info(f"✅ TRANSITION SELL: принудительный SELL (Delta={votes_delta:+d} <= -{VOTE_THRESHOLD_TRANSITIONING})")
 			else:
 				signal_result["signal"] = "HOLD"  # Слабые сигналы блокируем
 				signal_result["signal_emoji"] = "⚠️"
