@@ -618,6 +618,7 @@ class TelegramBot:
 			if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
 				# Проверяем существующие позиции на stop-loss и take-profit
 				try:
+					logger.info(f"[REAL_CHECK_POSITIONS] Проверяем {len(self.real_trader.positions)} позиций")
 					actions = await self.real_trader.check_positions(current_prices)
 					for action in actions:
 						trade_type = action['type']

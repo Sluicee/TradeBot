@@ -479,6 +479,10 @@ class RealTrader:
 				import time
 				self.last_trade_time[symbol] = time.time()
 				
+				# Обновляем timestamp после успешного открытия позиции
+				import time
+				self.last_trade_time[symbol] = time.time()
+				
 				return trade_info
 				
 			except Exception as e:
