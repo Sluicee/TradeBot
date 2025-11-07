@@ -171,7 +171,7 @@ AVERAGING_SIZE_PERCENT = 0.5  # Размер докупания (50% от исх
 
 # Стоп-лосс и тейк-профит
 STOP_LOSS_PERCENT = 0.035 
-TAKE_PROFIT_PERCENT = 0.7  
+TAKE_PROFIT_PERCENT = 0.07  
 PARTIAL_CLOSE_PERCENT = 0.50  # Закрываем 50% позиции на TP
 TRAILING_STOP_PERCENT = 0.02  # 2% trailing stop после частичного закрытия
 
