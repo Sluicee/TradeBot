@@ -251,7 +251,7 @@ class PaperTrader:
 				self.bayesian.record_signal(signal_signature, "BUY", price)
 				logger.info(f"[OPEN_POSITION] 📊 Записан сигнал для обучения: {signal_signature[:50]}...")
 		
-		logger.info(f"[OPEN_POSITION] ✅ {symbol}: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) | SL: {position.stop_loss_percent*100:.1f}% | TP: {TAKE_PROFIT_PERCENT*100:.1f}%")
+		logger.info(f"[OPEN_POSITION] ✅ {symbol}: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) | SL: {position.stop_loss_percent*100:.1f}% | TP: {position.take_profit_percent*100:.1f}%")
 		
 		return trade_info
 		
@@ -506,7 +506,11 @@ class PaperTrader:
 		# Не сужаем SL при усреднении (берём max)
 		position.stop_loss_price = max(new_stop_loss, position.stop_loss_price)
 		position.stop_loss_percent = dynamic_sl
-		position.take_profit_price = position.average_entry_price * (1 + TAKE_PROFIT_PERCENT)
+		# Обновляем TP динамически от новой средней цены
+		from position import get_dynamic_take_profit_percent
+		dynamic_tp = get_dynamic_take_profit_percent(position.atr, position.average_entry_price, position.stop_loss_percent)
+		position.take_profit_percent = dynamic_tp
+		position.take_profit_price = position.average_entry_price * (1 + dynamic_tp)
 		
 		# Сохраняем историю докупания
 		averaging_entry = {
