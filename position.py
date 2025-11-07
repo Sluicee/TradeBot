@@ -7,7 +7,9 @@ from config import (
 	ENABLE_AVERAGING, MAX_AVERAGING_ATTEMPTS, AVERAGING_PRICE_DROP_PERCENT,
 	AVERAGING_TIME_THRESHOLD_HOURS, ENABLE_PYRAMID_UP, PYRAMID_ADX_THRESHOLD,
 	MAX_POSITION_DRAWDOWN_PERCENT, MAX_AVERAGING_DRAWDOWN_PERCENT,
-	STRATEGY_TYPE_MR, STRATEGY_TYPE_TF, STRATEGY_TYPE_HYBRID
+	STRATEGY_TYPE_MR, STRATEGY_TYPE_TF, STRATEGY_TYPE_HYBRID,
+	USE_DYNAMIC_TP, DYNAMIC_TP_RR_MULTIPLIER, DYNAMIC_TP_MIN, DYNAMIC_TP_MAX,
+	TRAILING_STOP_ACTIVATION
 )
 
 
@@ -61,10 +63,18 @@ class Position:
 		# Stop-loss и Take-profit уровни (динамические на основе ATR)
 		dynamic_sl = get_dynamic_stop_loss_percent(atr, entry_price)
 		
+		# УЛУЧШЕНО: Динамический TP на основе SL для улучшения R:R
+		if USE_DYNAMIC_TP:
+			# TP = SL × R:R multiplier, но не меньше минимума и не больше максимума
+			dynamic_tp = max(DYNAMIC_TP_MIN, min(DYNAMIC_TP_MAX, dynamic_sl * DYNAMIC_TP_RR_MULTIPLIER))
+		else:
+			dynamic_tp = TAKE_PROFIT_PERCENT
+		
 		# Для LONG: SL ниже входа, TP выше входа
 		self.stop_loss_price = entry_price * (1 - dynamic_sl)  # Ниже входа
 		self.stop_loss_percent = dynamic_sl
-		self.take_profit_price = entry_price * (1 + TAKE_PROFIT_PERCENT)  # Выше входа
+		self.take_profit_price = entry_price * (1 + dynamic_tp)  # Выше входа
+		self.take_profit_percent = dynamic_tp
 		
 		# Флаги и состояние
 		self.partial_closed = False
@@ -100,12 +110,20 @@ class Position:
 		return False
 		
 	def check_trailing_stop(self, current_price: float) -> bool:
-		"""Проверяет срабатывание trailing stop"""
-		if self.partial_closed:
-			# Для LONG: trailing stop срабатывает при падении цены
-			trailing_drop = (self.max_price - current_price) / self.max_price if self.max_price > 0 else 0
-			return trailing_drop >= TRAILING_STOP_PERCENT
-		return False
+		"""Проверяет срабатывание trailing stop (УЛУЧШЕНО: с активацией)"""
+		if not self.partial_closed:
+			return False
+		
+		# УЛУЧШЕНО: Проверяем активацию trailing stop
+		profit_from_entry = (current_price - self.entry_price) / self.entry_price if self.entry_price > 0 else 0
+		
+		# Trailing stop активируется только после достижения минимальной прибыли
+		if profit_from_entry < TRAILING_STOP_ACTIVATION:
+			return False
+		
+		# Для LONG: trailing stop срабатывает при падении цены
+		trailing_drop = (self.max_price - current_price) / self.max_price if self.max_price > 0 else 0
+		return trailing_drop >= TRAILING_STOP_PERCENT
 	
 	def check_time_exit(self, max_hours: int = None, strategy_type: str = None) -> bool:
 		"""

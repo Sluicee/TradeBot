@@ -10,7 +10,7 @@ from config import (
 	MR_POSITION_SIZE_STRONG, MR_POSITION_SIZE_MEDIUM, MR_POSITION_SIZE_WEAK,
 	# Фильтры "падающего ножа" v5
 	NO_BUY_IF_PRICE_BELOW_N_DAY_LOW_PERCENT, NO_BUY_IF_EMA200_SLOPE_NEG, EMA200_NEG_SLOPE_THRESHOLD,
-	USE_RED_CANDLES_FILTER, USE_VOLUME_FILTER, VOLUME_SPIKE_THRESHOLD,
+	USE_RED_CANDLES_FILTER, RED_CANDLES_THRESHOLD, USE_VOLUME_FILTER, VOLUME_SPIKE_THRESHOLD,
 	# Динамический SL/TP v5
 	USE_DYNAMIC_SL_FOR_MR, MR_ATR_SL_MULTIPLIER, MR_ATR_SL_MIN, MR_ATR_SL_MAX,
 	ADAPTIVE_SL_ON_RISK, ADAPTIVE_SL_MULTIPLIER,
@@ -137,10 +137,10 @@ class MeanReversionStrategy:
 					red_candles += 1
 					total_drop += abs(candle_change)
 			
-			# Если 4+ красных свечей подряд и общее падение > 3%
-			if red_candles >= 4 and total_drop > 0.03:
+			# УЛУЧШЕНО: Используем RED_CANDLES_THRESHOLD из config
+			if red_candles >= RED_CANDLES_THRESHOLD and total_drop > 0.03:
 				falling_knife_detected = True
-				reasons.append(f"🚫 СЕРИЯ КРАСНЫХ СВЕЧЕЙ: {red_candles}/5 свечей, падение {total_drop*100:.1f}% (>3%)")
+				reasons.append(f"🚫 СЕРИЯ КРАСНЫХ СВЕЧЕЙ: {red_candles}/5 свечей >= {RED_CANDLES_THRESHOLD}, падение {total_drop*100:.1f}% (>3%)")
 			
 			# Или если последние 3 свечи все красные и падение > 2%
 			last_3_candles = self.df.tail(3)
