@@ -80,6 +80,10 @@ class RealTrader:
 			# Мигрируем данные из JSON если есть
 			self.bayesian.migrate_from_json()
 			logger.info("Статистические модели инициализированы с поддержкой БД")
+		
+		# Механизмы предотвращения частых сделок
+		self.last_trade_time: Dict[str, float] = {}  # symbol -> timestamp (cooldown)
+		self.signal_confirmation: Dict[str, Dict] = {}  # symbol -> {"signal": "BUY", "first_seen": timestamp, "count": 3}
 	
 	def _get_signal_signature(self, trade_info: Dict[str, Any] = None, position: Position = None) -> str:
 		"""Создает сигнатуру сигнала для Bayesian модели"""
@@ -180,6 +184,15 @@ class RealTrader:
 	
 	async def can_open_position(self, symbol: str) -> bool:
 		"""Проверяет, можно ли открыть позицию"""
+		import time
+		
+		# Cooldown: минимум 5 минут между сделками
+		if symbol in self.last_trade_time:
+			time_since_last = time.time() - self.last_trade_time[symbol]
+			if time_since_last < 300:  # 5 минут
+				logger.info(f"[COOLDOWN] {symbol}: последняя операция {time_since_last:.0f}с назад, нужно ждать еще {300-time_since_last:.0f}с")
+				return False
+		
 		# Проверяем лимиты безопасности
 		if not self.safety_limits.check_position_limits(symbol, self.positions):
 			return False
@@ -236,6 +249,49 @@ class RealTrader:
 			return False
 		
 		return True
+	
+	def check_signal_confirmation(self, symbol: str, signal: str, min_confirmations: int = 3) -> bool:
+		"""
+		Проверяет, что сигнал держится min_confirmations циклов подряд.
+		Возвращает True если сигнал подтвержден, False если еще рано.
+		"""
+		import time
+		current_time = time.time()
+		
+		if symbol not in self.signal_confirmation:
+			# Первый раз видим этот сигнал
+			self.signal_confirmation[symbol] = {
+				"signal": signal,
+				"first_seen": current_time,
+				"count": 1
+			}
+			logger.info(f"[CONFIRM] {symbol}: новый сигнал {signal}, счетчик: 1/{min_confirmations}")
+			return False
+		
+		prev = self.signal_confirmation[symbol]
+		
+		if prev["signal"] == signal:
+			# Сигнал тот же - увеличиваем счетчик
+			prev["count"] += 1
+			time_held = current_time - prev["first_seen"]
+			
+			if prev["count"] >= min_confirmations:
+				logger.info(f"[CONFIRM] ✅ {symbol}: сигнал {signal} подтвержден! ({prev['count']} циклов, {time_held:.0f}с)")
+				# Сбрасываем после подтверждения
+				del self.signal_confirmation[symbol]
+				return True
+			else:
+				logger.info(f"[CONFIRM] {symbol}: сигнал {signal} держится, счетчик: {prev['count']}/{min_confirmations} ({time_held:.0f}с)")
+				return False
+		else:
+			# Сигнал изменился - сбрасываем и начинаем заново
+			logger.info(f"[CONFIRM] 🔄 {symbol}: смена сигнала {prev['signal']} → {signal}, сброс счетчика")
+			self.signal_confirmation[symbol] = {
+				"signal": signal,
+				"first_seen": current_time,
+				"count": 1
+			}
+			return False
 	
 	async def open_position(
 		self,
@@ -417,7 +473,15 @@ class RealTrader:
 						self.bayesian.record_signal(signal_signature, "BUY", price)
 						logger.info(f"[REAL_OPEN] 📊 Записан сигнал для обучения: {signal_signature[:50]}...")
 				
-				logger.info(f"[REAL_OPEN] ✅ {symbol}: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) | SL: {position.stop_loss_percent*100:.1f}% | TP: {TAKE_PROFIT_PERCENT*100:.1f}%")
+				logger.info(f"[REAL_OPEN] ✅ {symbol}: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) | SL: {position.stop_loss_percent*100:.1f}% | TP: {position.take_profit_percent*100:.1f}%")
+				
+				# Обновляем timestamp после успешного открытия позиции
+				import time
+				self.last_trade_time[symbol] = time.time()
+				
+				# Обновляем timestamp после успешного открытия позиции
+				import time
+				self.last_trade_time[symbol] = time.time()
 				
 				return trade_info
 				
@@ -595,6 +659,10 @@ class RealTrader:
 				# Краткий лог результата
 				emoji = "💚" if profit > 0 else "💔"
 				logger.info(f"[REAL_CLOSE] {emoji} {symbol}: {profit:+.2f} ({profit_percent:+.1f}%) | {holding_time} | WR: {win_rate:.1f}%")
+				
+				# Обновляем timestamp после успешного закрытия позиции
+				import time
+				self.last_trade_time[symbol] = time.time()
 				
 				return trade_info
 				
@@ -830,9 +898,12 @@ class RealTrader:
 				position.averaging_count += 1
 				position.average_entry_price = (old_avg_price * old_amount + price * new_amount) / position.amount
 				
-				# ВАЖНО: Обновляем TP от новой средней цены
-				position.take_profit_price = position.average_entry_price * (1 + TAKE_PROFIT_PERCENT)
-				logger.info(f"[REAL_AVERAGING] 📈 {symbol}: TP обновлен до ${position.take_profit_price:.4f} (от средней ${position.average_entry_price:.4f})")
+				# ВАЖНО: Обновляем TP от новой средней цены (динамический)
+				from position import get_dynamic_take_profit_percent
+				dynamic_tp = get_dynamic_take_profit_percent(position.atr, position.average_entry_price, position.stop_loss_percent)
+				position.take_profit_percent = dynamic_tp
+				position.take_profit_price = position.average_entry_price * (1 + dynamic_tp)
+				logger.info(f"[REAL_AVERAGING] 📈 {symbol}: TP обновлен до ${position.take_profit_price:.4f} ({dynamic_tp*100:.1f}%, от средней ${position.average_entry_price:.4f})")
 				
 				# Добавляем запись о докупании
 				averaging_entry = {
@@ -896,7 +967,9 @@ class RealTrader:
 				position.update_max_price(current_price)
 				
 				# 1. Проверяем время удержания
-				if position.check_time_exit():
+				time_exit_triggered = position.check_time_exit()
+				if time_exit_triggered:
+					logger.info(f"[REAL_TIME_EXIT] ⏰ {symbol}: принудительное закрытие по времени")
 					trade_info = await self.close_position(symbol, current_price, "TIME-EXIT")
 					if trade_info:
 						actions.append(trade_info)
@@ -998,7 +1071,9 @@ class RealTrader:
 							"quantity": exchange_pos["quantity"],
 							"entry_price": local_pos.entry_price,
 							"stop_loss": local_pos.stop_loss_price,
+							"stop_loss_percent": local_pos.stop_loss_percent,
 							"take_profit": local_pos.take_profit_price,
+							"take_profit_percent": getattr(local_pos, 'take_profit_percent', 0),  # Динамический TP процент
 							"current_price": 0.0,  # Будет получена в telegram_real_trading.py
 							"side": exchange_pos["side"]
 						})

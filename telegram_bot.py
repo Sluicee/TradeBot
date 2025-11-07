@@ -430,8 +430,22 @@ class TelegramBot:
 
 						last = self.last_signals.get(symbol)
 						if last != signal:
-							text = self.handlers.formatters.format_analysis(result, symbol, self.default_interval)
-							all_messages.append(text)
+							# НОВОЕ: Отправляем только подтвержденные сигналы в Telegram
+							# Проверяем подтверждение сигнала для Real Trading
+							if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
+								# Проверяем, подтвержден ли сигнал
+								if self.real_trader.check_signal_confirmation(symbol, signal, min_confirmations=3):
+									text = self.handlers.formatters.format_analysis(result, symbol, self.default_interval)
+									all_messages.append(text)
+									logger.info(f"[TELEGRAM] ✅ {symbol}: отправляем подтвержденный сигнал {signal}")
+								else:
+									logger.debug(f"[TELEGRAM] ⏳ {symbol}: сигнал {signal} еще не подтвержден, пропускаем")
+							else:
+								# Для Paper Trading отправляем все сигналы как раньше
+								text = self.handlers.formatters.format_analysis(result, symbol, self.default_interval)
+								all_messages.append(text)
+								logger.info(f"[TELEGRAM] 📊 {symbol}: отправляем сигнал {signal} (Paper Trading)")
+							
 							self.last_signals[symbol] = signal
 							log_signal(symbol, self.default_interval, signal, result["reasons"], result["price"])
 							logger.info("Сигнал %s: %s", symbol, signal)
@@ -604,6 +618,7 @@ class TelegramBot:
 			if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
 				# Проверяем существующие позиции на stop-loss и take-profit
 				try:
+					logger.info(f"[REAL_CHECK_POSITIONS] Проверяем {len(self.real_trader.positions)} позиций")
 					actions = await self.real_trader.check_positions(current_prices)
 					for action in actions:
 						trade_type = action['type']
@@ -632,9 +647,19 @@ class TelegramBot:
 			if ENABLE_REAL_TRADING and self.real_trader and self.real_trader.is_running:
 				from signal_diagnostics import diagnostics
 				
-				# Обрабатываем все сигналы для Real Trading (с блокировкой)
+				# Фильтруем только подтвержденные сигналы (3 цикла подряд)
+				confirmed_signals = {}
+				for symbol, result in trading_signals.items():
+					signal = result["signal"]
+					if self.real_trader.check_signal_confirmation(symbol, signal, min_confirmations=3):
+						confirmed_signals[symbol] = result
+						logger.info(f"[REAL_TRADING] ✅ {symbol}: сигнал {signal} подтвержден и готов к исполнению")
+					else:
+						logger.debug(f"[REAL_TRADING] ⏳ {symbol}: сигнал {signal} еще не подтвержден")
+				
+				# Обрабатываем только подтвержденные сигналы (с блокировкой)
 				with self.paper_trader_lock:  # Используем тот же lock для consistency
-					for symbol, result in trading_signals.items():
+					for symbol, result in confirmed_signals.items():
 						signal = result["signal"]
 						price = current_prices.get(symbol)
 						
