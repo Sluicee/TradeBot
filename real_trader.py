@@ -1003,7 +1003,9 @@ class RealTrader:
 							"quantity": exchange_pos["quantity"],
 							"entry_price": local_pos.entry_price,
 							"stop_loss": local_pos.stop_loss_price,
+							"stop_loss_percent": local_pos.stop_loss_percent,
 							"take_profit": local_pos.take_profit_price,
+							"take_profit_percent": getattr(local_pos, 'take_profit_percent', 0),  # Динамический TP процент
 							"current_price": 0.0,  # Будет получена в telegram_real_trading.py
 							"side": exchange_pos["side"]
 						})

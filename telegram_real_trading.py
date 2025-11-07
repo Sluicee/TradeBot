@@ -204,7 +204,9 @@ class TelegramRealTrading:
 				
 				# Получаем SL/TP из позиции
 				stop_loss = pos.get('stop_loss', 0)
+				stop_loss_percent = pos.get('stop_loss_percent', 0)
 				take_profit = pos.get('take_profit', 0)
+				take_profit_percent = pos.get('take_profit_percent', 0)
 				
 				positions_text += (
 					f"  {emoji} <b>{symbol}</b>\n"
@@ -213,10 +215,20 @@ class TelegramRealTrading:
 					f"    Стоимость: ${current_value:.2f}\n"
 				)
 				
-				# Добавляем SL/TP если они установлены
+				# Добавляем SL/TP если они установлены (с процентами для наглядности)
 				if stop_loss > 0 or take_profit > 0:
-					sl_text = f"SL: {self.formatters.format_price(stop_loss)}" if stop_loss > 0 else "SL: —"
-					tp_text = f"TP: {self.formatters.format_price(take_profit)}" if take_profit > 0 else "TP: —"
+					if stop_loss > 0:
+						sl_percent_text = f" ({stop_loss_percent*100:.1f}%)" if stop_loss_percent > 0 else ""
+						sl_text = f"SL: {self.formatters.format_price(stop_loss)}{sl_percent_text}"
+					else:
+						sl_text = "SL: —"
+					
+					if take_profit > 0:
+						tp_percent_text = f" ({take_profit_percent*100:.1f}%)" if take_profit_percent > 0 else ""
+						tp_text = f"TP: {self.formatters.format_price(take_profit)}{tp_percent_text}"
+					else:
+						tp_text = "TP: —"
+					
 					positions_text += f"    {sl_text} | {tp_text}\n"
 				
 				positions_text += "\n"
