@@ -133,6 +133,9 @@ class BybitTrader:
 			if not info:
 				return False
 			
+			# Сначала добавляем символ в отслеживаемые, если его нет
+			db.add_tracked_symbol(symbol)
+			
 			# Обновляем в БД
 			db.update_symbol_info(
 				symbol=symbol,
@@ -168,9 +171,11 @@ class BybitTrader:
 				if info and info.get("min_order_value"):
 					return float(info["min_order_value"])
 			
-			# Fallback на глобальный минимум
-			logger.warning(f"Используем fallback минимум для {symbol}: ${REAL_MIN_ORDER_VALUE}")
-			return REAL_MIN_ORDER_VALUE
+			# Fallback: используем максимум между API и глобальным минимумом
+			api_min = float(info["min_order_value"]) if info and info.get("min_order_value") else 0
+			fallback_min = max(api_min, REAL_MIN_ORDER_VALUE)
+			logger.warning(f"Используем fallback минимум для {symbol}: ${fallback_min} (API: ${api_min}, Global: ${REAL_MIN_ORDER_VALUE})")
+			return fallback_min
 			
 		except Exception as e:
 			logger.error(f"Ошибка получения минимума для {symbol}: {e}")
@@ -226,6 +231,11 @@ class BybitTrader:
 				order_value = quantity * price
 				if order_value < min_order_value:
 					raise ValueError(f"Сумма ордера ${order_value:.2f} меньше минимума ${min_order_value:.2f} для {symbol}")
+			elif side == "Sell" and price:
+				# Для продажи проверяем стоимость позиции
+				order_value = quantity * price
+				if order_value < min_order_value:
+					raise ValueError(f"Стоимость позиции ${order_value:.2f} меньше минимума ${min_order_value:.2f} для {symbol}")
 			
 			logger.info(f"[BYBIT_DEBUG] 🚀 place_market_order вызван: symbol={symbol}, side={side}, quantity={quantity:.8f}, price={price}, min_value={min_order_value}")
 			

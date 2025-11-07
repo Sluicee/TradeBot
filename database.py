@@ -68,7 +68,7 @@ class RealTrade(Base):
 	order_type = Column(String(10), nullable=False)  # MARKET/LIMIT
 	quantity = Column(Float, nullable=False)
 	price = Column(Float, nullable=False)
-	order_id = Column(String(50), nullable=False, index=True)  # Bybit order ID
+	order_id = Column(String(50), nullable=True, index=True)  # Bybit order ID - nullable для совместимости
 	status = Column(String(20), nullable=False)  # FILLED/PARTIAL/CANCELLED
 	commission = Column(Float, default=0.0)
 	realized_pnl = Column(Float, default=0.0)
@@ -1030,13 +1030,18 @@ class DatabaseManager:
 	def add_real_trade(self, trade_data: Dict[str, Any]):
 		"""Добавить реальную сделку"""
 		with self.session_scope() as session:
+			# Обеспечиваем корректное значение для order_id
+			order_id = trade_data.get("order_id")
+			if not order_id or order_id == "":
+				order_id = None  # Используем NULL вместо пустой строки
+			
 			trade = RealTrade(
 				symbol=trade_data.get("symbol"),
 				side=trade_data.get("type", "BUY"),  # BUY/SELL
 				order_type=trade_data.get("order_type", "MARKET"),
 				quantity=trade_data.get("amount", 0),
 				price=trade_data.get("price", 0),
-				order_id=trade_data.get("order_id", ""),
+				order_id=order_id,
 				status=trade_data.get("status", "SUBMITTED"),
 				commission=trade_data.get("commission", 0.0),
 				realized_pnl=trade_data.get("profit", 0.0),
@@ -1053,14 +1058,19 @@ class DatabaseManager:
 				{
 					"id": t.id,
 					"symbol": t.symbol,
+					"type": t.side,  # Используем side как type для совместимости
 					"side": t.side,
 					"order_type": t.order_type,
+					"amount": t.quantity,  # Используем quantity как amount для совместимости
 					"quantity": t.quantity,
 					"price": t.price,
 					"order_id": t.order_id,
 					"status": t.status,
 					"commission": t.commission,
+					"profit": t.realized_pnl,  # Используем realized_pnl как profit для совместимости
 					"realized_pnl": t.realized_pnl,
+					"invest_amount": t.quantity * t.price if t.side == "BUY" else 0,  # Рассчитываем invest_amount для BUY сделок
+					"time": t.timestamp.isoformat() if t.timestamp else None,  # Используем timestamp как time для совместимости
 					"timestamp": t.timestamp.isoformat() if t.timestamp else None,
 					"reason": t.reason,
 					"created_at": t.created_at.isoformat() if t.created_at else None
@@ -1079,15 +1089,19 @@ class DatabaseManager:
 				{
 					"id": t.id,
 					"symbol": t.symbol,
+					"type": t.side,  # Используем side как type для совместимости
 					"side": t.side,
 					"order_type": t.order_type,
+					"amount": t.quantity,  # Используем quantity как amount для совместимости
 					"quantity": t.quantity,
 					"price": t.price,
 					"order_id": t.order_id,
 					"status": t.status,
 					"commission": t.commission,
-					"realized_pnl": t.realized_pnl,
 					"profit": t.realized_pnl,  # Для совместимости
+					"realized_pnl": t.realized_pnl,
+					"invest_amount": t.quantity * t.price if t.side == "BUY" else 0,  # Рассчитываем invest_amount для BUY сделок
+					"time": t.timestamp.isoformat() if t.timestamp else None,  # Используем timestamp как time для совместимости
 					"timestamp": t.timestamp.isoformat() if t.timestamp else None,
 					"reason": t.reason,
 					"created_at": t.created_at.isoformat() if t.created_at else None
@@ -1095,6 +1109,32 @@ class DatabaseManager:
 				for t in trades
 			]
 	
+	def get_last_real_trade_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+		"""Получить последнюю сделку по символу"""
+		with self.session_scope() as session:
+			trade = session.query(RealTrade).filter(
+				RealTrade.symbol == symbol
+			).order_by(RealTrade.timestamp.desc()).first()
+			
+			if not trade:
+				return None
+			
+			return {
+				"id": trade.id,
+				"symbol": trade.symbol,
+				"side": trade.side,
+				"order_type": trade.order_type,
+				"quantity": trade.quantity,
+				"price": trade.price,
+				"order_id": trade.order_id,
+				"status": trade.status,
+				"commission": trade.commission,
+				"realized_pnl": trade.realized_pnl,
+				"timestamp": trade.timestamp,
+				"reason": trade.reason,
+				"created_at": trade.created_at
+			}
+
 	def get_all_bayesian_stats(self) -> List[Dict[str, Any]]:
 		"""Получить всю статистику Bayesian модели"""
 		with self.session_scope() as session:

@@ -201,6 +201,37 @@ class RealTrader:
 		if symbol in self.positions:
 			return False
 		
+		# Проверяем кулдаун между сделками
+		from config import ENABLE_TRADE_COOLDOWN, TRADE_COOLDOWN_MINUTES
+		if ENABLE_TRADE_COOLDOWN:
+			# Получаем время последней сделки по символу из БД
+			last_trade = db.get_last_real_trade_by_symbol(symbol)
+			if last_trade:
+				import time
+				from datetime import datetime
+				# Получаем timestamp последней сделки
+				last_trade_time = last_trade.get("timestamp")
+				last_trade_side = last_trade.get("side", "UNKNOWN")
+				
+				# Отладочный лог
+				logger.debug(f"[COOLDOWN] {symbol}: последняя сделка {last_trade_time} ({last_trade_side})")
+				
+				if isinstance(last_trade_time, str):
+					last_trade_dt = datetime.fromisoformat(last_trade_time)
+					last_trade_timestamp = last_trade_dt.timestamp()
+				else:
+					last_trade_timestamp = last_trade_time.timestamp()
+				
+				time_since_last_trade = (time.time() - last_trade_timestamp) / 60  # в минутах
+				
+				# Отладочный лог
+				logger.debug(f"[COOLDOWN] {symbol}: прошло {time_since_last_trade:.2f}м с последней сделки (требуется {TRADE_COOLDOWN_MINUTES}м)")
+				
+				if time_since_last_trade < TRADE_COOLDOWN_MINUTES:
+					remaining_time = TRADE_COOLDOWN_MINUTES - time_since_last_trade
+					logger.warning(f"[CAN_OPEN] ❌ {symbol}: кулдаун {remaining_time:.1f}м осталось (последняя сделка {last_trade_side} {time_since_last_trade:.1f}м назад)")
+					return False
+		
 		# Проверяем динамический лимит позиций
 		# Получаем текущий баланс для расчета (оптимизированно)
 		balance = await self._get_balance_optimized()
@@ -391,9 +422,6 @@ class RealTrader:
 					strategy_type=strategy_type
 				)
 				
-				# Сохраняем позицию
-				self.positions[symbol] = position
-				
 				# Добавляем в историю
 				commission = actual_invest_amount * COMMISSION_RATE
 				self.stats["total_commission"] += commission
@@ -417,10 +445,8 @@ class RealTrader:
 					"position_size_percent": position_size_percent,
 					"reasons": reasons[:3] if reasons else []
 				}
-				self.trades_history.append(trade_info)
-				self.stats["total_trades"] += 1
 				
-				# Сохраняем в БД
+				# Сохраняем в БД ПЕРЕД добавлением в память
 				try:
 					db.add_real_trade(trade_info)
 					# Сохраняем позицию в БД
@@ -428,9 +454,17 @@ class RealTrader:
 					if isinstance(pos_data.get("entry_time"), str):
 						pos_data["entry_time"] = datetime.fromisoformat(pos_data["entry_time"])
 					db.save_position(pos_data)
-					logger.info(f"[REAL_OPEN] 💾 Позиция {symbol} сохранена в БД")
+					logger.info(f"[REAL_OPEN] 💾 Сделка и позиция {symbol} сохранены в БД")
 				except Exception as e:
-					logger.error(f"[REAL_OPEN] ❌ Ошибка сохранения сделки в БД: {e}")
+					logger.error(f"[REAL_OPEN] ❌ КРИТИЧЕСКАЯ ошибка сохранения в БД: {e}")
+					logger.error(f"[REAL_OPEN] 📋 trade_info: {trade_info}")
+					# НЕ добавляем позицию если не удалось сохранить в БД
+					return None
+				
+				# ТОЛЬКО после успешного сохранения в БД добавляем в память
+				self.positions[symbol] = position
+				self.trades_history.append(trade_info)
+				self.stats["total_trades"] += 1
 				
 				# Записываем сигнал для обучения Bayesian модели
 				if self.bayesian:
@@ -488,8 +522,8 @@ class RealTrader:
 		
 		# Проверяем размер позиции перед закрытием
 		position_value = sell_amount * price
-		# Используем более мягкий порог для принудительного закрытия (50% от минимума)
-		force_close_threshold = REAL_MIN_ORDER_VALUE * 0.5
+		# Используем более мягкий порог для принудительного закрытия (80% от минимума)
+		force_close_threshold = REAL_MIN_ORDER_VALUE * 0.8
 		if position_value < force_close_threshold:
 			# Принудительно закрываем только очень маленькие позиции
 			logger.warning(f"[FORCE_CLOSE] 💸 Принудительное закрытие позиции {symbol}: ${position_value:.2f} < ${force_close_threshold:.2f}")
@@ -558,6 +592,8 @@ class RealTrader:
 					self.stats["stop_loss_triggers"] += 1
 				elif reason == "TRAILING-STOP":
 					self.stats["trailing_stop_triggers"] += 1
+				elif reason == "TAKE-PROFIT":
+					self.stats["take_profit_triggers"] += 1
 				
 				holding_time = self._calculate_holding_time(position.entry_time)
 				
@@ -577,13 +613,20 @@ class RealTrader:
 					"status": "SUBMITTED",
 					"holding_time": holding_time
 				}
-				self.trades_history.append(trade_info)
 				
 				# Сохраняем в БД
 				try:
 					db.add_real_trade(trade_info)
+					# Сохраняем обновленное состояние (для обновления статистики)
+					self.save_state()
+					logger.info(f"[REAL_CLOSE] 💾 Сделка {symbol} сохранена в БД")
 				except Exception as e:
 					logger.error(f"[REAL_CLOSE] ❌ Ошибка сохранения сделки в БД: {e}")
+					logger.error(f"[REAL_CLOSE] 📋 trade_info: {trade_info}")
+				
+				# Добавляем в память после попытки сохранения
+				self.trades_history.append(trade_info)
+				self.stats["total_trades"] += 1
 				
 				# Win Rate
 				total_closed = self.stats["winning_trades"] + self.stats["losing_trades"]
@@ -639,8 +682,8 @@ class RealTrader:
 				logger.info(f"[CLEANUP] 🔍 Остаток {coin}: {remaining_balance:.8f} (${remaining_value:.2f})")
 				
 				# Если остаток больше минимума, пытаемся его продать
-				# Используем более мягкий порог для cleanup (50% от минимума)
-				cleanup_threshold = REAL_MIN_ORDER_VALUE * 0.5
+				# Используем более мягкий порог для cleanup (80% от минимума)
+				cleanup_threshold = REAL_MIN_ORDER_VALUE * 0.8
 				if remaining_value >= cleanup_threshold:
 					logger.info(f"[CLEANUP] 🧹 Продаем остаток {coin}: {remaining_balance:.8f}")
 					
@@ -671,6 +714,12 @@ class RealTrader:
 		
 		if position.partial_closed:
 			return None
+		
+		# Проверяем размер позиции - если < $10, закрываем полностью
+		position_value = position.amount * price
+		if position_value < 10.0:
+			logger.info(f"[PARTIAL_CLOSE] 💎 {symbol}: позиция ${position_value:.2f} < $10, закрываем полностью")
+			return await self.close_position(symbol, price, "TAKE-PROFIT")
 			
 		# Закрываем часть
 		close_amount = position.amount * PARTIAL_CLOSE_PERCENT
@@ -714,6 +763,8 @@ class RealTrader:
 				# Обновляем статистику
 				self.stats["total_commission"] += commission
 				self.stats["take_profit_triggers"] += 1
+				# НЕ обновляем winning_trades/losing_trades - позиция еще не закрыта полностью
+				# Win/loss считается только при полном закрытии (close_position)
 				
 				# Обновляем позицию
 				position.amount = keep_amount
@@ -736,6 +787,16 @@ class RealTrader:
 					"order_id": order_id
 				}
 				self.trades_history.append(trade_info)
+				self.stats["total_trades"] += 1
+				
+				# Сохраняем в БД
+				try:
+					db.add_real_trade(trade_info)
+					# Сохраняем обновленное состояние (для обновления статистики)
+					self.save_state()
+					logger.info(f"[REAL_PARTIAL_TP] 💾 Частичная продажа {symbol} сохранена в БД")
+				except Exception as e:
+					logger.error(f"[REAL_PARTIAL_TP] ❌ Ошибка сохранения в БД: {e}")
 				
 				# Очищаем остатки после частичной продажи
 				coin = symbol.replace("USDT", "")
@@ -870,6 +931,7 @@ class RealTrader:
 					"order_id": order_id
 				}
 				self.trades_history.append(trade_info)
+				self.stats["total_trades"] += 1
 				
 				logger.info(f"[REAL_AVERAGING] 📈 {symbol}: {mode} | Цена: ${price:.4f} | Количество: {new_amount:.6f} | Средняя: ${position.average_entry_price:.4f}")
 				

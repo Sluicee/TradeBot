@@ -28,7 +28,8 @@ class SignalDiagnostics:
 		signal_result: Dict[str, Any],
 		price: float,
 		can_buy: bool = True,
-		block_reason: str = None
+		block_reason: str = None,
+		compact: bool = True
 	):
 		"""
 		Логирует детальную информацию о генерации сигнала.
@@ -39,6 +40,7 @@ class SignalDiagnostics:
 			price: Текущая цена
 			can_buy: Можно ли открыть позицию
 			block_reason: Причина блокировки (если can_buy=False)
+			compact: Компактный режим логирования
 		"""
 		timestamp = datetime.now().isoformat()
 		signal = signal_result.get("signal", "UNKNOWN")
@@ -78,42 +80,57 @@ class SignalDiagnostics:
 		}
 		self.signal_history.append(signal_record)
 		
-		# Детальное логирование
-		logger.info(f"\n{'='*80}")
-		logger.info(f"[SIGNAL_DIAG] 📊 {symbol} @ ${price:.4f} | {timestamp}")
-		logger.info(f"[SIGNAL_DIAG] Сигнал: {signal} | Режим: {active_mode}")
-		logger.info(f"[SIGNAL_DIAG] Голоса: Bullish={bullish_votes}, Bearish={bearish_votes}, Delta={votes_delta:+d}")
-		
-		if signal == "BUY":
-			logger.info(f"[SIGNAL_DIAG] 🎯 BUY СИГНАЛ ОБНАРУЖЕН!")
-			logger.info(f"[SIGNAL_DIAG] Position Size: {position_size*100:.1f}%")
-			logger.info(f"[SIGNAL_DIAG] Топ-3 причины:")
-			for i, reason in enumerate(reasons[:3], 1):
-				logger.info(f"[SIGNAL_DIAG]   {i}. {reason}")
+		# Компактное или детальное логирование
+		if compact:
+			# Компактный режим - только важная информация
+			if signal == "BUY":
+				status = "BLOCKED" if not can_buy else "READY"
+				block_info = f" ({block_reason})" if not can_buy else ""
+				logger.info(f"📊 {symbol}: {signal} @ ${price:.4f} | {active_mode} | V:{votes_delta:+d} | {status}{block_info}")
+				if not can_buy:
+					logger.warning(f"❌ {symbol} BLOCKED: {block_reason}")
+				else:
+					self.last_buy_time = timestamp
+			elif signal == "HOLD":
+				logger.debug(f"⏸️ {symbol}: HOLD (V:{votes_delta:+d})")
+			elif signal == "SELL":
+				logger.debug(f"🔴 {symbol}: SELL (V:{votes_delta:+d})")
+		else:
+			# Детальный режим - полная информация
+			logger.info(f"\n{'='*80}")
+			logger.info(f"[SIGNAL_DIAG] 📊 {symbol} @ ${price:.4f} | {timestamp}")
+			logger.info(f"[SIGNAL_DIAG] Сигнал: {signal} | Режим: {active_mode}")
+			logger.info(f"[SIGNAL_DIAG] Голоса: Bullish={bullish_votes}, Bearish={bearish_votes}, Delta={votes_delta:+d}")
 			
-			if not can_buy:
-				logger.warning(f"[SIGNAL_DIAG] ❌ СИГНАЛ ЗАБЛОКИРОВАН: {block_reason}")
-			else:
-				logger.info(f"[SIGNAL_DIAG] ✅ Сигнал может быть исполнен")
-				self.last_buy_time = timestamp
-		
-		elif signal == "HOLD":
-			# В HYBRID v5.5 используется адаптивный порог (не фиксированный MIN_VOTES_FOR_BUY)
-			logger.debug(f"[SIGNAL_DIAG] ⏸️ HOLD - недостаточно сильный сигнал (delta={votes_delta})")
-			if reasons:
-				logger.debug(f"[SIGNAL_DIAG] Причины: {', '.join(reasons[:2])}")
-		
-		elif signal == "SELL":
-			logger.debug(f"[SIGNAL_DIAG] 🔴 SELL - медвежий настрой (delta={votes_delta})")
-		
-		# Статистика конфликтов индикаторов (v5.5)
-		conflicts = [r for r in reasons if "КРИТИЧНО" in r or "⚠️" in r]
-		if conflicts:
-			logger.warning(f"[SIGNAL_DIAG] ⚠️ Обнаружены конфликты индикаторов:")
-			for conflict in conflicts:
-				logger.warning(f"[SIGNAL_DIAG]   - {conflict}")
-		
-		logger.info(f"{'='*80}\n")
+			if signal == "BUY":
+				logger.info(f"[SIGNAL_DIAG] 🎯 BUY СИГНАЛ ОБНАРУЖЕН!")
+				logger.info(f"[SIGNAL_DIAG] Position Size: {position_size*100:.1f}%")
+				logger.info(f"[SIGNAL_DIAG] Топ-3 причины:")
+				for i, reason in enumerate(reasons[:3], 1):
+					logger.info(f"[SIGNAL_DIAG]   {i}. {reason}")
+				
+				if not can_buy:
+					logger.warning(f"[SIGNAL_DIAG] ❌ СИГНАЛ ЗАБЛОКИРОВАН: {block_reason}")
+				else:
+					logger.info(f"[SIGNAL_DIAG] ✅ Сигнал может быть исполнен")
+					self.last_buy_time = timestamp
+			
+			elif signal == "HOLD":
+				logger.debug(f"[SIGNAL_DIAG] ⏸️ HOLD - недостаточно сильный сигнал (delta={votes_delta})")
+				if reasons:
+					logger.debug(f"[SIGNAL_DIAG] Причины: {', '.join(reasons[:2])}")
+			
+			elif signal == "SELL":
+				logger.debug(f"[SIGNAL_DIAG] 🔴 SELL - медвежий настрой (delta={votes_delta})")
+			
+			# Статистика конфликтов индикаторов
+			conflicts = [r for r in reasons if "КРИТИЧНО" in r or "⚠️" in r]
+			if conflicts:
+				logger.warning(f"[SIGNAL_DIAG] ⚠️ Обнаружены конфликты индикаторов:")
+				for conflict in conflicts:
+					logger.warning(f"[SIGNAL_DIAG]   - {conflict}")
+			
+			logger.info(f"{'='*80}\n")
 	
 	def log_position_check(
 		self,

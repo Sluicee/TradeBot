@@ -6,7 +6,7 @@ from config import (
 	# Индикаторы
 	ADX_WINDOW, RSI_OVERSOLD, RSI_OVERSOLD_NEAR, RSI_OVERBOUGHT, RSI_OVERBOUGHT_NEAR,
 	STOCH_OVERSOLD, STOCH_OVERBOUGHT, VOLUME_HIGH_RATIO, VOLUME_MODERATE_RATIO, VOLUME_LOW_RATIO,
-	RSI_OVERBOUGHT, ADX_RANGING
+	RSI_OVERBOUGHT, ADX_RANGING, MIN_FILTERS, MIN_FILTERS_SELL
 )
 
 # Импортируем модули
@@ -187,10 +187,10 @@ class SignalGenerator:
 			signal = "BUY"
 			signal_emoji = "🟢"
 			reasons.append(f"✅ BUY: Голосов {bullish} vs {bearish}, фильтров {buy_filters_passed}/{min_filters}")
-		elif bearish - bullish >= vote_threshold and sell_filters_passed >= min_filters:
+		elif bearish - bullish >= vote_threshold and sell_filters_passed >= MIN_FILTERS_SELL:
 				signal = "SELL"
 				signal_emoji = "🔴"
-				reasons.append(f"✅ SELL: Голосов {bearish} vs {bullish}, фильтров {sell_filters_passed}/{min_filters}")
+				reasons.append(f"✅ SELL: Голосов {bearish} vs {bullish}, фильтров {sell_filters_passed}/{MIN_FILTERS_SELL}")
 		else:
 			reasons.append(f"⏸ HOLD: Бычьи {bullish} vs Медвежьи {bearish}, фильтров BUY:{buy_filters_passed} SELL:{sell_filters_passed}, режим: {market_regime}")
 

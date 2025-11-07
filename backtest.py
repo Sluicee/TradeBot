@@ -18,82 +18,59 @@ from config import (
 	get_dynamic_max_positions
 )
 
-# --- Симулятор умного докупания ---
-def simulate_averaging(
-	entry_price: float,
-	entry_amount: float,
-	entry_invest: float,
-	signals: List[Dict],
-	current_index: int,
-	balance: float,
-	enable_averaging: bool = True
-) -> Tuple[float, float, int, float, List[Dict]]:
-	"""
-	Гибридный симулятор докупаний для бэктестов.
-	Имитирует 1-2 докупания при падении цены на X%.
+# --- Класс позиции для бэктеста (как в real_trader) ---
+class BacktestPosition:
+	"""Позиция для бэктеста"""
+	def __init__(self, entry_price: float, amount: float, invest_amount: float, atr: float):
+		self.entry_price = entry_price
+		self.amount = amount
+		self.invest_amount = invest_amount
+		self.atr = atr
+		self.averaging_count = 0
+		self.average_entry_price = entry_price
+		self.total_invested = invest_amount
+		self.averaging_entries = []
 	
-	Args:
-		entry_price: Цена первого входа
-		entry_amount: Количество монет при первом входе
-		entry_invest: Инвестированная сумма при первом входе
-		signals: Список всех сигналов
-		current_index: Индекс текущего сигнала
-		balance: Доступный баланс
-	
-	Returns:
-		(average_price, total_amount, averaging_count, total_invested, averaging_log)
-	"""
-	if not enable_averaging or MAX_AVERAGING_ATTEMPTS == 0:
-		return entry_price, entry_amount, 0, entry_invest, []
-	
-	avg_price = entry_price
-	total_amount = entry_amount
-	total_invested = entry_invest
-	averaging_count = 0
-	averaging_log = []
-	
-	# Проходим по свечам после входа
-	for i in range(current_index + 1, len(signals)):
-		if averaging_count >= MAX_AVERAGING_ATTEMPTS:
-			break
+	def can_average_down(self, current_price: float, balance: float) -> bool:
+		"""Проверяет возможность докупания"""
+		if self.averaging_count >= MAX_AVERAGING_ATTEMPTS:
+			return False
 		
-		current_price = signals[i]["price"]
+		# Проверяем падение цены от средней
+		price_drop = (self.average_entry_price - current_price) / self.average_entry_price
+		if price_drop < AVERAGING_PRICE_DROP_PERCENT:
+			return False
 		
-		# Проверяем условие докупания: цена упала на X% от средней
-		price_drop = (avg_price - current_price) / avg_price
+		# Проверяем баланс
+		averaging_invest = self.invest_amount * AVERAGING_SIZE_PERCENT
+		if averaging_invest < 1 or averaging_invest > balance:
+			return False
 		
-		if price_drop >= AVERAGING_PRICE_DROP_PERCENT:
-			# Рассчитываем размер докупания (50% от первоначального)
-			averaging_invest = entry_invest * AVERAGING_SIZE_PERCENT
-			
-			if averaging_invest < 1 or averaging_invest > balance:
-				continue
-			
-			commission = averaging_invest * COMMISSION_RATE
-			averaging_amount = (averaging_invest - commission) / current_price
-			
-			# Обновляем среднюю цену и количество
-			old_total_cost = avg_price * total_amount
-			new_invest_net = averaging_invest - commission
-			total_invested += averaging_invest
-			total_amount += averaging_amount
-			avg_price = (old_total_cost + new_invest_net) / total_amount
-			
-			averaging_count += 1
-			averaging_log.append({
-				"index": i,
-				"time": signals[i].get("time", "N/A"),
-				"price": current_price,
-				"amount": averaging_amount,
-				"invest": averaging_invest,
-				"drop_percent": price_drop * 100,
-				"new_avg_price": avg_price
-			})
-			
-			# Уменьшаем баланс после докупания
-			balance -= averaging_invest
+		return True
 	
-	return avg_price, total_amount, averaging_count, total_invested, averaging_log
+	def average_down(self, current_price: float, balance: float) -> Tuple[float, float]:
+		"""Выполняет докупание, возвращает (new_invest, commission)"""
+		averaging_invest = self.invest_amount * AVERAGING_SIZE_PERCENT
+		commission = averaging_invest * COMMISSION_RATE
+		averaging_amount = (averaging_invest - commission) / current_price
+		
+		# Обновляем позицию (ПРАВИЛЬНАЯ формула как в real_trader)
+		old_avg_price = self.average_entry_price
+		old_amount = self.amount
+		
+		self.total_invested += averaging_invest
+		self.amount += averaging_amount
+		self.averaging_count += 1
+		self.average_entry_price = (old_avg_price * old_amount + current_price * averaging_amount) / self.amount
+		
+		self.averaging_entries.append({
+			"price": current_price,
+			"amount": averaging_amount,
+			"invest": averaging_invest,
+			"new_avg_price": self.average_entry_price
+		})
+		
+		return averaging_invest, commission
 
 # --- Бэктест стратегии ---
 async def run_backtest(
@@ -123,38 +100,9 @@ async def run_backtest(
 			print(f"Нет данных для бэктеста {symbol}.")
 			return None
 
-		generator = SignalGenerator(df, use_statistical_models=use_statistical_models)
-		generator.compute_indicators()
-		signals = []
-		min_window = 14  # минимальное количество строк для индикаторов
-
-		for i in range(len(df)):
-			sub_df = df.iloc[:i+1]
-			if len(sub_df) < min_window:
-				signals.append({
-					"time": sub_df.index[-1],
-					"price": sub_df["close"].iloc[-1],
-					"signal": "HOLD",
-					"reasons": ["Недостаточно данных для анализа"]
-				})
-				continue
-			gen = SignalGenerator(sub_df, use_statistical_models=use_statistical_models)
-			gen.compute_indicators()
-			res = gen.generate_signal()
-			signals.append({
-				"time": sub_df.index[-1],
-				"price": res["price"],
-				"signal": res["signal"],
-				"reasons": res["reasons"],
-				"bullish_votes": res.get("bullish_votes", 0),
-				"bearish_votes": res.get("bearish_votes", 0),
-				"ATR": res.get("ATR", 0),
-				"statistical_models": res.get("statistical_models", None)
-			})
-
 		# --- Бэктест: расчёт баланса за период с учетом комиссии ---
 		balance = start_balance
-		position = 0.0
+		position_obj = None  # Объект позиции (BacktestPosition или None)
 		entry_price = None
 		entry_strength = 0
 		entry_atr = 0.0  # ATR при входе (для динамического SL/TP)
@@ -166,25 +114,47 @@ async def run_backtest(
 		take_profit_triggers = 0
 		partial_close_triggers = 0
 		trailing_stop_triggers = 0
+		averaging_triggers = 0
 		partial_closed = False  # Флаг частичного закрытия
 		max_price = 0.0  # Максимальная цена для trailing stop
 		
 		# Kelly Criterion: создаём PaperTrader для расчёта Kelly
 		kelly_tracker = PaperTrader(initial_balance=start_balance) if enable_kelly else None
+		
+		min_window = 14  # минимальное количество строк для индикаторов
 
-		for sig_index, s in enumerate(signals):
-			price = s["price"]
-			sig = s["signal"]
+		# ИСПРАВЛЕНО: Проходим по каждой свече и проверяем позиции
+		for i in range(len(df)):
+			sub_df = df.iloc[:i+1]
+			if len(sub_df) < min_window:
+				continue
 			
-			# Получаем силу сигнала напрямую из результата (исправлено!)
-			bullish = s.get("bullish_votes", 0)
-			bearish = s.get("bearish_votes", 0)
+			# Генерируем сигнал для текущей свечи
+			gen = SignalGenerator(sub_df, use_statistical_models=use_statistical_models)
+			gen.compute_indicators()
+			signal_result = gen.generate_signal()
+			
+			price = signal_result["price"]
+			sig = signal_result["signal"]
+			
+			# Получаем силу сигнала напрямую из результата
+			bullish = signal_result.get("bullish_votes", 0)
+			bearish = signal_result.get("bearish_votes", 0)
 			signal_strength = abs(bullish - bearish)
-			atr = s.get("ATR", 0.0)
+			atr = signal_result.get("ATR", 0.0)
 			
 			# Проверка стоп-лосса и тейк-профита
-			if position > 0 and entry_price:
-				price_change = (price - entry_price) / entry_price
+			if position_obj and entry_price:
+				# ИСПРАВЛЕНО: используем среднюю цену входа для расчета изменения
+				avg_entry = position_obj.average_entry_price
+				
+				# КРИТИЧНО: Пересчитываем SL/TP на каждой свече (как в real_trader!)
+				current_sl_percent = get_dynamic_stop_loss_percent(position_obj.atr, avg_entry)
+				current_tp_percent = max(0.04, current_sl_percent * 2.0)
+				current_tp_percent = min(current_tp_percent, 0.12)
+				
+				stop_loss_price = avg_entry * (1 - current_sl_percent)
+				take_profit_price = avg_entry * (1 + current_tp_percent)
 				
 				# Если позиция частично закрыта - проверяем trailing stop
 				if partial_closed:
@@ -195,23 +165,23 @@ async def run_backtest(
 					# Проверяем trailing stop от максимальной цены
 					trailing_drop = (max_price - price) / max_price
 					if trailing_drop >= TRAILING_STOP_PERCENT:
-						sell_value = position * price
+						sell_value = position_obj.amount * price
 						commission = sell_value * COMMISSION_RATE
 						total_commission += commission
 						balance += sell_value - commission
 						profit_from_max = ((price - max_price) / max_price) * 100
-						profit = (price - entry_price) / entry_price * 100
-						trades.append(f"TRAILING-STOP {position:.6f} @ {price} (от макс: {profit_from_max:+.2f}%, комиссия: ${commission:.4f})")
+						profit = (price - avg_entry) / avg_entry * 100
+						trades.append(f"TRAILING-STOP {position_obj.amount:.6f} @ {price} (от макс: {profit_from_max:+.2f}%, комиссия: ${commission:.4f})")
 						
 						# Kelly: добавляем сделку в историю
 						if kelly_tracker:
 							kelly_tracker.trades_history.append({
 								"type": "TRAILING-STOP",
-								"profit": sell_value - commission - (entry_price * position),
+								"profit": sell_value - commission - (avg_entry * position_obj.amount),
 								"profit_percent": profit
 							})
 						
-						position = 0.0
+						position_obj = None
 						entry_price = None
 						partial_closed = False
 						max_price = 0.0
@@ -221,48 +191,68 @@ async def run_backtest(
 					# Обычная логика до частичного закрытия
 					
 					# Стоп-лосс (ДИНАМИЧЕСКИЙ на основе ATR)
-					if price_change <= -dynamic_sl_percent:
-						sell_value = position * price
+					if price <= stop_loss_price:
+						sell_value = position_obj.amount * price
 						commission = sell_value * COMMISSION_RATE
 						total_commission += commission
 						balance += sell_value - commission
-						profit = (price - entry_price) / entry_price * 100
-						trades.append(f"STOP-LOSS {position:.6f} @ {price} (потеря: {price_change*100:.2f}%, SL: {dynamic_sl_percent*100:.1f}%, комиссия: ${commission:.4f})")
+						profit = (price - avg_entry) / avg_entry * 100
+						price_change_percent = ((price - avg_entry) / avg_entry) * 100
+						trades.append(f"STOP-LOSS {position_obj.amount:.6f} @ {price} (потеря: {price_change_percent:.2f}%, SL: ${stop_loss_price:.2f}, комиссия: ${commission:.4f})")
 						
 						# Kelly: добавляем сделку в историю
 						if kelly_tracker:
 							kelly_tracker.trades_history.append({
 								"type": "STOP-LOSS",
-								"profit": sell_value - commission - (entry_price * position),
+								"profit": sell_value - commission - (avg_entry * position_obj.amount),
 								"profit_percent": profit
 							})
 						
-						position = 0.0
+						position_obj = None
 						entry_price = None
 						entry_atr = 0.0
 						stop_loss_triggers += 1
 						continue
 					
 					# Тейк-профит - частичное закрытие (ДИНАМИЧЕСКИЙ на основе ATR)
-					if price_change >= dynamic_tp_percent:
-						close_amount = position * PARTIAL_CLOSE_PERCENT
-						keep_amount = position - close_amount
+					if price >= take_profit_price:
+						close_amount = position_obj.amount * PARTIAL_CLOSE_PERCENT
+						keep_amount = position_obj.amount - close_amount
 						
 						sell_value = close_amount * price
 						commission = sell_value * COMMISSION_RATE
 						total_commission += commission
 						balance += sell_value - commission
 						
-						trades.append(f"PARTIAL-TP {close_amount:.6f} @ {price} (прибыль: {price_change*100:.2f}%, закрыто: {PARTIAL_CLOSE_PERCENT*100:.0f}%, комиссия: ${commission:.4f})")
+						price_change_percent = ((price - avg_entry) / avg_entry) * 100
+						trades.append(f"PARTIAL-TP {close_amount:.6f} @ {price} (прибыль: {price_change_percent:.2f}%, TP: ${take_profit_price:.2f}, закрыто: {PARTIAL_CLOSE_PERCENT*100:.0f}%, комиссия: ${commission:.4f})")
 						
-						position = keep_amount
+						position_obj.amount = keep_amount
 						partial_closed = True
 						max_price = price
 						partial_close_triggers += 1
 						continue
 			
+			# НОВОЕ: Проверка докупания (ПЕРЕД новыми входами)
+			if position_obj and sig == "BUY" and enable_averaging:
+				# Проверяем возможность докупания
+				if position_obj.can_average_down(price, balance):
+					# Выполняем докупание
+					averaging_invest, avg_commission = position_obj.average_down(price, balance)
+					
+					# Обновляем баланс и статистику
+					balance -= averaging_invest
+					total_commission += avg_commission
+					averaging_triggers += 1
+					
+					# КРИТИЧНО: Обновляем TP на основе НОВОЙ средней цены
+					dynamic_tp_percent = max(0.04, dynamic_sl_percent * 2.0)
+					dynamic_tp_percent = min(dynamic_tp_percent, 0.12)
+					
+					trades.append(f"  >> AVERAGING: докупание #{position_obj.averaging_count}, цена: ${price:.2f}, средняя: ${position_obj.average_entry_price:.2f}, монет: {position_obj.amount:.6f}")
+			
 			# Логика входа/выхода
-			if sig == "BUY" and position == 0 and balance > 0:
+			if sig == "BUY" and not position_obj and balance > 0:
 				# Kelly Criterion: рассчитываем множитель
 				kelly_multiplier = 1.0
 				if kelly_tracker:
@@ -289,74 +279,61 @@ async def run_backtest(
 				entry_atr = atr
 				balance -= invest_amount
 				
-				# Симулируем докупания (если включено)
-				avg_entry, total_amount, avg_count, total_invested, avg_log = simulate_averaging(
+				# ИСПРАВЛЕНО: Создаем объект позиции (БЕЗ предсказания будущего)
+				position_obj = BacktestPosition(
 					entry_price=entry_price,
-					entry_amount=initial_amount,
-					entry_invest=invest_amount,
-					signals=signals,
-					current_index=sig_index,
-					balance=balance,
-					enable_averaging=enable_averaging
+					amount=initial_amount,
+					invest_amount=invest_amount,
+					atr=atr
 				)
-				
-				# Применяем результаты averaging
-				position = total_amount
-				entry_price = avg_entry  # используем среднюю цену для SL/TP
-				
-				# Обновляем баланс и комиссии если были докупания
-				if avg_count > 0:
-					balance -= sum(log["invest"] for log in avg_log)
-					total_commission += sum(log["invest"] * COMMISSION_RATE for log in avg_log)
 				
 				trades.append(f"BUY {initial_amount:.6f} @ {price} (сила: {signal_strength}, размер: {position_size_percent*100:.0f}%, SL: {dynamic_sl_percent*100:.1f}%, TP: {dynamic_tp_percent*100:.1f}%, комиссия: ${commission:.4f})")
 				
-				# Логируем докупания
-				if avg_count > 0:
-					trades.append(f"  >> AVERAGING: {avg_count} dokupaний, srednyaya tsena: ${avg_entry:.2f}, total coins: {position:.6f}")
-				
-			elif sig == "SELL" and position > 0 and not partial_closed:
-				# Закрываем позицию только если она не была частично закрыта
-				# (после частичного закрытия управляет trailing stop)
-				sell_value = position * price
+			elif sig == "SELL" and position_obj:
+				# ИСПРАВЛЕНО: Убрали условие "not partial_closed" - закрываем по сигналу SELL всегда
+				# В реальном трейдере SELL сигнал тоже закрывает позицию
+				avg_entry = position_obj.average_entry_price
+				sell_value = position_obj.amount * price
 				commission = sell_value * COMMISSION_RATE
 				total_commission += commission
 				balance += sell_value - commission
 				
-				profit_on_trade = ((price - entry_price) / entry_price) * 100
-				trades.append(f"SELL {position:.6f} @ {price} (прибыль: {profit_on_trade:+.2f}%, комиссия: ${commission:.4f})")
+				profit_on_trade = ((price - avg_entry) / avg_entry) * 100
+				trades.append(f"SELL {position_obj.amount:.6f} @ {price} (прибыль: {profit_on_trade:+.2f}%, комиссия: ${commission:.4f})")
 				
 				# Kelly: добавляем сделку в историю
 				if kelly_tracker:
 					kelly_tracker.trades_history.append({
 						"type": "SELL",
-						"profit": sell_value - commission - (entry_price * position),
+						"profit": sell_value - commission - (avg_entry * position_obj.amount),
 						"profit_percent": profit_on_trade
 					})
 				
-				position = 0.0
+				position_obj = None
 				entry_price = None
+				partial_closed = False
 
 		# Если позиция осталась открытой — закрываем по последней цене с учетом комиссии
-		if position > 0:
-			final_price = signals[-1]["price"]
-			sell_value = position * final_price
+		if position_obj:
+			final_price = df["close"].iloc[-1]
+			avg_entry = position_obj.average_entry_price
+			sell_value = position_obj.amount * final_price
 			commission = sell_value * COMMISSION_RATE
 			total_commission += commission
 			balance += sell_value - commission
-			profit_on_trade = ((final_price - entry_price) / entry_price) * 100
+			profit_on_trade = ((final_price - avg_entry) / avg_entry) * 100
 			close_type = "частичной" if partial_closed else "полной"
-			trades.append(f"Закрытие {close_type} позиции: SELL {position:.6f} @ {final_price} (прибыль: {profit_on_trade:+.2f}%, комиссия: ${commission:.4f})")
+			trades.append(f"Закрытие {close_type} позиции: SELL {position_obj.amount:.6f} @ {final_price} (прибыль: {profit_on_trade:+.2f}%, комиссия: ${commission:.4f})")
 			
 			# Kelly: добавляем сделку в историю
 			if kelly_tracker:
 				kelly_tracker.trades_history.append({
 					"type": "FINAL-CLOSE",
-					"profit": sell_value - commission - (entry_price * position),
+					"profit": sell_value - commission - (avg_entry * position_obj.amount),
 					"profit_percent": profit_on_trade
 				})
 			
-			position = 0.0
+			position_obj = None
 			partial_closed = False
 
 		# Финальный баланс = свободные деньги
@@ -377,6 +354,7 @@ async def run_backtest(
 		print(f"Stop-loss срабатываний: {stop_loss_triggers}")
 		print(f"Partial Take-profit: {partial_close_triggers}")
 		print(f"Trailing-stop: {trailing_stop_triggers}")
+		print(f"Докупаний: {averaging_triggers}")
 		if len(trades) > 0:
 			win_trades = sum(1 for t in trades if "прибыль: +" in t or "PARTIAL-TP" in t)
 			loss_trades = sum(1 for t in trades if "прибыль: -" in t or "STOP-LOSS" in t or "TRAILING-STOP" in t)
@@ -406,10 +384,11 @@ async def run_backtest(
 			"stop_loss_triggers": stop_loss_triggers,
 			"partial_tp_triggers": partial_close_triggers,
 			"trailing_stop_triggers": trailing_stop_triggers,
+			"averaging_triggers": averaging_triggers,
 			"win_rate": win_rate if 'win_rate' in locals() else 0,
 			"use_statistical_models": use_statistical_models,
-			"trades": trades,
-			"signals": signals
+			"enable_averaging": enable_averaging,
+			"trades": trades
 		}
 
 		with open(output_file, "w", encoding="utf-8") as f:
