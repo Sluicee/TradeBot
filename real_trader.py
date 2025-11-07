@@ -473,7 +473,7 @@ class RealTrader:
 						self.bayesian.record_signal(signal_signature, "BUY", price)
 						logger.info(f"[REAL_OPEN] 📊 Записан сигнал для обучения: {signal_signature[:50]}...")
 				
-				logger.info(f"[REAL_OPEN] ✅ {symbol}: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) | SL: {position.stop_loss_percent*100:.1f}% | TP: {TAKE_PROFIT_PERCENT*100:.1f}%")
+				logger.info(f"[REAL_OPEN] ✅ {symbol}: ${invest_amount:.2f} ({position_size_percent*100:.1f}%) | SL: {position.stop_loss_percent*100:.1f}% | TP: {position.take_profit_percent*100:.1f}%")
 				
 				# Обновляем timestamp после успешного открытия позиции
 				import time
@@ -894,9 +894,12 @@ class RealTrader:
 				position.averaging_count += 1
 				position.average_entry_price = (old_avg_price * old_amount + price * new_amount) / position.amount
 				
-				# ВАЖНО: Обновляем TP от новой средней цены
-				position.take_profit_price = position.average_entry_price * (1 + TAKE_PROFIT_PERCENT)
-				logger.info(f"[REAL_AVERAGING] 📈 {symbol}: TP обновлен до ${position.take_profit_price:.4f} (от средней ${position.average_entry_price:.4f})")
+				# ВАЖНО: Обновляем TP от новой средней цены (динамический)
+				from position import get_dynamic_take_profit_percent
+				dynamic_tp = get_dynamic_take_profit_percent(position.atr, position.average_entry_price, position.stop_loss_percent)
+				position.take_profit_percent = dynamic_tp
+				position.take_profit_price = position.average_entry_price * (1 + dynamic_tp)
+				logger.info(f"[REAL_AVERAGING] 📈 {symbol}: TP обновлен до ${position.take_profit_price:.4f} ({dynamic_tp*100:.1f}%, от средней ${position.average_entry_price:.4f})")
 				
 				# Добавляем запись о докупании
 				averaging_entry = {
@@ -960,7 +963,9 @@ class RealTrader:
 				position.update_max_price(current_price)
 				
 				# 1. Проверяем время удержания
-				if position.check_time_exit():
+				time_exit_triggered = position.check_time_exit()
+				if time_exit_triggered:
+					logger.info(f"[REAL_TIME_EXIT] ⏰ {symbol}: принудительное закрытие по времени")
 					trade_info = await self.close_position(symbol, current_price, "TIME-EXIT")
 					if trade_info:
 						actions.append(trade_info)
@@ -1062,7 +1067,9 @@ class RealTrader:
 							"quantity": exchange_pos["quantity"],
 							"entry_price": local_pos.entry_price,
 							"stop_loss": local_pos.stop_loss_price,
+							"stop_loss_percent": local_pos.stop_loss_percent,
 							"take_profit": local_pos.take_profit_price,
+							"take_profit_percent": getattr(local_pos, 'take_profit_percent', 0),  # Динамический TP процент
 							"current_price": 0.0,  # Будет получена в telegram_real_trading.py
 							"side": exchange_pos["side"]
 						})
