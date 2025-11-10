@@ -536,7 +536,8 @@ class EnsembleDecisionMaker:
 		self, 
 		df: pd.DataFrame,
 		original_signal: Dict[str, Any],
-		min_probability: float = 0.55
+		min_probability: float = 0.55,
+		min_samples: int = 10
 	) -> Dict[str, Any]:
 		"""
 		Принимаем финальное решение с учётом всех моделей.
@@ -558,7 +559,7 @@ class EnsembleDecisionMaker:
 		# 1. Bayesian Decision
 		signal_signature = self.bayesian.get_signal_signature(original_signal)
 		should_take_bayesian, bayesian_prob, bayesian_reason = self.bayesian.should_take_signal(
-			signal_signature, min_probability
+			signal_signature, min_probability, min_samples
 		)
 		reasons.append(f"Bayesian: {bayesian_reason}")
 		

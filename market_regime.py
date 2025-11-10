@@ -9,7 +9,9 @@ from config import (
 	RANGING_TREND_WEIGHT, RANGING_OSCILLATOR_WEIGHT,
 	TRANSITIONING_TREND_WEIGHT, TRANSITIONING_OSCILLATOR_WEIGHT,
 	VOTE_THRESHOLD_TRENDING, VOTE_THRESHOLD_RANGING, VOTE_THRESHOLD_TRANSITIONING,
-	MIN_FILTERS, MIN_FILTERS_SELL, RSI_BUY_RANGE, RSI_SELL_RANGE, VOLUME_MODERATE_RATIO
+	MIN_FILTERS, MIN_FILTERS_SELL, RSI_BUY_RANGE, RSI_SELL_RANGE,
+	RSI_OVERSOLD, RSI_OVERSOLD_NEAR, RSI_OVERBOUGHT, RSI_OVERBOUGHT_NEAR,
+	VOLUME_HIGH_RATIO, VOLUME_MODERATE_RATIO, VOLUME_LOW_RATIO
 )
 
 class MarketRegimeDetector:
@@ -171,18 +173,18 @@ class MarketRegimeDetector:
 			reasons.append(f"SMA_20 < SMA_50 — краткосрочный тренд вниз")
 		
 		# RSI: КЛЮЧЕВОЙ осциллятор
-		if rsi < 30:  # RSI_OVERSOLD
+		if rsi < RSI_OVERSOLD:
 			bullish += 2 * oscillator_weight
-			reasons.append(f"RSI ({rsi:.2f}) < 30 — перепродан [+{2*oscillator_weight}]")
-		elif rsi < 35:  # RSI_OVERSOLD_NEAR
+			reasons.append(f"RSI ({rsi:.2f}) < {RSI_OVERSOLD} — перепродан [+{2*oscillator_weight}]")
+		elif rsi < RSI_OVERSOLD_NEAR:
 			bullish += oscillator_weight
-			reasons.append(f"RSI ({rsi:.2f}) < 35 — близко к перепроданности [+{oscillator_weight}]")
-		elif rsi > 70:  # RSI_OVERBOUGHT
+			reasons.append(f"RSI ({rsi:.2f}) < {RSI_OVERSOLD_NEAR} — близко к перепроданности [+{oscillator_weight}]")
+		elif rsi > RSI_OVERBOUGHT:
 			bearish += 2 * oscillator_weight
-			reasons.append(f"RSI ({rsi:.2f}) > 70 — перекуплен [+{2*oscillator_weight}]")
-		elif rsi > 65:  # RSI_OVERBOUGHT_NEAR
+			reasons.append(f"RSI ({rsi:.2f}) > {RSI_OVERBOUGHT} — перекуплен [+{2*oscillator_weight}]")
+		elif rsi > RSI_OVERBOUGHT_NEAR:
 			bearish += oscillator_weight
-			reasons.append(f"RSI ({rsi:.2f}) > 65 — близко к перекупленности [+{oscillator_weight}]")
+			reasons.append(f"RSI ({rsi:.2f}) > {RSI_OVERBOUGHT_NEAR} — близко к перекупленности [+{oscillator_weight}]")
 		else:
 			reasons.append(f"RSI = {rsi:.2f} — нейтрально")
 
@@ -222,7 +224,7 @@ class MarketRegimeDetector:
 			reasons.append(f"Stoch K/D ({stoch_k:.2f}/{stoch_d:.2f}): нейтрально")
 		
 		# ОБЪЁМ - КРИТИЧНО! Подтверждение движения
-		if volume_ratio > 1.5:  # VOLUME_HIGH_RATIO
+		if volume_ratio > VOLUME_HIGH_RATIO:
 			# Высокий объём подтверждает направление
 			if ema_s > ema_l:
 				bullish += 2
@@ -230,15 +232,15 @@ class MarketRegimeDetector:
 			else:
 				bearish += 2
 				reasons.append(f"Объём {volume_ratio:.1f}x выше среднего — подтверждение падения [+2]")
-		elif volume_ratio > 1.2:  # VOLUME_MODERATE_RATIO
+		elif volume_ratio > VOLUME_MODERATE_RATIO:
 			if ema_s > ema_l:
 				bullish += 1
 				reasons.append(f"Объём {volume_ratio:.1f}x выше среднего — умеренное подтверждение")
 			else:
 				bearish += 1
 				reasons.append(f"Объём {volume_ratio:.1f}x выше среднего — умеренное подтверждение")
-		elif volume_ratio < 0.8:  # VOLUME_LOW_RATIO
-			reasons.append(f"Объём {volume_ratio:.1f}x ниже среднего — слабое движение")
+		elif volume_ratio < VOLUME_LOW_RATIO:
+			reasons.append(f"Объём {volume_ratio:.1f}x ниже среднего — слабое движение (<{VOLUME_LOW_RATIO:.1f}x)")
 		else:
 			reasons.append(f"Объём нормальный ({volume_ratio:.1f}x)")
 		

@@ -6,7 +6,12 @@ from config import (
 	# Индикаторы
 	ADX_WINDOW, RSI_OVERSOLD, RSI_OVERSOLD_NEAR, RSI_OVERBOUGHT, RSI_OVERBOUGHT_NEAR,
 	STOCH_OVERSOLD, STOCH_OVERBOUGHT, VOLUME_HIGH_RATIO, VOLUME_MODERATE_RATIO, VOLUME_LOW_RATIO,
-	RSI_OVERBOUGHT, ADX_RANGING, MIN_FILTERS, MIN_FILTERS_SELL
+	ADX_RANGING, MIN_FILTERS, MIN_FILTERS_SELL,
+	# Статистические модели
+	BAYESIAN_MIN_PROBABILITY, BAYESIAN_MIN_SAMPLES,
+	ZSCORE_WINDOW, ZSCORE_BUY_THRESHOLD, ZSCORE_SELL_THRESHOLD,
+	MARKOV_WINDOW, MARKOV_VOL_HIGH, MARKOV_VOL_LOW, MARKOV_TREND_THRESHOLD,
+	ENSEMBLE_BAYESIAN_WEIGHT, ENSEMBLE_ZSCORE_WEIGHT, ENSEMBLE_REGIME_WEIGHT
 )
 
 # Импортируем модули
@@ -44,11 +49,22 @@ class SignalGenerator:
 		self.use_statistical_models = use_statistical_models and STATISTICAL_MODELS_AVAILABLE
 		if self.use_statistical_models:
 			self.bayesian = BayesianDecisionLayer()
-			self.zscore = ZScoreAnalyzer(window=50, buy_threshold=-2.0, sell_threshold=2.0)
-			self.regime = MarkovRegimeSwitcher(window=50)
+			self.zscore = ZScoreAnalyzer(
+				window=ZSCORE_WINDOW,
+				buy_threshold=ZSCORE_BUY_THRESHOLD,
+				sell_threshold=ZSCORE_SELL_THRESHOLD
+			)
+			self.regime = MarkovRegimeSwitcher(
+				window=MARKOV_WINDOW,
+				vol_threshold_high=MARKOV_VOL_HIGH,
+				vol_threshold_low=MARKOV_VOL_LOW,
+				trend_threshold=MARKOV_TREND_THRESHOLD
+			)
 			self.ensemble = EnsembleDecisionMaker(
 				self.bayesian, self.zscore, self.regime,
-				bayesian_weight=0.4, zscore_weight=0.3, regime_weight=0.3
+				bayesian_weight=ENSEMBLE_BAYESIAN_WEIGHT,
+				zscore_weight=ENSEMBLE_ZSCORE_WEIGHT,
+				regime_weight=ENSEMBLE_REGIME_WEIGHT
 			)
 
 	def get_market_regime(self, df: pd.DataFrame) -> str:
@@ -227,7 +243,8 @@ class SignalGenerator:
 				ensemble_decision = self.ensemble.make_decision(
 					self.df,
 					base_result,
-					min_probability=0.55
+					min_probability=BAYESIAN_MIN_PROBABILITY,
+					min_samples=BAYESIAN_MIN_SAMPLES
 				)
 				
 				# Обновляем сигнал на основе ensemble решения
