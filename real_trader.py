@@ -323,42 +323,88 @@ class RealTrader:
 					logger.warning(f"[REAL_OPEN] ❌ {symbol}: сумма ордера ${invest_amount:.2f} < минимального лимита ${REAL_MIN_ORDER_VALUE}")
 					return None
 				
-				# Рассчитываем количество для покупки
-				quantity = invest_amount / price
+				# КРИТИЧНО: Рассчитываем количество с учетом комиссии
+				# Комиссия взимается биржей при покупке, поэтому на покупку монет идет меньше
+				commission = invest_amount * COMMISSION_RATE
+				net_invest_amount = invest_amount - commission  # Сумма на покупку монет (без комиссии)
 				
-				# Округляем количество до разумного количества знаков
-				# Для большинства криптовалют достаточно 6-8 знаков
-				rounded_quantity = round(quantity, 6)
+				# Рассчитываем количество монет БЕЗ учета комиссии (комиссия уже вычтена)
+				quantity = net_invest_amount / price
 				
-				# Пересчитываем фактическую сумму с округленным количеством
-				actual_invest_amount = rounded_quantity * price
+				# Получаем параметры пары для правильного округления
+				symbol_info = db.get_symbol_info(symbol)
+				qty_decimals = symbol_info.get("qty_decimals") if symbol_info else None
+				price_decimals = symbol_info.get("price_decimals") if symbol_info else None
 				
-				logger.info(f"[REAL_OPEN] 📊 Расчет: {invest_amount:.2f} USDT / {price:.4f} = {quantity:.8f} -> {rounded_quantity:.6f} (${actual_invest_amount:.2f})")
+				# Если параметры не найдены в БД, пытаемся получить через API
+				if qty_decimals is None or price_decimals is None:
+					logger.info(f"[REAL_OPEN] 🔧 Параметры пары {symbol} не найдены в БД, обновляем через API")
+					bybit_trader.update_symbol_info_in_db(symbol)
+					symbol_info = db.get_symbol_info(symbol)
+					qty_decimals = symbol_info.get("qty_decimals") if symbol_info else 6  # Fallback: 6 знаков
+					price_decimals = symbol_info.get("price_decimals") if symbol_info else 4  # Fallback: 4 знака
+				
+				# Округляем количество до правильного количества знаков для данной пары
+				rounded_quantity = round(quantity, qty_decimals)
+				
+				# Пересчитываем фактическую сумму покупки с округленным количеством
+				# Фактическая сумма покупки = количество * цена
+				actual_net_invest = rounded_quantity * price
+				
+				# Фактическая комиссия = от фактической суммы покупки
+				actual_commission = actual_net_invest * COMMISSION_RATE
+				
+				# Фактическая общая сумма инвестиции (покупка + комиссия)
+				actual_invest_amount = actual_net_invest + actual_commission
+				
+				logger.info(f"[REAL_OPEN] 📊 Расчет: invest_amount=${invest_amount:.2f}, commission=${commission:.4f}, net=${net_invest_amount:.2f}")
+				logger.info(f"[REAL_OPEN] 📊 Количество: {quantity:.8f} -> {rounded_quantity} монет")
+				logger.info(f"[REAL_OPEN] 📊 Фактически: net=${actual_net_invest:.2f}, commission=${actual_commission:.4f}, total=${actual_invest_amount:.2f}")
+				logger.info(f"[REAL_OPEN] 🔧 Параметры пары: qty_decimals={qty_decimals}, price_decimals={price_decimals}")
 				
 				# Размещаем ордер на бирже
+				# ЛОГИКА РАСЧЕТА:
+				# 1. invest_amount - желаемая сумма инвестиции (включая комиссию)
+				# 2. net_invest_amount = invest_amount - commission - сумма на покупку монет
+				# 3. quantity = net_invest_amount / price - количество монет
+				# 4. rounded_quantity - округленное количество монет
+				# 5. actual_net_invest = rounded_quantity * price - фактическая сумма покупки
+				# 6. actual_commission = actual_net_invest * COMMISSION_RATE - комиссия от фактической суммы
+				# 7. actual_invest_amount = actual_net_invest + actual_commission - общая сумма
+				#
+				# Для MARKET ордеров: bybit_trader делает quantity * price для получения суммы в USDT
+				# Передаем rounded_quantity, bybit_trader рассчитает сумму как rounded_quantity * price
 				if REAL_ORDER_TYPE == "MARKET":
+					# Передаем округленное количество монет
+					# bybit_trader рассчитает сумму как rounded_quantity * price
 					order_result = await bybit_trader.place_market_order(
 						symbol, "Buy", rounded_quantity, price
 					)
 				else:  # LIMIT
 					# Добавляем небольшой оффсет для быстрого исполнения
 					limit_price = price * (1 + REAL_LIMIT_ORDER_OFFSET_PERCENT)
+					# Округляем цену до правильного количества знаков
+					limit_price = round(limit_price, price_decimals)
+					# Для лимитных ордеров: если передаем usdt_amount, используется сумма в USDT
+					# Иначе используется quantity (количество монет)
 					order_result = await bybit_trader.place_limit_order(
-						symbol, "Buy", rounded_quantity, limit_price, actual_invest_amount
+						symbol, "Buy", rounded_quantity, limit_price, actual_net_invest
 					)
 				
 				order_id = order_result["order_id"]
 				logger.info(f"[REAL_OPEN] ✅ Ордер размещен: {order_id}")
 				
 				# Создаем позицию
+				# invest_amount = общая сумма (покупка + комиссия)
+				# commission = комиссия от фактической суммы покупки
 				position = Position(
 					symbol=symbol,
 					entry_price=price,
 					amount=rounded_quantity,
 					entry_time=datetime.now().isoformat(),
 					signal_strength=signal_strength,
-					invest_amount=actual_invest_amount,
-					commission=actual_invest_amount * COMMISSION_RATE,
+					invest_amount=actual_invest_amount,  # Общая сумма (покупка + комиссия)
+					commission=actual_commission,  # Фактическая комиссия
 					atr=atr,
 					rsi=rsi,
 					adx=adx,
@@ -367,8 +413,7 @@ class RealTrader:
 				)
 				
 				# Добавляем в историю
-				commission = actual_invest_amount * COMMISSION_RATE
-				self.stats["total_commission"] += commission
+				self.stats["total_commission"] += actual_commission
 				
 				trade_info = {
 					"type": "BUY",
@@ -514,11 +559,16 @@ class RealTrader:
 				else:
 					remaining_invested = total_investment
 				
-				# Для LONG: обычный расчет
-				sell_value = sell_amount * price
-				commission = sell_value * COMMISSION_RATE
-				profit = sell_value - remaining_invested + position.partial_close_profit - commission
-				profit_percent = (profit / total_investment) * 100
+				# Для LONG: расчет прибыли с учетом комиссии
+				# sell_amount - количество монет для продажи (уже округлено в bybit_trader)
+				sell_value = sell_amount * price  # Стоимость продажи
+				commission = sell_value * COMMISSION_RATE  # Комиссия на продажу
+				net_sell_value = sell_value - commission  # Чистая сумма после продажи
+				
+				# Прибыль = чистая сумма от продажи - вложенная сумма + прибыль с частичного закрытия
+				# remaining_invested уже включает комиссию на вход (так как invest_amount = покупка + комиссия)
+				profit = net_sell_value - remaining_invested + position.partial_close_profit
+				profit_percent = (profit / total_investment) * 100 if total_investment > 0 else 0
 				
 				# Обновляем статистику
 				self.stats["total_commission"] += commission
@@ -800,20 +850,46 @@ class RealTrader:
 					logger.warning(f"[REAL_AVERAGING] ⚠️ Недостаточно баланса для докупания {symbol}: ${new_invest:.2f} > ${usdt_balance:.2f}")
 					return None
 				
-				# Рассчитываем количество монет для докупания
+				# КРИТИЧНО: Рассчитываем количество с учетом комиссии (как в open_position)
 				commission = new_invest * COMMISSION_RATE
-				net_invest = new_invest - commission
+				net_invest = new_invest - commission  # Сумма на покупку монет
 				new_amount = net_invest / price
+				
+				# Получаем параметры пары для правильного округления
+				symbol_info = db.get_symbol_info(symbol)
+				qty_decimals = symbol_info.get("qty_decimals") if symbol_info else None
+				price_decimals = symbol_info.get("price_decimals") if symbol_info else None
+				
+				# Если параметры не найдены в БД, пытаемся получить через API
+				if qty_decimals is None or price_decimals is None:
+					logger.info(f"[REAL_AVERAGING] 🔧 Параметры пары {symbol} не найдены в БД, обновляем через API")
+					bybit_trader.update_symbol_info_in_db(symbol)
+					symbol_info = db.get_symbol_info(symbol)
+					qty_decimals = symbol_info.get("qty_decimals") if symbol_info else 6  # Fallback
+					price_decimals = symbol_info.get("price_decimals") if symbol_info else 4  # Fallback
+				
+				# Округляем количество до правильного количества знаков для данной пары
+				rounded_new_amount = round(new_amount, qty_decimals)
+				
+				# Пересчитываем фактическую сумму покупки с округленным количеством
+				actual_net_invest = rounded_new_amount * price
+				actual_commission = actual_net_invest * COMMISSION_RATE
+				actual_new_invest = actual_net_invest + actual_commission
+				
+				logger.info(f"[REAL_AVERAGING] 📊 Расчет: new_invest=${new_invest:.2f}, net=${net_invest:.2f}, amount={new_amount:.8f} -> {rounded_new_amount:.8f}")
+				logger.info(f"[REAL_AVERAGING] 📊 Фактически: net=${actual_net_invest:.2f}, commission=${actual_commission:.4f}, total=${actual_new_invest:.2f}")
 				
 				# Размещаем ордер на покупку
 				if REAL_ORDER_TYPE == "MARKET":
 					order_result = await bybit_trader.place_market_order(
-						symbol, "Buy", new_amount
+						symbol, "Buy", rounded_new_amount, price
 					)
 				else:  # LIMIT
 					limit_price = price * (1 + REAL_LIMIT_ORDER_OFFSET_PERCENT)
+					# Округляем цену до правильного количества знаков
+					limit_price = round(limit_price, price_decimals)
 					order_result = await bybit_trader.place_limit_order(
-						symbol, "Buy", new_amount, limit_price
+						symbol, "Buy", rounded_new_amount, limit_price, actual_net_invest
 					)
 				
 				order_id = order_result["order_id"]
@@ -824,11 +900,15 @@ class RealTrader:
 				old_amount = position.amount
 				old_avg_price = position.average_entry_price
 				
-				# Новые значения
-				position.total_invested += new_invest
-				position.amount += new_amount
+				# Новые значения с учетом фактических данных после округления
+				position.total_invested += actual_new_invest  # Используем фактическую сумму (с комиссией)
+				position.amount += rounded_new_amount  # Используем округленное количество
 				position.averaging_count += 1
-				position.average_entry_price = (old_avg_price * old_amount + price * new_amount) / position.amount
+				
+				# КРИТИЧНО: Средняя цена рассчитывается как взвешенная средняя от фактических цен покупки
+				# Формула: (старая_цена * старое_количество + новая_цена * новое_количество) / общее_количество
+				# Это правильно, так как учитывает реальные цены покупки
+				position.average_entry_price = (old_avg_price * old_amount + price * rounded_new_amount) / position.amount
 				
 				# ВАЖНО: Обновляем TP от новой средней цены
 				position.take_profit_price = position.average_entry_price * (1 + TAKE_PROFIT_PERCENT)
@@ -838,9 +918,9 @@ class RealTrader:
 				averaging_entry = {
 					"time": datetime.now().isoformat(),
 					"price": price,
-					"amount": new_amount,
-					"invest": new_invest,
-					"commission": commission,
+					"amount": rounded_new_amount,  # Округленное количество
+					"invest": actual_new_invest,  # Фактическая сумма (с комиссией)
+					"commission": actual_commission,  # Фактическая комиссия
 					"mode": mode,
 					"signal_strength": signal_strength,
 					"adx": adx,
@@ -849,7 +929,7 @@ class RealTrader:
 				position.averaging_entries.append(averaging_entry)
 				
 				# Обновляем статистику
-				self.stats["total_commission"] += commission
+				self.stats["total_commission"] += actual_commission
 				self.stats["averaging_triggers"] = self.stats.get("averaging_triggers", 0) + 1
 				
 				# Добавляем в историю

@@ -160,9 +160,11 @@ class MarketRegimeDetector:
 		if ema_s > ema_l:
 			bullish += trend_weight
 			reasons.append(f"EMA_short ({ema_s:.2f}) > EMA_long ({ema_l:.2f}) — бычий тренд [+{trend_weight}]")
-		else:
+		elif ema_s < ema_l:
 			bearish += trend_weight
 			reasons.append(f"EMA_short ({ema_s:.2f}) < EMA_long ({ema_l:.2f}) — медвежий тренд [+{trend_weight}]")
+		else:
+			reasons.append(f"EMA_short ({ema_s:.2f}) == EMA_long ({ema_l:.2f}) — нейтрально")
 		
 		# SMA: Среднесрочный тренд
 		if sma_20 > sma_50:
@@ -192,16 +194,20 @@ class MarketRegimeDetector:
 		if macd > macd_signal:
 			bullish += 2
 			reasons.append(f"MACD ({macd:.4f}) > MACD_signal ({macd_signal:.4f}) — бычье пересечение [+2]")
-		else:
+		elif macd < macd_signal:
 			bearish += 2
 			reasons.append(f"MACD ({macd:.4f}) < MACD_signal ({macd_signal:.4f}) — медвежье пересечение [+2]")
+		else:
+			reasons.append(f"MACD ({macd:.4f}) == MACD_signal ({macd_signal:.4f}) — нейтрально")
 			
 		if macd_hist > 0:
 			bullish += 1
 			reasons.append(f"MACD_hist ({macd_hist:.4f}) > 0 — положительный моментум [+1]")
-		else:
+		elif macd_hist < 0:
 			bearish += 1
 			reasons.append(f"MACD_hist ({macd_hist:.4f}) < 0 — отрицательный моментум [+1]")
+		else:
+			reasons.append(f"MACD_hist ({macd_hist:.4f}) == 0 — нейтрально")
 
 		# Бонус за подтверждение тренда линейной регрессией
 		if trend_direction == 1 and trend_strength > 0.5:

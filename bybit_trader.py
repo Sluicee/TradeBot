@@ -226,25 +226,20 @@ class BybitTrader:
 			# Получаем минимальную сумму для символа
 			min_order_value = self.get_min_order_value(symbol)
 			
-			# Валидация минимальной суммы
-			if side == "Buy" and price:
-				order_value = quantity * price
-				if order_value < min_order_value:
-					raise ValueError(f"Сумма ордера ${order_value:.2f} меньше минимума ${min_order_value:.2f} для {symbol}")
-			elif side == "Sell" and price:
-				# Для продажи проверяем стоимость позиции
-				order_value = quantity * price
-				if order_value < min_order_value:
-					raise ValueError(f"Стоимость позиции ${order_value:.2f} меньше минимума ${min_order_value:.2f} для {symbol}")
-			
-			logger.info(f"[BYBIT_DEBUG] 🚀 place_market_order вызван: symbol={symbol}, side={side}, quantity={quantity:.8f}, price={price}, min_value={min_order_value}")
-			
 			# Для spot торговли: покупка = сумма в USDT, продажа = количество монет
 			if price is not None:
 				if side == "Buy":
-					# Для покупки: сумма в USDT
+					# Для покупки: quantity интерпретируется как количество монет
+					# Рассчитываем сумму в USDT: quantity * price
 					usdt_amount = quantity * price
 					rounded_amount = round(usdt_amount, 2)
+					
+					# Валидация минимальной суммы
+					if rounded_amount < min_order_value:
+						raise ValueError(f"Сумма ордера ${rounded_amount:.2f} меньше минимума ${min_order_value:.2f} для {symbol}")
+					
+					logger.info(f"[BYBIT_DEBUG] 🚀 place_market_order: symbol={symbol}, side={side}, quantity={quantity:.8f}, price={price:.4f}")
+					logger.info(f"[BYBIT_DEBUG] 💰 Рассчитанная сумма: ${usdt_amount:.4f} -> ${rounded_amount:.2f} (min=${min_order_value:.2f})")
 					logger.info(f"Placing market order: {side} ${rounded_amount} worth of {symbol}")
 					
 					response = self.session.place_order(
@@ -256,7 +251,7 @@ class BybitTrader:
 						timeInForce="IOC"
 					)
 				else:  # Sell
-					# Для продажи: количество монет
+					# Для продажи: quantity - это количество монет
 					decimals = self._get_symbol_decimals(symbol)
 					import math
 					
@@ -273,16 +268,24 @@ class BybitTrader:
 						rounded_quantity = 10 ** (-decimals)  # Минимальное количество для данного символа
 						logger.warning(f"[BYBIT_WARNING] ⚠️ Округление дало 0, используем минимум: {rounded_quantity}")
 					
-					# Округляем до правильного количества знаков
-					rounded_quantity = round(rounded_quantity, decimals)
+					# Проверяем минимальную сумму после округления
+					order_value = rounded_quantity * price
+					if order_value < min_order_value:
+						raise ValueError(f"Стоимость позиции ${order_value:.2f} меньше минимума ${min_order_value:.2f} для {symbol}")
 					
-					# Если округленное количество больше исходного, используем floor
+					# Если округленное количество больше исходного, используем floor (чтобы не превысить баланс)
 					if rounded_quantity > quantity:
 						rounded_quantity = math.floor(quantity * (10 ** decimals)) / (10 ** decimals)
 						# Проверяем, что floor не дал 0
 						if rounded_quantity <= 0:
 							rounded_quantity = 10 ** (-decimals)  # Минимальное количество
+						# Повторно проверяем минимальную сумму
+						order_value = rounded_quantity * price
+						if order_value < min_order_value:
+							raise ValueError(f"После floor округления стоимость ${order_value:.2f} меньше минимума ${min_order_value:.2f} для {symbol}")
 					
+					logger.info(f"[BYBIT_DEBUG] 🚀 place_market_order: symbol={symbol}, side={side}, quantity={quantity:.8f} -> {rounded_quantity:.8f}")
+					logger.info(f"[BYBIT_DEBUG] 💰 Стоимость позиции: ${order_value:.2f} (min=${min_order_value:.2f})")
 					logger.info(f"Placing market order: {side} {rounded_quantity} {symbol}")
 					
 					response = self.session.place_order(
@@ -366,7 +369,16 @@ class BybitTrader:
 						# Округление вверх может превысить баланс - используем floor
 						rounded_quantity = math.floor(quantity * (10 ** decimals)) / (10 ** decimals)
 					
-					logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {price}")
+					# Получаем price_decimals для округления цены
+					symbol_info = db.get_symbol_info(symbol)
+					price_decimals = symbol_info.get("price_decimals") if symbol_info else None
+					if price_decimals is None:
+						price_decimals = decimals  # Fallback: используем decimals
+					
+					# Округляем цену до правильного количества знаков
+					rounded_price = round(price, price_decimals)
+					
+					logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {rounded_price} (price_decimals={price_decimals})")
 					
 					response = self.session.place_order(
 						category="spot",
@@ -374,14 +386,26 @@ class BybitTrader:
 						side=side,
 						orderType="Limit",
 						qty=str(rounded_quantity),  # Округленное вниз количество монет
-						price=str(price),
+						price=str(rounded_price),
 						timeInForce="GTC"
 					)
 				else:
 					# При покупке округляем до допустимого количества знаков
 					decimals = self._get_symbol_decimals(symbol)
 					rounded_quantity = round(quantity, decimals)
-					logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {price}")
+					
+					# Получаем price_decimals для округления цены
+					symbol_info = db.get_symbol_info(symbol)
+					price_decimals = symbol_info.get("price_decimals") if symbol_info else None
+					if price_decimals is None:
+						# Если не найдено в БД, используем метод из API
+						# price_decimals обычно равен decimals или можно получить через API
+						price_decimals = decimals  # Fallback: используем decimals
+					
+					# Округляем цену до правильного количества знаков
+					rounded_price = round(price, price_decimals)
+					
+					logger.info(f"Placing limit order: {side} {rounded_quantity} {symbol} @ {rounded_price} (price_decimals={price_decimals})")
 					
 					response = self.session.place_order(
 						category="spot",
@@ -389,7 +413,7 @@ class BybitTrader:
 						side=side,
 						orderType="Limit",
 						qty=str(rounded_quantity),
-						price=str(price),
+						price=str(rounded_price),
 						timeInForce="GTC"
 					)
 			
